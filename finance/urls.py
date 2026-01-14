@@ -1,8 +1,8 @@
 from django.urls import path
-from .views import WalletDetailView, BankAccountListCreateView, RequestWithdrawalView
+from .views import WalletDetailView, InitiateDepositView, VerifyDepositView
 
 urlpatterns = [
     path('wallet/', WalletDetailView.as_view(), name='wallet-detail'),
-    path('bank-accounts/', BankAccountListCreateView.as_view(), name='bank-accounts'),
-    path('withdraw/', RequestWithdrawalView.as_view(), name='withdraw-request'),
+    path('deposit/initiate/', InitiateDepositView.as_view(), name='deposit-initiate'),
+    path('deposit/verify/', VerifyDepositView.as_view(), name='deposit-verify'),
 ]
