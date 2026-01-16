@@ -1,62 +1,69 @@
 from django.urls import path
 from .views import (
-    CategoryListView, ProductListView, ProductDetailView,
-    CreateStoreView, SellerProductListCreateView,BuyerOrderListView, 
-    CreateOrderView,BuyerOrderListView, BuyerOrderDetailView,
-)
-from .views import (
-    ProductListView, 
-    ProductDetailView, 
-    StoreCreateView, 
-    SellerProductListView, 
+    CategoryListView,
+    ProductListView,
+    ProductDetailView,
+    StoreCreateView,
+    SellerProductListView,
     ProductCreateView,
-    CartAPIView,ConfirmOrderReceiptView,
-    SellerOrderListView,      # <--- Import
-    SellerDashboardStatsView, # <--- Import
-    SellerProductListView,    # <--- Import
-    ProductCreateView
+    CartAPIView,
+    CreateOrderView,
+    BuyerOrderListView,
+    BuyerOrderDetailView,
+    ConfirmOrderReceiptView,
+    SellerOrderListView,
+    SellerDashboardStatsView,
+    SellerUpdateOrderStatusView,
+    AvailableDeliveriesView,
+    RiderMyDeliveriesView,
+    AcceptDeliveryView,
+    RiderUpdateStatusView,
+    AdminDashboardStatsView,
+    StartChatView,
+    SendMessageView,
+    ConversationListView
 )
-
-
 
 urlpatterns = [
-
-    # Public Market
-    path('products/', ProductListView.as_view(), name='product-list'),
-    path('products/<int:pk>/', ProductDetailView.as_view(), name='product-detail'),
-    
-    # Seller Routes
-    path('store/create/', StoreCreateView.as_view(), name='create-store'),
-    path('seller/products/', SellerProductListView.as_view(), name='seller-products'),
-    path('seller/products/create/', ProductCreateView.as_view(), name='create-product'),
-
-    
     # Public
     path('categories/', CategoryListView.as_view(), name='category-list'),
     path('products/', ProductListView.as_view(), name='product-list'),
     path('products/<int:pk>/', ProductDetailView.as_view(), name='product-detail'),
 
-    # Seller
-    path('store/create/', CreateStoreView.as_view(), name='store-create'),
-    path('seller/products/', SellerProductListCreateView.as_view(), name='seller-products'),
-    # --- SELLER ROUTES ---
-    path('seller/stats/', SellerDashboardStatsView.as_view(), name='seller-stats'),
+    # Seller / Store
+    path('store/create/', StoreCreateView.as_view(), name='store-create'),
     path('seller/products/', SellerProductListView.as_view(), name='seller-products'),
-    path('seller/products/add/', ProductCreateView.as_view(), name='seller-add-product'),
+    path('seller/products/create/', ProductCreateView.as_view(), name='seller-product-create'),
     path('seller/orders/', SellerOrderListView.as_view(), name='seller-orders'),
     
+    # --- FIX 1: MATCH LOGS (seller/stats/) ---
+    path('seller/stats/', SellerDashboardStatsView.as_view(), name='seller-stats'),
+    
+    path('seller/orders/<int:pk>/status/', SellerUpdateOrderStatusView.as_view(), name='seller-order-status'),
 
-    # Buyer
-    path('orders/', BuyerOrderListView.as_view(), name='buyer-orders'),
-    path('buyer/orders/', BuyerOrderListView.as_view(), name='buyer-orders'), # <--- ADD THIS LINE
-    path('buyer/orders/<int:pk>/', BuyerOrderDetailView.as_view(), name='buyer-order-detail'), # <--- Add this
-    path('store/create/', StoreCreateView.as_view(), name='create-store'),
-
+    # Cart & Checkout
     path('cart/', CartAPIView.as_view(), name='cart'),
-    path('products/<int:pk>/', ProductDetailView.as_view(), name='product-detail'),
+    path('checkout/', CreateOrderView.as_view(), name='checkout'),
+    
+    # Buyer
+    path('buyer/orders/', BuyerOrderListView.as_view(), name='buyer-orders'),
+    path('buyer/orders/<int:pk>/', BuyerOrderDetailView.as_view(), name='buyer-order-detail'),
+    path('buyer/orders/<int:pk>/confirm/', ConfirmOrderReceiptView.as_view(), name='buyer-confirm-receipt'),
 
-    path('orders/<int:pk>/confirm/', ConfirmOrderReceiptView.as_view(), name='order-confirm'),
+    # Rider
+    path('rider/available/', AvailableDeliveriesView.as_view(), name='rider-available'),
+    path('rider/my-deliveries/', RiderMyDeliveriesView.as_view(), name='rider-deliveries'),
+    path('rider/orders/<int:pk>/accept/', AcceptDeliveryView.as_view(), name='rider-accept'),
+    path('rider/orders/<int:pk>/status/', RiderUpdateStatusView.as_view(), name='rider-status'),
 
-    path('cart/', CartAPIView.as_view(), name='cart-manage'),
-    path('orders/create/', CreateOrderView.as_view(), name='create-order'),
+    # Admin
+    # --- FIX 2: MATCH LOGS (admin/stats/) ---
+    path('admin/stats/', AdminDashboardStatsView.as_view(), name='admin-stats'),
+
+    path('orders/create/', CreateOrderView.as_view(), name='checkout'),
+    path('seller/orders/<int:pk>/update/', SellerUpdateOrderStatusView.as_view(), name='seller-order-status'),
+    # Chat
+    path('conversations/', ConversationListView.as_view(), name='my-conversations'),
+    path('chat/start/<int:userId>/', StartChatView.as_view(), name='start-chat'),
+    path('chat/<int:conversationId>/send/', SendMessageView.as_view(), name='send-message'),
 ]

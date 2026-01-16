@@ -27,7 +27,9 @@ class User(AbstractUser):
     email = models.EmailField(_("Email Address"), unique=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     profile_image = models.ImageField(upload_to='profile_images/', blank=True, null=True)
-
+    push_token = models.CharField(max_length=255, blank=True, null=True)
+    is_online = models.BooleanField(default=False)
+    last_seen = models.DateTimeField(null=True, blank=True)
     # Role Management (Users can have multiple roles, stored as a list)
     # We use a JSONField or simple comma-separated string if using SQLite. 
     # For robust Postgres, use ArrayField. Here is a compatible JSON approach:
@@ -75,7 +77,7 @@ class Address(models.Model):
     zip_code = models.CharField(max_length=20, blank=True)
     phone_number = models.CharField(max_length=20)
     is_default = models.BooleanField(default=False)
-    
+    last_seen = models.DateTimeField(auto_now=True)
     # For Delivery Mapping
     latitude = models.FloatField(blank=True, null=True)
     longitude = models.FloatField(blank=True, null=True)

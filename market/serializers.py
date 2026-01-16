@@ -7,11 +7,13 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'slug', 'icon']
 
 class StoreSerializer(serializers.ModelSerializer):
+    # Explicitly expose the owner's ID for the Chat System
+    owner_id = serializers.IntegerField(source='owner.id', read_only=True)
     owner_name = serializers.CharField(source='owner.full_name', read_only=True)
 
     class Meta:
         model = Store
-        fields = ['id', 'owner', 'owner_name', 'name', 'description', 'logo', 'rating', 'total_sales']
+        fields = ['id', 'owner', 'owner_id', 'owner_name', 'name', 'description', 'logo', 'rating', 'total_sales']
         read_only_fields = ['owner', 'rating', 'total_sales']
 
 class ProductImageSerializer(serializers.ModelSerializer):
@@ -20,7 +22,9 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = ['id', 'image', 'is_primary']
 
 class ProductSerializer(serializers.ModelSerializer):
-    store_name = serializers.CharField(source='store.name', read_only=True)
+    # CHANGED: Return the full Store object (so frontend can access store.owner_id)
+    store = StoreSerializer(read_only=True) 
+    
     images = ProductImageSerializer(many=True, read_only=True)
     uploaded_images = serializers.ListField(
         child=serializers.ImageField(max_length=1000000, allow_empty_file=False, use_url=False),
@@ -31,7 +35,7 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
-            'id', 'store', 'store_name', 'category', 'name', 'description', 
+            'id', 'store', 'category', 'name', 'description', 
             'price', 'currency', 'stock', 'video', 'images', 'uploaded_images',
             'average_rating', 'total_reviews', 'created_at'
         ]
@@ -39,6 +43,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         uploaded_images = validated_data.pop('uploaded_images', [])
+        # Since 'store' is read-only nested, we need to handle it in view or rely on perform_create
         product = Product.objects.create(**validated_data)
         
         # Handle Image Uploads
@@ -49,8 +54,6 @@ class ProductSerializer(serializers.ModelSerializer):
                 is_primary=(idx == 0) # First image is primary
             )
         return product
-
-# --- MISSING SERIALIZERS ADDED BELOW ---
 
 class CartItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.name', read_only=True)
@@ -79,8 +82,6 @@ class CartSerializer(serializers.ModelSerializer):
 
     def get_total_price(self, obj):
         return sum(item.product.price * item.quantity for item in obj.items.all())
-
-# --- END ADDED SECTIONS ---
 
 class OrderItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.name', read_only=True)
