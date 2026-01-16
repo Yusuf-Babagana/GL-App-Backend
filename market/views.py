@@ -1,13 +1,18 @@
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
-from django.db import transaction
+from django.db import transaction, models
 from django.db.models import Q
 from rest_framework import generics, permissions, status, filters, views
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework import serializers 
-
+from django.db.models import Sum
+from django.contrib.auth import get_user_model
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 # Local Imports
 from .models import Category, Store, Product, Order, OrderItem, Cart, CartItem
 from .serializers import (
@@ -15,6 +20,11 @@ from .serializers import (
     OrderSerializer, CartSerializer
 )
 from finance.models import Wallet, Transaction
+from .models import Conversation, Message
+import requests
+from django.db.models import Max
+from rest_framework.authentication import TokenAuthentication, BasicAuthentication
+
 
 # --- SELLER / STORE VIEWS ---
 
@@ -23,6 +33,19 @@ class StoreCreateView(generics.CreateAPIView):
     serializer_class = StoreSerializer
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+
+    # --- DEBUGGING FIX: Override POST to see errors ---
+    def post(self, request, *args, **kwargs):
+        print("Received Store Data:", request.data) # <--- Debug Print
+        serializer = self.get_serializer(data=request.data)
+        
+        if not serializer.is_valid():
+            print("Validation Errors:", serializer.errors) # <--- Debug Print
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
@@ -42,7 +65,8 @@ class SellerProductListView(generics.ListAPIView):
 
     def get_queryset(self):
         return Product.objects.filter(store__owner=self.request.user).order_by('-created_at')
-
+        
+@method_decorator(csrf_exempt, name='dispatch')
 class ProductCreateView(generics.CreateAPIView):
     """ Allows a seller to add a new product """
     serializer_class = ProductSerializer
@@ -75,15 +99,7 @@ class ProductDetailView(generics.RetrieveAPIView):
     serializer_class = ProductSerializer
     permission_classes = [permissions.AllowAny]
 
-# --- SELLER DASHBOARD (Alternative Implementation) ---
-
-class CreateStoreView(generics.CreateAPIView):
-    queryset = Store.objects.all()
-    serializer_class = StoreSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+# --- SELLER DASHBOARD ---
 
 class SellerProductListCreateView(generics.ListCreateAPIView):
     serializer_class = ProductSerializer
@@ -144,10 +160,14 @@ class CartAPIView(APIView):
         return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
+# --- 2. UPDATE THE CLASS LIKE THIS ---
+@method_decorator(csrf_exempt, name='dispatch')
 class CreateOrderView(APIView):
     """
     Handles Checkout: Checks Wallet Balance, Locks Funds, Creates Order.
     """
+    # DELETE THIS LINE: authentication_classes = [TokenAuthentication, BasicAuthentication] 
+    
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -158,7 +178,8 @@ class CreateOrderView(APIView):
             return Response({"error": "Cart is empty"}, status=status.HTTP_400_BAD_REQUEST)
         except Wallet.DoesNotExist:
             return Response({"error": "Wallet not found"}, status=status.HTTP_400_BAD_REQUEST)
-
+            
+        # ... (rest of the code stays exactly the same) ...
         if not cart.items.exists():
             return Response({"error": "Cart is empty"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -216,7 +237,6 @@ class CreateOrderView(APIView):
             "message": "Order placed successfully. Funds held in Escrow.", 
             "order_id": order.id
         }, status=status.HTTP_201_CREATED)
-
 
 class BuyerOrderListView(generics.ListAPIView):
     serializer_class = OrderSerializer
@@ -314,3 +334,303 @@ class SellerDashboardStatsView(APIView):
             })
         except Store.DoesNotExist:
             return Response({"error": "No store found"}, status=404)
+
+
+
+class SellerUpdateOrderStatusView(APIView):
+    """
+    Allows the Seller to mark an order as 'ready_for_pickup' for the Rider.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        # 1. Get the order, ensuring the logged-in user owns the store
+        order = get_object_or_404(Order, pk=pk, store__owner=request.user)
+
+        new_status = request.data.get('status') 
+
+        # --- FIX: Added 'ready_for_pickup' to the valid list ---
+        valid_statuses = ['pending', 'ready_for_pickup', 'shipped'] 
+        
+        if new_status not in valid_statuses:
+            return Response({"error": f"Invalid status update. Allowed: {valid_statuses}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Update Status
+        order.delivery_status = new_status
+        order.save()
+
+        return Response({"message": f"Order marked as {new_status}"}, status=status.HTTP_200_OK)
+
+
+class AvailableDeliveriesView(generics.ListAPIView):
+    """
+    RIDER: List orders that are 'ready_for_pickup' and have NO rider assigned yet.
+    """
+    serializer_class = OrderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # In a real app, you would filter by City/Location here.
+        return Order.objects.filter(
+            delivery_status='ready_for_pickup', 
+            rider=None
+        ).order_by('-created_at')
+
+class RiderMyDeliveriesView(generics.ListAPIView):
+    """
+    RIDER: List orders assigned to the logged-in rider.
+    """
+    serializer_class = OrderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Order.objects.filter(rider=self.request.user).order_by('-created_at')
+
+class AcceptDeliveryView(APIView):
+    """
+    RIDER: Accept a job.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        order = get_object_or_404(Order, pk=pk)
+
+        if order.rider is not None:
+            return Response({"error": "This order has already been taken."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if order.delivery_status != 'ready_for_pickup':
+            return Response({"error": "Order is not ready for pickup yet."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Assign Rider
+        order.rider = request.user
+        # We assume a fixed delivery fee for MVP (e.g. 1500)
+        order.delivery_fee = 1500.00 
+        order.save()
+
+        # Update user role to include 'rider' if not present
+        if request.user.roles is None: request.user.roles = []
+        if 'rider' not in request.user.roles:
+            request.user.roles.append('rider')
+            request.user.save()
+
+        return Response({"message": "Job accepted! Go pick it up."}, status=status.HTTP_200_OK)
+
+class RiderUpdateStatusView(APIView):
+    """
+    RIDER: Update status (Picked Up / Delivered).
+    To mark 'Delivered', the Rider must provide the Buyer's PIN.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        order = get_object_or_404(Order, pk=pk, rider=request.user)
+        new_status = request.data.get('status') # 'picked_up' or 'delivered'
+        provided_pin = request.data.get('pin')
+
+        if new_status == 'picked_up':
+            order.delivery_status = 'picked_up'
+            order.save()
+            return Response({"message": "Status updated to Picked Up"}, status=status.HTTP_200_OK)
+
+        elif new_status == 'delivered':
+            # Security Check: PIN is required
+            if not provided_pin:
+                return Response({"error": "Delivery PIN required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if provided_pin != order.delivery_code:
+                return Response({"error": "Incorrect PIN"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # PIN Correct - Mark Delivered
+            with transaction.atomic():
+                order.delivery_status = 'delivered'
+                order.payment_status = 'released' # Auto-release funds on successful delivery
+                order.save()
+                
+                # 1. Release Item Money to Seller
+                seller_share = order.total_price * Decimal('0.90')
+                seller_wallet, _ = Wallet.objects.get_or_create(user=order.store.owner)
+                seller_wallet.balance += seller_share
+                seller_wallet.save()
+
+                # 2. Release Delivery Fee to Rider
+                rider_wallet, _ = Wallet.objects.get_or_create(user=request.user)
+                rider_wallet.balance += Decimal(str(order.delivery_fee))
+                rider_wallet.save()
+                
+                # 3. Release Funds from Buyer Escrow
+                buyer_wallet = request.user.wallet # Wait, request.user is Rider. Need order.buyer
+                buyer_wallet = Wallet.objects.get(user=order.buyer)
+                buyer_wallet.escrow_balance -= order.total_price
+                buyer_wallet.save()
+
+            return Response({"message": "Delivered successfully! Funds distributed."}, status=status.HTTP_200_OK)
+
+        return Response({"error": "Invalid status"}, status=status.HTTP_400_BAD_REQUEST)
+
+class AdminDashboardStatsView(APIView):
+    """
+    SUPER ADMIN: Returns global system statistics.
+    """
+    permission_classes = [permissions.IsAdminUser] # Only for is_staff=True users
+
+    def get(self, request):
+        # 1. User Stats
+        User = get_user_model()
+        total_users = User.objects.count()
+        total_sellers = Store.objects.count()
+        
+        # 2. Financial Stats (Escrow)
+        # Calculate total money currently held in all user wallets (Liability)
+        total_wallet_balance = Wallet.objects.aggregate(Sum('balance'))['balance__sum'] or 0.00
+        total_escrow_locked = Wallet.objects.aggregate(Sum('escrow_balance'))['escrow_balance__sum'] or 0.00
+        
+        # 3. Order Stats
+        total_orders = Order.objects.count()
+        pending_orders = Order.objects.filter(delivery_status='pending').count()
+        completed_orders = Order.objects.filter(delivery_status='delivered').count()
+        
+        # 4. Total Volume (Gross Merchandise Value)
+        gmv = Order.objects.aggregate(Sum('total_price'))['total_price__sum'] or 0.00
+
+        return Response({
+            "users": {
+                "total": total_users,
+                "sellers": total_sellers
+            },
+            "finance": {
+                "wallet_liability": total_wallet_balance,
+                "escrow_locked": total_escrow_locked,
+                "gmv": gmv
+            },
+            "orders": {
+                "total": total_orders,
+                "pending": pending_orders,
+                "completed": completed_orders
+            }
+        })
+
+
+class StartChatView(APIView):
+    """
+    Get or Create a conversation between the logged-in user and a Seller (userId).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, userId):
+        other_user = get_object_or_404(get_user_model(), pk=userId)
+        
+        # --- FIX: LOOKUP STORE NAME ---
+        # 1. Check if the 'other_user' owns a store
+        store = Store.objects.filter(owner=other_user).first()
+        
+        if store:
+            partner_name = store.name  # Use Store Name (e.g. "Samsung")
+        else:
+            partner_name = other_user.full_name or "User" # Fallback
+
+        # --- FIX: CHECK IF CONVERSATION EXISTS ---
+        conversations = Conversation.objects.filter(participants=request.user).filter(participants=other_user)
+        
+        if conversations.exists():
+            conversation = conversations.first()
+        else:
+            conversation = Conversation.objects.create()
+            conversation.participants.add(request.user, other_user)
+        
+        # Return conversation details + messages
+        messages = conversation.messages.order_by('created_at').values(
+            'id', 'text', 'sender__id', 'sender__email', 'created_at'
+        )
+        
+        return Response({
+            "conversation_id": conversation.id,
+            "partner_name": partner_name, # <--- SENDING CORRECT NAME NOW
+            "messages": list(messages),
+
+        }, status=status.HTTP_200_OK)
+
+class SendMessageView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, conversationId):
+        conversation = get_object_or_404(Conversation, pk=conversationId)
+        
+        # ... (Security checks and Message creation code from before) ...
+        text = request.data.get('text')
+        message = Message.objects.create(conversation=conversation, sender=request.user, text=text)
+
+        # --- NOTIFICATION LOGIC ---
+        # 1. Find the "Other" person in the chat
+        recipient = conversation.participants.exclude(id=request.user.id).first()
+
+        # 2. If they have a token, send the alert
+        if recipient and recipient.push_token:
+            try:
+                requests.post(
+                    'https://exp.host/--/api/v2/push/send',
+                    json={
+                        'to': recipient.push_token,
+                        'title': request.user.full_name or "New Message",
+                        'body': text,
+                        'sound': 'default',
+                        'data': {'conversationId': conversation.id}, # Optional data
+                    }
+                )
+            except Exception as e:
+                print("Push Error:", e)
+
+        
+        return Response({
+            "id": message.id,
+            "text": message.text,
+            "sender_id": message.sender.id,
+            "created_at": message.created_at
+        }, status=status.HTTP_201_CREATED)
+
+
+
+class ConversationListView(generics.ListAPIView):
+    """
+    Lists all conversations for the logged-in user (Seller or Buyer).
+    Shows the name of the *other* person in the chat.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request, *args, **kwargs):
+        # 1. Get all chats where I am a participant
+        chats = Conversation.objects.filter(participants=request.user).annotate(
+            last_msg_time=Max('messages__created_at')
+        ).order_by('-last_msg_time')
+
+        data = []
+        for chat in chats:
+            # 2. Find the "Other" person
+            other_user = chat.participants.exclude(id=request.user.id).first()
+            if not other_user: continue
+
+            # 3. Determine Name (If they are a store, show Store Name. If user, show User Name)
+            # Logic: If I am a Seller, 'other_user' is a Buyer (show Name).
+            # If I am a Buyer, 'other_user' is a Seller (show Store Name).
+            
+            store = Store.objects.filter(owner=other_user).first()
+            if store:
+                name = store.name
+                image = store.logo.url if store.logo else None
+            else:
+                name = other_user.full_name or "User"
+                image = None
+            
+            # 4. Get last message preview
+            last_msg_obj = chat.messages.last()
+            preview = last_msg_obj.text if last_msg_obj else "New conversation"
+            
+            data.append({
+                "id": chat.id,
+                "other_user_id": other_user.id, # <--- CRITICAL for navigation
+                "name": name,
+                "image": image,
+                "last_message": preview,
+                "timestamp": last_msg_obj.created_at if last_msg_obj else chat.created_at
+            })
+            
+        return Response(data)

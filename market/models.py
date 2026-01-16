@@ -40,7 +40,6 @@ class Product(models.Model):
     
     # Media Support 
     video = models.FileField(upload_to='product_videos/', blank=True, null=True) 
-    # Note: Images are handled in the ProductImage model below to support multiple uploads
 
     average_rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_reviews = models.IntegerField(default=0)
@@ -61,10 +60,10 @@ class ProductImage(models.Model):
 class Order(models.Model):
     class DeliveryStatus(models.TextChoices):
         PENDING = 'pending', _('Pending')
-        READY = 'ready_for_pickup', _('Ready for Pickup')
-        PICKED_UP = 'picked_up', _('Picked Up')
-        IN_TRANSIT = 'in_transit', _('In Transit')
-        DELIVERED = 'delivered', _('Delivered')
+        READY = 'ready_for_pickup', _('Ready for Pickup') # Seller has packed it
+        PICKED_UP = 'picked_up', _('Picked Up')           # Rider has it
+        IN_TRANSIT = 'in_transit', _('In Transit')        # On the way
+        DELIVERED = 'delivered', _('Delivered')           # Done
         CANCELLED = 'cancelled', _('Cancelled')
 
     class PaymentStatus(models.TextChoices):
@@ -76,24 +75,27 @@ class Order(models.Model):
     buyer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='orders')
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='received_orders')
     
-    # Shipping Address Snapshot (We copy it so it doesn't change if user changes profile address)
+    # Shipping Address Snapshot
     shipping_address_json = models.JSONField() 
     
-    # Delivery Logic
-    delivery_partner = models.ForeignKey(
+    # --- UPDATED LOGISTICS FIELDS ---
+    rider = models.ForeignKey(
         settings.AUTH_USER_MODEL, 
         on_delete=models.SET_NULL, 
         null=True, 
         blank=True, 
         related_name='deliveries'
     )
+    delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    delivery_code = models.CharField(max_length=6, null=True, blank=True) # Secure PIN
+    # --------------------------------
+
     delivery_status = models.CharField(
         max_length=20, 
         choices=DeliveryStatus.choices, 
         default=DeliveryStatus.PENDING
     )
     
-    # Payment & Escrow Logic
     payment_status = models.CharField(
         max_length=20, 
         choices=PaymentStatus.choices, 
@@ -126,7 +128,6 @@ class Cart(models.Model):
 
     @property
     def total_price(self):
-        # Calculate sum of all items in the cart
         return sum(item.total_price for item in self.items.all())
 
 class CartItem(models.Model):
@@ -142,5 +143,24 @@ class CartItem(models.Model):
 
     @property
     def total_price(self):
-        # Calculate price for this specific item line (price * quantity)
         return self.product.price * self.quantity
+
+
+
+class Conversation(models.Model):
+    participants = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='conversations')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Conversation {self.id}"
+
+class Message(models.Model):
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sent_messages')
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Message from {self.sender.email} at {self.created_at}"
