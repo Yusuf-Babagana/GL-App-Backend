@@ -21,7 +21,10 @@ from .views import (
     AdminDashboardStatsView,
     StartChatView,
     SendMessageView,
-    ConversationListView
+    ConversationListView,
+    ProductDeleteView,
+    ProductUpdateView,
+    SellerOrderDetailView
 )
 
 urlpatterns = [
@@ -39,6 +42,7 @@ urlpatterns = [
     # --- FIX 1: MATCH LOGS (seller/stats/) ---
     path('seller/stats/', SellerDashboardStatsView.as_view(), name='seller-stats'),
     
+    path('seller/products/<int:pk>/update/', ProductUpdateView.as_view(), name='product-update'),
     path('seller/orders/<int:pk>/status/', SellerUpdateOrderStatusView.as_view(), name='seller-order-status'),
 
     # Cart & Checkout
@@ -59,6 +63,9 @@ urlpatterns = [
     # Admin
     # --- FIX 2: MATCH LOGS (admin/stats/) ---
     path('admin/stats/', AdminDashboardStatsView.as_view(), name='admin-stats'),
+
+    path('seller/orders/<int:pk>/', SellerOrderDetailView.as_view(), name='seller-order-detail'),
+    path('seller/products/<int:pk>/delete/', ProductDeleteView.as_view(), name='product-delete'),
 
     path('orders/create/', CreateOrderView.as_view(), name='checkout'),
     path('seller/orders/<int:pk>/update/', SellerUpdateOrderStatusView.as_view(), name='seller-order-status'),

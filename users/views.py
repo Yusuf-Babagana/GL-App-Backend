@@ -9,8 +9,6 @@ from django.shortcuts import get_object_or_404
 from rest_framework.parsers import MultiPartParser, FormParser
 from .serializers import KYCUploadSerializer
 
-
-
 User = get_user_model()
 
 class RegisterView(generics.CreateAPIView):
