@@ -31,9 +31,8 @@ SECRET_KEY = 'django-insecure-7-8r+f^532g%ltw08!u4ng=a+z%+^%hxqutt1a7phg!k9oe3r=
 DEBUG = True
 
 # Allow the emulator and other devices to connect
-ALLOWED_HOSTS = ["*", "10.0.2.2", "localhost", "127.0.0.1"]
-
-# Application definition
+# Add your computer's IP to this list
+ALLOWED_HOSTS = ['172.20.10.7', '192.168.1.254', 'localhost', '127.0.0.1']# Application definition
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -165,4 +164,15 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer', 'Token'), # Allow both Bearer and Token prefixes
+}
+
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
 }

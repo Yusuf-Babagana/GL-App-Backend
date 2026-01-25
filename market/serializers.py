@@ -21,39 +21,35 @@ class ProductImageSerializer(serializers.ModelSerializer):
         model = ProductImage
         fields = ['id', 'image', 'is_primary']
 
+        
 class ProductSerializer(serializers.ModelSerializer):
-    # CHANGED: Return the full Store object (so frontend can access store.owner_id)
     store = StoreSerializer(read_only=True) 
-    
     images = ProductImageSerializer(many=True, read_only=True)
-    uploaded_images = serializers.ListField(
-        child=serializers.ImageField(max_length=1000000, allow_empty_file=False, use_url=False),
-        write_only=True,
-        required=False
-    )
+    
+    # Receive URL from mobile app
+    cloudinary_url = serializers.URLField(write_only=True, required=False)
 
     class Meta:
         model = Product
         fields = [
             'id', 'store', 'category', 'name', 'description', 
-            'price', 'currency', 'stock', 'video', 'images', 'uploaded_images',
-            'average_rating', 'total_reviews', 'created_at'
+            'price', 'currency', 'stock', 'video', 'images', 
+            'cloudinary_url', 'average_rating', 'total_reviews', 'created_at'
         ]
         read_only_fields = ['store', 'average_rating', 'total_reviews']
 
     def create(self, validated_data):
-        uploaded_images = validated_data.pop('uploaded_images', [])
-        # Since 'store' is read-only nested, we need to handle it in view or rely on perform_create
+        cloudinary_url = validated_data.pop('cloudinary_url', None)
         product = Product.objects.create(**validated_data)
         
-        # Handle Image Uploads
-        for idx, image in enumerate(uploaded_images):
+        if cloudinary_url:
             ProductImage.objects.create(
                 product=product, 
-                image=image, 
-                is_primary=(idx == 0) # First image is primary
+                image=cloudinary_url, # Store full URL string
+                is_primary=True
             )
         return product
+
 
 class CartItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.name', read_only=True)
@@ -65,10 +61,10 @@ class CartItemSerializer(serializers.ModelSerializer):
         fields = ['id', 'product', 'product_name', 'product_price', 'product_image', 'quantity']
 
     def get_product_image(self, obj):
-        # Return first image if available
         first_image = obj.product.images.filter(is_primary=True).first()
         if first_image:
-            return first_image.image.url
+            # CHANGED: Return as string to avoid domain prepending
+            return str(first_image.image)
         return None
 
 class CartSerializer(serializers.ModelSerializer):

@@ -24,6 +24,11 @@ from .models import Conversation, Message
 import requests
 from django.db.models import Max
 from rest_framework.authentication import TokenAuthentication, BasicAuthentication
+from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import generics
+
 
 
 # --- SELLER / STORE VIEWS ---
@@ -65,16 +70,19 @@ class SellerProductListView(generics.ListAPIView):
 
     def get_queryset(self):
         return Product.objects.filter(store__owner=self.request.user).order_by('-created_at')
-        
+
+# Find the ProductCreateView and update the parser_classes
 @method_decorator(csrf_exempt, name='dispatch')
 class ProductCreateView(generics.CreateAPIView):
-    """ Allows a seller to add a new product """
+    """ Allows a seller to add a new product via JSON or Multipart """
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
+    # ADDED JSONParser here to fix the 415 error
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def perform_create(self, serializer):
         try:
+            # Look up the store directly from the user
             store = Store.objects.get(owner=self.request.user)
             serializer.save(store=store)
         except Store.DoesNotExist:
@@ -120,7 +128,7 @@ class SellerProductListCreateView(generics.ListCreateAPIView):
 
 class CartAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-
+    
     def get_cart(self, request):
         cart, created = Cart.objects.get_or_create(user=request.user)
         return cart
@@ -634,3 +642,45 @@ class ConversationListView(generics.ListAPIView):
             })
             
         return Response(data)
+
+
+
+# market/views.py
+
+class ProductDeleteView(generics.DestroyAPIView):
+    """
+    Allows a vendor to delete their own product.
+    """
+    serializer_class = ProductSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Isolation: Users can only see/delete products from their own store
+        return Product.objects.filter(store__owner=self.request.user)
+
+
+
+class ProductUpdateView(generics.RetrieveUpdateAPIView):
+    """
+    Allows a vendor to update their own product details or images.
+    """
+    serializer_class = ProductSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        # Isolation: Vendors can only access and update products from their own store
+        return Product.objects.filter(store__owner=self.request.user)
+
+
+class SellerOrderDetailView(generics.RetrieveUpdateAPIView):
+    serializer_class = OrderSerializer
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # We filter to ensure the vendor only sees orders 
+        # containing products from their own store.
+        return Order.objects.filter(items__product__store__owner=self.request.user).distinct()
+
+
+
