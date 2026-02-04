@@ -32,7 +32,7 @@ DEBUG = True
 
 # Allow the emulator and other devices to connect
 # Add your computer's IP to this list
-ALLOWED_HOSTS = ['172.20.10.7', '192.168.1.254', 'localhost', '127.0.0.1']# Application definition
+ALLOWED_HOSTS = ['192.168.1.20', '.ngrok-free.dev', '*', '172.20.10.7', 'localhost', '127.0.0.1']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'jobs',
     'logistics',
     'finance',
+    'chat'
 ]
 
 MIDDLEWARE = [
@@ -167,12 +168,15 @@ SIMPLE_JWT = {
 }
 
 
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
-    ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
-    ),
-}
+
+# Increase Upload Size for Video
+DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800 # 50 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800 # 50 MB
+
+
+# MONNIFY CONFIGURATION (TEST KEYS)
+MONNIFY_API_KEY = "MK_TEST_EHY73CFGYU"
+MONNIFY_SECRET_KEY = "RP5NGLN5BC0ZZRQ98V3QUQ8D22MGSE5S"
+MONNIFY_CONTRACT_CODE = "1022108728"
+MONNIFY_BASE_URL = "https://sandbox.monnify.com/api/v1"
+

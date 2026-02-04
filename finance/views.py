@@ -1,12 +1,16 @@
 import requests
 import uuid
+import hashlib
+import hmac
+from decimal import Decimal
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions, status
 from django.db import transaction
-from .models import Wallet, Transaction
+from .models import Wallet, Transaction, BankAccount
 from .serializers import WalletSerializer
+from .monnify import MonnifyClient
 
 PAYSTACK_SECRET_KEY = "sk_test_f4bc777ea48e3fe932aecea60f0ebd8db0e7cd3c" # REPLACE WITH YOUR KEY
 PAYSTACK_INITIATE_URL = "https://api.paystack.co/transaction/initialize"
@@ -15,12 +19,47 @@ PAYSTACK_VERIFY_URL = "https://api.paystack.co/transaction/verify/"
 class WalletDetailView(APIView):
     """
     Get the current user's wallet balance and history.
+    If no virtual account exists, it attempts to generate one.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         wallet, _ = Wallet.objects.get_or_create(user=request.user)
-        # Limit to last 20 transactions for performance
+        
+        if not wallet.account_number:
+            # 1. Ensure we have a reference
+            if not wallet.account_reference:
+                wallet.account_reference = str(uuid.uuid4())
+                wallet.save()
+
+            # 2. Hard Fallback for Name/Email
+            user_name = request.user.full_name or f"Globalink User {request.user.id}"
+            user_email = request.user.email # email is unique/required in your model
+
+            try:
+                client = MonnifyClient()
+                resp = client.generate_virtual_account(
+                    user_name, 
+                    user_email, 
+                    wallet.account_reference
+                )
+                
+                if resp and resp.get('requestSuccessful') is True: # Changed this line
+                    body = resp.get('responseBody')
+                    if body:
+                        # Monnify returns the details directly in responseBody for this endpoint
+                        wallet.account_number = body.get('accountNumber')
+                        wallet.bank_name = body.get('bankName')
+                        wallet.bank_code = body.get('bankCode')
+                        wallet.save()
+                        print(f">>> SUCCESS: Wallet updated with Account: {wallet.account_number}")
+                else:
+                    # This was triggering because we checked the wrong key
+                    print(f">>> FAILED: Monnify returned {resp.get('responseMessage')}")
+
+            except Exception as e:
+                print(f"!!! Monnify Error: {str(e)}")
+
         wallet.transactions_preview = wallet.transactions.all().order_by('-created_at')[:20]
         serializer = WalletSerializer(wallet)
         return Response(serializer.data)
@@ -126,3 +165,123 @@ class VerifyDepositView(APIView):
 
         except Transaction.DoesNotExist:
             return Response({"error": "Transaction not found"}, status=404)
+
+class MonnifyWebhookView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        # 1. Verify the Transaction Hash for Security
+        monnify_signature = request.headers.get('monnify-signature')
+        secret_key = settings.MONNIFY_SECRET_KEY
+
+        computed_hash = hmac.new(
+            secret_key.encode(),
+            request.body,
+            hashlib.sha512
+        ).hexdigest()
+
+        if computed_hash != monnify_signature:
+            return Response({"status": "error", "message": "Invalid Signature"}, status=401)
+
+        data = request.data
+        if data.get('eventType') == "SUCCESSFUL_TRANSACTION":
+            event_data = data.get('eventData')
+            # Extract the unique reference we generated for this wallet
+            # Monnify sends it back in the 'product' -> 'reference' field
+            wallet_ref = event_data.get('product', {}).get('reference')
+            amount_paid = Decimal(str(event_data.get('amountPaid')))
+
+            try:
+                with transaction.atomic():
+                    # Find the wallet that matches this reference
+                    wallet = Wallet.objects.select_for_update().get(account_reference=wallet_ref)
+                    
+                    # Add money to the balance
+                    wallet.balance += amount_paid
+                    wallet.save()
+
+                    # Record the transaction history
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=amount_paid,
+                        transaction_type='deposit',
+                        status='success',
+                        description=f"Bank Deposit - {event_data.get('bankName')}",
+                        reference=event_data.get('transactionReference')
+                    )
+                return Response({"status": "success"}, status=200)
+            except Wallet.DoesNotExist:
+                return Response({"status": "error", "message": "Wallet not found"}, status=404)
+
+        return Response({"status": "ignored"}, status=200)
+
+class WithdrawalView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        amount = Decimal(str(request.data.get('amount', 0)))
+        bank_account_id = request.data.get('bank_account_id')
+        
+        # 1. Validation
+        if amount < 500: # Example minimum withdrawal
+            return Response({"error": "Minimum withdrawal is ₦500"}, status=400)
+            
+        try:
+            with transaction.atomic():
+                wallet = Wallet.objects.select_for_update().get(user=request.user)
+                bank_acc = BankAccount.objects.get(id=bank_account_id, user=request.user)
+
+                if wallet.balance < amount:
+                    return Response({"error": "Insufficient balance"}, status=400)
+
+                # 2. Deduct from wallet immediately
+                wallet.balance -= amount
+                wallet.save()
+
+                # 3. Create Transaction Record (Pending)
+                ref = f"WD-{uuid.uuid4().hex[:10]}"
+                txn = Transaction.objects.create(
+                    wallet=wallet,
+                    amount=-amount,
+                    transaction_type='withdrawal',
+                    status='pending',
+                    reference=ref,
+                    description=f"Withdrawal to {bank_acc.bank_name}"
+                )
+
+                # 4. Call Monnify
+                client = MonnifyClient()
+                resp = client.initiate_withdrawal(
+                    amount, ref, bank_acc.bank_code, 
+                    bank_acc.account_number, f"Globalink Payout: {request.user.full_name}"
+                )
+
+                if resp and resp.get('requestStatus') == "HTTP_OK":
+                    return Response({"message": "Withdrawal initiated successfully"}, status=200)
+                else:
+                    # If Monnify fails, roll back the balance
+                    raise Exception("Monnify payout failed")
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+class VerifyBankAccountView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        account_number = request.data.get('account_number')
+        bank_code = request.data.get('bank_code')
+
+        if not account_number or not bank_code:
+            return Response({"error": "Account number and bank code are required"}, status=400)
+
+        client = MonnifyClient()
+        account_data = client.verify_bank_account(account_number, bank_code)
+
+        if account_data:
+            return Response({
+                "account_name": account_data.get('accountName'),
+                "status": "success"
+            })
+        
+        return Response({"error": "Could not verify account. Please check details."}, status=400)

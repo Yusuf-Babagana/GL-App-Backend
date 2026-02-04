@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 # Local Imports
-from .models import Category, Store, Product, Order, OrderItem, Cart, CartItem
+from .models import Category, Store, Product, Order, OrderItem, Cart, CartItem, ProductImage
 from .serializers import (
     CategorySerializer, StoreSerializer, ProductSerializer, 
     OrderSerializer, CartSerializer
@@ -23,12 +23,12 @@ from finance.models import Wallet, Transaction
 from .models import Conversation, Message
 import requests
 from django.db.models import Max
-from rest_framework.authentication import TokenAuthentication, BasicAuthentication
-from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from rest_framework.authentication import TokenAuthentication
+from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import generics
-
+from rest_framework.permissions import AllowAny # Professional: Let visitors see stores
 
 
 # --- SELLER / STORE VIEWS ---
@@ -80,11 +80,39 @@ class ProductCreateView(generics.CreateAPIView):
     # ADDED JSONParser here to fix the 415 error
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
+    def post(self, request, *args, **kwargs):
+        print("Received Product Data:", request.data)
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            print("Product Validation Errors:", serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         try:
-            # Look up the store directly from the user
+            # 1. Grab metadata from request
+            video_url = self.request.data.get('video_url')
+            image_links = self.request.data.get('images', [])
+            
+            # 2. Get the user's store
             store = Store.objects.get(owner=self.request.user)
-            serializer.save(store=store)
+            
+            # 3. Save the product (Automation: ensure is_ad is True)
+            if video_url:
+                product = serializer.save(store=store, video=video_url, is_ad=True)
+            else:
+                product = serializer.save(store=store, is_ad=True)
+
+            # 4. Automatic "Image Creation": Save the list of links to the database
+            if isinstance(image_links, list):
+                for i, link in enumerate(image_links):
+                    ProductImage.objects.create(
+                        product=product,
+                        image=link,
+                        is_primary=(i == 0) # Set first as primary
+                    )
         except Store.DoesNotExist:
             raise serializers.ValidationError("You must create a store first.")
 
@@ -218,13 +246,15 @@ class CreateOrderView(APIView):
             )
 
             # Create Order
+            import random # Add this import here for safety
             order = Order.objects.create(
                 buyer=request.user,
                 store=cart.items.first().product.store,
                 total_price=cart_total,
                 shipping_address_json=request.data.get('shipping_address', {}),
                 payment_status='escrow_held',
-                delivery_status='pending'
+                delivery_status='pending',
+                delivery_code=str(random.randint(1000, 9999)) # Generates a 4-digit PIN
             )
 
             # Move Items
@@ -273,34 +303,40 @@ class ConfirmOrderReceiptView(APIView):
             return Response({"error": "Funds already released."}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
-            # 1. Update Status
+            # 1. Update Order Status
             order.payment_status = 'released'
             order.delivery_status = 'delivered'
             order.save()
 
-            # 2. Unlock Funds (Remove from Buyer Escrow)
+            # 2. Unlock Funds (Debit Buyer Escrow)
             buyer_wallet = request.user.wallet
-            # Force conversion to Decimal to prevent "float" errors
-            current_escrow = Decimal(str(buyer_wallet.escrow_balance))
-            buyer_wallet.escrow_balance = current_escrow - order.total_price
+            buyer_wallet.escrow_balance -= order.total_price
             buyer_wallet.save()
+            
+            # --- CREATE TRANSACTION 1: ESCROW RELEASE ---
+            Transaction.objects.create(
+                wallet=buyer_wallet,
+                amount=order.total_price,
+                transaction_type='escrow_release', # New type we standardized
+                status='success',
+                description=f"Escrow Released: Order #{order.id}"
+            )
 
-            # 3. Pay Seller (90% Share)
-            seller_share = order.total_price * Decimal('0.90')
+            # 3. Pay Seller (Credit Balance)
+            fee = order.total_price * Decimal('0.10') # 10% Platform Fee
+            seller_earnings = order.total_price - fee
             
             seller_wallet, _ = Wallet.objects.get_or_create(user=order.store.owner)
-            
-            # FIX: Convert the seller's current balance to Decimal before adding
-            current_seller_balance = Decimal(str(seller_wallet.balance))
-            seller_wallet.balance = current_seller_balance + seller_share
+            seller_wallet.balance += seller_earnings
             seller_wallet.save()
 
+            # --- CREATE TRANSACTION 2: SELLER PAYMENT ---
             Transaction.objects.create(
                 wallet=seller_wallet,
-                amount=seller_share,
+                amount=seller_earnings,
                 transaction_type='payment',
                 status='success',
-                description=f"Earnings for Order #{order.id}"
+                description=f"Earnings: Order #{order.id}"
             )
 
         return Response({"message": "Delivery confirmed. Funds released to Seller."}, status=status.HTTP_200_OK)
@@ -345,29 +381,29 @@ class SellerDashboardStatsView(APIView):
 
 
 
+@method_decorator(csrf_exempt, name='dispatch') # Add this for extra safety
 class SellerUpdateOrderStatusView(APIView):
-    """
-    Allows the Seller to mark an order as 'ready_for_pickup' for the Rider.
-    """
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
-        # 1. Get the order, ensuring the logged-in user owns the store
+        # 1. Fetch order and ensure ownership
         order = get_object_or_404(Order, pk=pk, store__owner=request.user)
 
-        new_status = request.data.get('status') 
-
-        # --- FIX: Added 'ready_for_pickup' to the valid list ---
-        valid_statuses = ['pending', 'ready_for_pickup', 'shipped'] 
+        # 2. Extract status from request (usually 'ready_for_pickup')
+        new_status = request.data.get('status')
         
-        if new_status not in valid_statuses:
-            return Response({"error": f"Invalid status update. Allowed: {valid_statuses}"}, status=status.HTTP_400_BAD_REQUEST)
+        # 3. Validation
+        if not new_status:
+            return Response({"error": "Status is required"}, status=400)
 
-        # 2. Update Status
+        # 4. Update and Save
         order.delivery_status = new_status
         order.save()
 
-        return Response({"message": f"Order marked as {new_status}"}, status=status.HTTP_200_OK)
+        # Yusuf: If status is 'ready_for_pickup', it will now show up for the Rider
+        return Response({"message": f"Order #{pk} updated to {new_status}"})
+
 
 
 class AvailableDeliveriesView(generics.ListAPIView):
@@ -378,10 +414,11 @@ class AvailableDeliveriesView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # In a real app, you would filter by City/Location here.
+        # 1. Status must be EXACTLY 'ready_for_pickup'
+        # 2. Rider must be NULL (no one has taken it yet)
         return Order.objects.filter(
             delivery_status='ready_for_pickup', 
-            rider=None
+            rider__isnull=True
         ).order_by('-created_at')
 
 class RiderMyDeliveriesView(generics.ListAPIView):
@@ -398,82 +435,110 @@ class AcceptDeliveryView(APIView):
     """
     RIDER: Accept a job.
     """
+    # CRITICAL: These two lines bypass the CSRF check for mobile JWT tokens
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
+        # 1. Fetch the order
         order = get_object_or_404(Order, pk=pk)
 
+        # 2. Safety Checks
         if order.rider is not None:
-            return Response({"error": "This order has already been taken."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "This order has already been taken by another rider."}, status=status.HTTP_400_BAD_REQUEST)
         
         if order.delivery_status != 'ready_for_pickup':
             return Response({"error": "Order is not ready for pickup yet."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Assign Rider
-        order.rider = request.user
-        # We assume a fixed delivery fee for MVP (e.g. 1500)
-        order.delivery_fee = 1500.00 
-        order.save()
+        # 3. Assign Rider and Fee
+        with transaction.atomic():
+            order.rider = request.user
+            order.delivery_fee = Decimal('1500.00') # Fixed fee for MVP
+            order.save()
 
-        # Update user role to include 'rider' if not present
-        if request.user.roles is None: request.user.roles = []
-        if 'rider' not in request.user.roles:
-            request.user.roles.append('rider')
-            request.user.save()
+            # 4. Ensure User has Rider role
+            if not request.user.roles:
+                request.user.roles = []
+            if 'rider' not in request.user.roles:
+                request.user.roles.append('rider')
+                request.user.save()
 
-        return Response({"message": "Job accepted! Go pick it up."}, status=status.HTTP_200_OK)
+        return Response({"message": "Job accepted! Head to the store for pickup."}, status=status.HTTP_200_OK)
 
 class RiderUpdateStatusView(APIView):
-    """
-    RIDER: Update status (Picked Up / Delivered).
-    To mark 'Delivered', the Rider must provide the Buyer's PIN.
-    """
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
         order = get_object_or_404(Order, pk=pk, rider=request.user)
-        new_status = request.data.get('status') # 'picked_up' or 'delivered'
+        new_status = request.data.get('status')
         provided_pin = request.data.get('pin')
 
         if new_status == 'picked_up':
             order.delivery_status = 'picked_up'
             order.save()
-            return Response({"message": "Status updated to Picked Up"}, status=status.HTTP_200_OK)
+            return Response({"message": "Picked up successfully"})
 
         elif new_status == 'delivered':
-            # Security Check: PIN is required
             if not provided_pin:
-                return Response({"error": "Delivery PIN required"}, status=status.HTTP_400_BAD_REQUEST)
-            
-            if provided_pin != order.delivery_code:
-                return Response({"error": "Incorrect PIN"}, status=status.HTTP_400_BAD_REQUEST)
-            
-            # PIN Correct - Mark Delivered
-            with transaction.atomic():
-                order.delivery_status = 'delivered'
-                order.payment_status = 'released' # Auto-release funds on successful delivery
-                order.save()
-                
-                # 1. Release Item Money to Seller
-                seller_share = order.total_price * Decimal('0.90')
-                seller_wallet, _ = Wallet.objects.get_or_create(user=order.store.owner)
-                seller_wallet.balance += seller_share
-                seller_wallet.save()
+                return Response({"error": "PIN is missing"}, status=400)
 
-                # 2. Release Delivery Fee to Rider
-                rider_wallet, _ = Wallet.objects.get_or_create(user=request.user)
-                rider_wallet.balance += Decimal(str(order.delivery_fee))
-                rider_wallet.save()
-                
-                # 3. Release Funds from Buyer Escrow
-                buyer_wallet = request.user.wallet # Wait, request.user is Rider. Need order.buyer
-                buyer_wallet = Wallet.objects.get(user=order.buyer)
-                buyer_wallet.escrow_balance -= order.total_price
-                buyer_wallet.save()
+            if str(provided_pin).strip() != str(order.delivery_code).strip():
+                return Response({"error": "Incorrect PIN"}, status=400)
 
-            return Response({"message": "Delivered successfully! Funds distributed."}, status=status.HTTP_200_OK)
+            try:
+                with transaction.atomic():
+                    order.delivery_status = 'delivered'
+                    order.payment_status = 'released'
+                    order.save()
 
-        return Response({"error": "Invalid status"}, status=status.HTTP_400_BAD_REQUEST)
+                    # 1. Pay Seller (90%)
+                    seller_share = order.total_price * Decimal('0.90')
+                    seller_wallet, _ = Wallet.objects.get_or_create(user=order.store.owner)
+                    seller_wallet.balance += seller_share
+                    seller_wallet.save()
+                    
+                    Transaction.objects.create(
+                        wallet=seller_wallet,
+                        amount=seller_share,
+                        transaction_type=Transaction.TransactionType.PAYMENT,
+                        status=Transaction.Status.SUCCESS,
+                        description=f"Earnings: Order #{order.id}"
+                    )
+
+                    # 2. Pay Rider (₦1,500 fee)
+                    rider_wallet, _ = Wallet.objects.get_or_create(user=request.user)
+                    rider_wallet.balance += Decimal(str(order.delivery_fee))
+                    rider_wallet.save()
+
+                    # CRITICAL: Create the record for the Rider's list
+                    Transaction.objects.create(
+                        wallet=rider_wallet,
+                        amount=order.delivery_fee,
+                        transaction_type=Transaction.TransactionType.PAYMENT,
+                        status=Transaction.Status.SUCCESS,
+                        description=f"Delivery Fee: Order #{order.id}"
+                    )
+
+                    # 3. Deduct from Buyer Escrow
+                    buyer_wallet = Wallet.objects.get(user=order.buyer)
+                    buyer_wallet.escrow_balance -= order.total_price
+                    buyer_wallet.save()
+                    
+                    # Record the release for the Buyer
+                    Transaction.objects.create(
+                        wallet=buyer_wallet,
+                        amount=-order.total_price,
+                        transaction_type=Transaction.TransactionType.ESCROW_RELEASE,
+                        status=Transaction.Status.SUCCESS,
+                        description=f"Payment Released: Order #{order.id}"
+                    )
+
+                return Response({"message": "Success! Money released."})
+            except Exception as e:
+                return Response({"error": f"Transaction Error: {str(e)}"}, status=500)
+
+        return Response({"error": "Invalid status"}, status=400)
 
 class AdminDashboardStatsView(APIView):
     """
@@ -674,13 +739,37 @@ class ProductUpdateView(generics.RetrieveUpdateAPIView):
 
 class SellerOrderDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = OrderSerializer
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    # CHANGE THIS: Use JWT instead of TokenAuthentication
+    authentication_classes = [JWTAuthentication] 
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # We filter to ensure the vendor only sees orders 
-        # containing products from their own store.
-        return Order.objects.filter(items__product__store__owner=self.request.user).distinct()
+        # We ensure the vendor only sees orders from their own store
+        return Order.objects.filter(store__owner=self.request.user)
 
+
+class StoreListView(generics.ListAPIView):
+    queryset = Store.objects.all()
+    serializer_class = StoreSerializer
+    permission_classes = [AllowAny] # This allows visitors to browse the directory
+
+
+
+class StoreDetailView(generics.RetrieveAPIView):
+    queryset = Store.objects.all()
+    serializer_class = StoreSerializer
+    permission_classes = [AllowAny] # Anyone can visit a store
+
+
+
+
+class ProductVideoFeedView(generics.ListAPIView):
+    serializer_class = ProductSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        # AUTOMATION: This query finds any product with a video, 
+        # local or Cloudinary, and puts the newest ones first.
+        return Product.objects.exclude(video="").exclude(video__isnull=True).order_by('-created_at')
 
 

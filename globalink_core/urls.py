@@ -5,6 +5,9 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    
+    path('api/logistics/', include('logistics.urls')),
+    path('api/chat/', include('chat.urls')),
     path('api/users/', include('users.urls')), 
     path('api/finance/', include('finance.urls')),
     path('api/market/', include('market.urls')), # Has came, Coming soon

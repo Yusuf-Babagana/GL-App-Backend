@@ -20,13 +20,25 @@ class Wallet(models.Model):
     
     # Funds locked in ongoing orders/jobs (Escrow)
     escrow_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+
+    # --- ADD THESE MONNIFY FIELDS ---
+    account_number = models.CharField(max_length=20, null=True, blank=True)
+    bank_name = models.CharField(max_length=100, null=True, blank=True)
+    account_reference = models.CharField(
+        max_length=100, 
+        unique=True, 
+        default=uuid.uuid4
+    )
+    bank_code = models.CharField(max_length=10, null=True, blank=True)
+    # --------------------------------
     
     is_frozen = models.BooleanField(default=False) # Security freeze
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.user.full_name}'s Wallet ({self.currency})"
+        name = self.user.full_name if self.user.full_name else self.user.email
+        return f"{name}'s Wallet ({self.currency})"
 
     @property
     def total_assets(self):
