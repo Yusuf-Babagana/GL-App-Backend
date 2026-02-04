@@ -22,12 +22,18 @@ class Store(models.Model):
     name = models.CharField(max_length=255, unique=True)
     description = models.TextField()
     logo = models.ImageField(upload_to='store_logos/', blank=True, null=True)
+    
+    # ADD THIS LINE
+    is_verified = models.BooleanField(default=False) 
+    
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_sales = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.name
+
+
 
 class Product(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='products')
@@ -39,8 +45,9 @@ class Product(models.Model):
     stock = models.IntegerField(default=1)
     
     # Media Support 
+    image = models.CharField(max_length=500, blank=True, null=True) # Direct image link
     video = models.FileField(upload_to='product_videos/', blank=True, null=True) 
-
+    is_ad = models.BooleanField(default=False)
     average_rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_reviews = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -149,7 +156,7 @@ class CartItem(models.Model):
 
 
 class Conversation(models.Model):
-    participants = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='conversations')
+    participants = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='market_conversations')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
