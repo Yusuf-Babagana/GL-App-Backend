@@ -21,6 +21,32 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 AUTH_USER_MODEL = 'users.User'
 
+
+import environ
+import os
+from pathlib import Path
+
+env = environ.Env(
+    DEBUG=(bool, False)
+)
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Read the .env file
+environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
+
+SECRET_KEY = env('SECRET_KEY')
+DEBUG = env('DEBUG')
+
+ALLOWED_HOSTS = ['glappbackend.pythonanywhere.com', '127.0.0.1', 'localhost']
+
+# VTpass Config
+VTPASS_API_KEY = env('VTPASS_API_KEY')
+VTPASS_SECRET_KEY = env('VTPASS_SECRET_KEY')
+VTPASS_BASE_URL = env('VTPASS_BASE_URL')
+
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -32,7 +58,6 @@ DEBUG = True
 
 # Allow the emulator and other devices to connect
 # Add your computer's IP to this list
-ALLOWED_HOSTS = ['192.168.1.20', '.ngrok-free.dev', '*', '172.20.10.7', 'localhost', '127.0.0.1']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
