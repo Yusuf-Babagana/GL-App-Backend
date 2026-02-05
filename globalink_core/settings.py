@@ -213,3 +213,18 @@ VTPASS_PUBLIC_KEY = "PK_6534ea14ddaa482fdd87d0e9fd033ef880bf2742543"
 VTPASS_SECRET_KEY = "SK_396406b7ba5006e8b770cfbb5ec2fe25a97b3f389a2"
 VTPASS_BASE_URL = "https://sandbox.vtpass.com/api" # Use sandbox for testing today
 
+
+# settings.py
+
+STATIC_URL = '/static/'
+
+# Add this line - it tells Django where to put static files for production
+STATIC_ROOT = os.path.join(BASE_DIR, 'static') 
+
+# If you have a separate folder for your custom assets, keep this:
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'staticfiles'), # Make sure this folder exists or remove this list
+]
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
