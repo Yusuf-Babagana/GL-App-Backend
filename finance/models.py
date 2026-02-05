@@ -56,6 +56,7 @@ class Transaction(models.Model):
         REFUND = 'refund', _('Refund')
         WITHDRAWAL = 'withdrawal', _('Withdrawal to Bank')
         FEE = 'fee', _('Platform Fee')
+        BILL_PAYMENT = 'bill_payment', _('VTpass Bill Payment')
 
     class Status(models.TextChoices):
         PENDING = 'pending', _('Pending')

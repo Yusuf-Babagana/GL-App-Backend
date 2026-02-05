@@ -180,3 +180,11 @@ MONNIFY_SECRET_KEY = "RP5NGLN5BC0ZZRQ98V3QUQ8D22MGSE5S"
 MONNIFY_CONTRACT_CODE = "1022108728"
 MONNIFY_BASE_URL = "https://sandbox.monnify.com/api/v1"
 
+
+
+# globalink_core/settings.py
+VTPASS_API_KEY = "b913b36773efa776fa66ac89754ce5d9"
+VTPASS_PUBLIC_KEY = "PK_6534ea14ddaa482fdd87d0e9fd033ef880bf2742543"
+VTPASS_SECRET_KEY = "SK_396406b7ba5006e8b770cfbb5ec2fe25a97b3f389a2"
+VTPASS_BASE_URL = "https://sandbox.vtpass.com/api" # Use sandbox for testing today
+

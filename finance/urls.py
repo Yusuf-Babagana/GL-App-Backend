@@ -1,7 +1,8 @@
 from django.urls import path
 from .views import (
     WalletDetailView, InitiateDepositView, VerifyDepositView, 
-    VerifyBankAccountView, WithdrawalView, MonnifyWebhookView
+    VerifyBankAccountView, WithdrawalView, MonnifyWebhookView,
+    VTPassPurchaseView, VTPassVariationsView
 )
 
 urlpatterns = [
@@ -13,4 +14,8 @@ urlpatterns = [
     path('verify-bank/', VerifyBankAccountView.as_view(), name='verify-bank'),
     path('withdraw/', WithdrawalView.as_view(), name='withdraw'),
     path('webhook/monnify/', MonnifyWebhookView.as_view(), name='monnify-webhook'),
+    
+    # VTpass Flows
+    path('vtpass/variations/', VTPassVariationsView.as_view(), name='vtpass-variations'),
+    path('vtpass/purchase/', VTPassPurchaseView.as_view(), name='vtpass-purchase'),
 ]
