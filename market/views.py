@@ -197,75 +197,61 @@ class CartAPIView(APIView):
 
 
 # --- 2. UPDATE THE CLASS LIKE THIS ---
+# At the top with your other imports
+from finance.utils import WalletManager
+
 @method_decorator(csrf_exempt, name='dispatch')
 class CreateOrderView(APIView):
     """
-    Handles Checkout: Checks Wallet Balance, Locks Funds, Creates Order.
+    Handles Checkout: Uses WalletManager to lock funds and creates the order.
     """
-    # DELETE THIS LINE: authentication_classes = [TokenAuthentication, BasicAuthentication] 
-    
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         try:
             cart = Cart.objects.get(user=request.user)
-            wallet = Wallet.objects.get(user=request.user)
         except Cart.DoesNotExist:
             return Response({"error": "Cart is empty"}, status=status.HTTP_400_BAD_REQUEST)
-        except Wallet.DoesNotExist:
-            return Response({"error": "Wallet not found"}, status=status.HTTP_400_BAD_REQUEST)
-            
-        # ... (rest of the code stays exactly the same) ...
+
         if not cart.items.exists():
             return Response({"error": "Cart is empty"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 1. Calculate Total (Manually to avoid missing attribute errors)
+        # 1. Calculate Total
         cart_total = sum(item.product.price * item.quantity for item in cart.items.all())
 
-        # 2. Check Funds
-        if wallet.balance < cart_total:
-            return Response({
-                "error": "Insufficient Funds", 
-                "balance": wallet.balance,
-                "required": cart_total
-            }, status=status.HTTP_400_BAD_REQUEST)
+        # 2. Process Payment via our Unified Utility
+        # This handles checking balance, locking funds in escrow, and creating the transaction record
+        payment_success, message = WalletManager.process_payment(
+            user=request.user,
+            amount=cart_total,
+            transaction_type=Transaction.TransactionType.ESCROW_LOCK,
+            description=f"Marketplace Order Payment (Escrow)"
+        )
 
-        # 3. Process Order (Atomic)
+        if not payment_success:
+            return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. Create Order (Database only)
+        # Note: delivery_code is handled automatically by market/signals.py
         with transaction.atomic():
-            # Deduct & Lock
-            wallet.balance -= cart_total
-            wallet.escrow_balance += cart_total
-            wallet.save()
-
-            Transaction.objects.create(
-                wallet=wallet,
-                amount=-cart_total,
-                transaction_type='escrow_lock',
-                status='success',
-                description="Payment for Order (Locked)"
-            )
-
-            # Create Order
-            import random # Add this import here for safety
             order = Order.objects.create(
                 buyer=request.user,
                 store=cart.items.first().product.store,
                 total_price=cart_total,
                 shipping_address_json=request.data.get('shipping_address', {}),
-                payment_status='escrow_held',
-                delivery_status='pending',
-                delivery_code=str(random.randint(1000, 9999)) # Generates a 4-digit PIN
+                payment_status=Order.PaymentStatus.ESCROW_HELD,
+                delivery_status=Order.DeliveryStatus.PENDING,
             )
 
-            # Move Items
-            items_to_create = []
-            for cart_item in cart.items.all():
-                items_to_create.append(OrderItem(
+            # Move Items from Cart to Order
+            items_to_create = [
+                OrderItem(
                     order=order,
-                    product=cart_item.product,
-                    quantity=cart_item.quantity,
-                    price_at_purchase=cart_item.product.price
-                ))
+                    product=item.product,
+                    quantity=item.quantity,
+                    price_at_purchase=item.product.price
+                ) for item in cart.items.all()
+            ]
             OrderItem.objects.bulk_create(items_to_create)
 
             # Clear Cart
