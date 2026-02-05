@@ -12,7 +12,12 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v3
 
-            - name: Deploy to PythonAnywhere
+            - name: Deploy and Reload
               run: |
+                  # 1. This command tells PA to pull the latest code
+                  curl -X POST "https://www.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/files/path/home/${{ secrets.PA_USERNAME }}/GL-App-Backend/pull_script.sh" \
+                    -H "Authorization: Token ${{ secrets.PA_API_TOKEN }}"
+
+                  # 2. This command reloads the web app
                   curl -X POST "https://www.pythonanywhere.com/api/v0/user/${{ secrets.PA_USERNAME }}/webapps/${{ secrets.PA_USERNAME }}.pythonanywhere.com/reload/" \
-                  -H "Authorization: Token ${{ secrets.PA_API_TOKEN }}"
+                    -H "Authorization: Token ${{ secrets.PA_API_TOKEN }}"
