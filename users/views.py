@@ -45,24 +45,27 @@ class AddRoleView(APIView):
         return Response({"message": f"Role {role_to_add} added successfully", "roles": user.roles})
 
 class KYCSubmissionView(APIView):
-    """
-    Upload ID and Selfie. Auto-sets status to 'pending'.
-    """
     permission_classes = (permissions.IsAuthenticated,)
-    parser_classes = (MultiPartParser, FormParser) # To handle image uploads
+    parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request):
         user = request.user
+        if user.kyc_status == 'verified':
+            return Response({"message": "Already verified"}, status=200)
+
+        # Update document details
         serializer = KYCUploadSerializer(user, data=request.data, partial=True)
-        
         if serializer.is_valid():
             serializer.save()
-            # Auto-update status
-            user.kyc_status = User.KycStatus.PENDING
+            # Set status to pending for Admin review
+            user.kyc_status = 'pending'
             user.save()
-            return Response({"message": "KYC submitted for review."}, status=status.HTTP_200_OK)
+            return Response({
+                "status": "pending",
+                "message": "Documents uploaded. Waiting for admin approval."
+            }, status=200)
         
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=400)
 
 
 class AdminDashboardStatsView(APIView):
@@ -108,28 +111,7 @@ class AdminDashboardStatsView(APIView):
         })
 
 
-class SubmitKYCView(APIView):
-    """
-    USER: Upload ID and Selfie for verification.
-    """
-    permission_classes = [permissions.IsAuthenticated]
-    parser_classes = (MultiPartParser, FormParser) # Required for file uploads
 
-    def post(self, request):
-        user = request.user
-        if user.kyc_status == 'verified':
-            return Response({"error": "You are already verified."}, status=status.HTTP_400_BAD_REQUEST)
-
-        serializer = KYCUploadSerializer(user, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            
-            # Auto-update status to pending
-            user.kyc_status = 'pending'
-            user.save()
-            
-            return Response({"message": "Documents uploaded. Waiting for Admin approval."}, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class AdminKYCListView(generics.ListAPIView):
     """
