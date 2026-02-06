@@ -187,9 +187,10 @@ class MonnifyWebhookView(APIView):
                 return Response({"status": "error", "message": "No reference found"}, status=400)
 
             try:
-                # REMOVED select_for_update() for SQLite compatibility
+                # We use the existing 'transaction' import from line 12
                 with transaction.atomic():
-                    wallet = Wallet.objects.get(account_reference=account_ref)
+                    # Find wallet by the UUID reference - RESTORED select_for_update()
+                    wallet = Wallet.objects.select_for_update().get(account_reference=account_ref)
                     
                     # Prevent duplicate processing if Monnify sends the same webhook twice
                     txn_ref = event_data.get('transactionReference')
