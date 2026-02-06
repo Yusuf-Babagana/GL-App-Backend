@@ -1,4 +1,5 @@
 from django.urls import path
+from django.views.decorators.csrf import csrf_exempt
 from .views import (
     WalletDetailView, InitiateDepositView, VerifyDepositView, 
     VerifyBankAccountView, WithdrawalView, MonnifyWebhookView,
@@ -13,7 +14,7 @@ urlpatterns = [
     # Monnify Flows
     path('verify-bank/', VerifyBankAccountView.as_view(), name='verify-bank'),
     path('withdraw/', WithdrawalView.as_view(), name='withdraw'),
-    path('webhook/monnify/', MonnifyWebhookView.as_view(), name='monnify-webhook'),
+    path('webhook/monnify/', csrf_exempt(MonnifyWebhookView.as_view()), name='monnify-webhook'),
     
     # VTpass Flows
     path('vtpass/variations/', VTPassVariationsView.as_view(), name='vtpass-variations'),
