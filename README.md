@@ -1,135 +1,144 @@
 # Globalink Backend
 
-Globalink Backend is a robust API built with Django and Django REST Framework (DRF) to power the Globalink application. It provides comprehensive services for user management, e-commerce, job markets, logistics, and financial transactions.
+The robust Django REST Framework (DRF) backend powering the Globalink Super App. This system manages e-commerce, logistics, secure financial transactions, and real-time messaging.
 
-## Table of Contents
-- [Features](#features)
-- [Technologies](#technologies)
-- [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
-- [Installation](#installation)
-- [Running the Application](#running-the-application)
+## 🚀 Features
 
-## Features
+### 1. **Marketplace & E-Commerce (`market`)**
+- **Product Management**: Create, update, and delete products with image/video support.
+- **Store System**: Users can open stores and manage inventory.
+- **Order System**: Atomic Checkout with Escrow protection.
+- **Escrow**: Funds are locked upon order and released only after delivery confirmation.
 
-The backend is modularized into several key applications:
+### 2. **Finance & Wallet (`finance`)**
+- **Digital Wallet**: Every user has a wallet for transactions.
+- **Monnify Integration**:
+  - **Virtual Accounts**: Auto-generated bank accounts for easy top-ups.
+  - **Withdrawals**: Secure transfers to real bank accounts.
+- **VTPass Integration**:
+  - **Bill Payments**: Buy Data and Airtime directly from the wallet.
+- **Unified Logic**: Centralized `WalletManager` ensures race-condition-free transactions.
 
-### 1. Users (`users`)
-- **Authentication**: Secure JWT-based authentication (Login, Register, Refresh Token).
-- **User Management**: Custom user model with role-based access control.
-- **Profiles**: User profile management and KYC verification support.
+### 3. **Logistics & Delivery (`logistics`)**
+- **Rider System**: Riders can view and accept "Ready for Pickup" jobs.
+- **Secure Delivery**: 4-digit PIN verification required to mark items as delivered.
+- **Auto-Hashes**: Delivery confirmation triggers automatic fund release.
 
-### 2. Market (`market`)
-- **E-commerce**: Full-featured marketplace backend.
-- **Products**: Product listings, searching, and filtering.
-- **Stores**: Vendor store management.
-- **Categories**: Hierarchical category structure for products.
+### 4. **Real-Time Chat (`chat`)**
+- **Messaging**: Buyer-Seller communication.
+- **Polling**: Optimized message polling for real-time feel.
+- **Push Notifications**: Expo Push integration for new message alerts.
 
-### 3. Finance (`finance`)
-- **Wallet System**: Digital wallet for users.
-- **Transactions**: History of deposits, withdrawals, and payments.
-- **Payments**: Integration for processing payments (extendable).
+### 5. **User Management (`users`)**
+- **Authentication**: JWT (JSON Web Token) via `simplejwt`.
+- **Roles**: Dynamic roles (Buyer, Seller, Rider, Admin).
 
-### 4. Jobs (`jobs`)
-- **Job Board**: Posting and managing job listings.
-- **Applications**: Handling user applications for jobs.
-- **Gig Economy**: Support for freelance/gig-based work interactions.
+---
 
-### 5. Logistics (`logistics`)
-- **Delivery**: Management of shipping and delivery services.
-- **Tracking**: Order tracking capabilities.
+## 🛠️ Tech Stack
 
-## Technologies
+- **Framework**: Django 5.x, Django REST Framework
+- **Database**: SQLite (Dev) / PostgreSQL (Prod)
+- **Authentication**: JWT (SimpleJWT)
+- **Payments**: Monnify (Fiat), VTPass (Bills)
+- **Deployment**: PythonAnywhere (via GitHub Actions)
 
-- **Language**: Python 3.x
-- **Framework**: Django 5.x
-- **API**: Django REST Framework (DRF)
-- **Authentication**: `djangorestframework-simplejwt`
-- **CORS**: `django-cors-headers`
-- **Database**: SQLite (Default for development)
-- **Image Processing**: Pillow
+---
 
-## Project Structure
+## 📂 Project Structure
 
 ```text
 GL-Backend/
-├── globalink_core/     # Project configuration (settings, urls, wsgi)
-├── finance/            # Finance app (wallets, transactions)
-├── jobs/               # Jobs app (listings, applications)
-├── logistics/          # Logistics app (deliveries, tracking)
-├── market/             # Market app (products, stores, orders)
-├── users/              # Users app (auth, profiles)
-├── media/              # User-uploaded content
-│   ├── category_icons/
-│   ├── product_images/
-│   ├── store_logos/
-│   └── kyc_docs/
-├── db.sqlite3          # Development database
-├── manage.py           # Django management script
-└── requirements.txt    # Python dependencies
+├── .github/            # GitHub Actions (CI/CD)
+├── chat/               # Real-time Messaging
+├── finance/            # Wallet, Monnify, VTPass
+├── globalink_core/     # Project Settings & Config
+├── jobs/               # Job Board & Gigs
+├── logistics/          # Delivery & Tracking
+├── market/             # E-commerce, Products, Orders
+├── users/              # Authentication & Profiles
+├── media/              # Uploaded Content
+├── static/             # Static Assets
+├── .env                # Environment Variables
+├── db.sqlite3          # Dev Database
+├── manage.py           # Management Script
+└── requirements.txt    # Dependencies
 ```
 
-## Getting Started
+---
+
+## ⚡ Getting Started
 
 ### Prerequisites
+- Python 3.9+
+- pip
+- Git
 
-- Python 3.8 or higher
-- pip (Python package manager)
-- Virtualenv (recommended)
-
-### Installation
-
-1. **Clone the repository** (if applicable) or navigate to the project directory.
-
-2. **Create a virtual environment**:
-   ```bash
-   python -m venv venv
-   ```
-
-3. **Activate the virtual environment**:
-   - On Windows:
-     ```bash
-     venv\Scripts\activate
-     ```
-   - On macOS/Linux:
-     ```bash
-     source venv/bin/activate
-     ```
-
-4. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-5. **Apply migrations**:
-   ```bash
-   python manage.py migrate
-   ```
-
-6. **Create a superuser** (for Admin panel access):
-   ```bash
-   python manage.py createsuperuser
-   ```
-
-### Running the Application
-
-Start the development server:
+### 1. Clone & Install
 ```bash
+git clone https://github.com/your-repo/GL-Backend.git
+cd GL-Backend
+
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+pip install -r requirements.txt
+```
+
+### 2. Environment Variables (.env)
+Create a `.env` file in the root directory. You **MUST** add these keys:
+
+```ini
+DEBUG=True
+SECRET_KEY=your_django_secret
+
+# Database (Optional, defaults to SQLite)
+# DB_NAME=...
+# DB_USER=...
+
+# Monnify (Fintech)
+MONNIFY_API_KEY=MK_TEST_...
+MONNIFY_SECRET_KEY=...
+MONNIFY_CONTRACT_CODE=...
+MONNIFY_BASE_URL=https://sandbox.monnify.com/api/v1
+
+# VTPass (Bills)
+VTPASS_API_KEY=...
+VTPASS_SECRET_KEY=...
+VTPASS_BASE_URL=https://sandbox.vtpass.com/api
+```
+
+### 3. Run Migrations & Server
+```bash
+python manage.py migrate
+python manage.py createsuperuser
 python manage.py runserver
 ```
 
-The API will be available at `http://127.0.0.1:8000/`.
-Access the Admin interface at `http://127.0.0.1:8000/admin/`.
-
-## API Endpoints
-
-The API follows RESTful principles. Key endpoints include:
-
-- **Auth**: `/api/users/login/`, `/api/users/register/` (Check `users/urls.py`)
-- **Market**: `/api/market/products/`, `/api/market/stores/` (Check `market/urls.py`)
-- **Jobs**: `/api/jobs/` (Check `jobs/urls.py`)
-- **Finance**: `/api/finance/wallet/` (Check `finance/urls.py`)
-- **Logistics**: `/api/logistics/` (Check `logistics/urls.py`)
+Access the API at: `http://127.0.0.1:8000/`
 
 ---
-Generated for Globalink Backend.
+
+## 📡 Key API Endpoints
+
+| Module | Method | Endpoint | Description |
+| :--- | :--- | :--- | :--- |
+| **Auth** | POST | `/api/users/login/` | obtain JWT token |
+| **Market** | GET | `/api/market/products/` | List all products |
+| **Market** | POST | `/api/market/orders/create/` | Checkout (Escrow) |
+| **Finance** | GET | `/api/finance/wallet/` | Check Balance & History |
+| **Finance** | POST | `/api/finance/withdraw/` | Withdraw to Bank |
+| **Bills** | POST | `/api/logistics/purchase-data/` | Buy mobile data |
+| **Chat** | GET | `/api/chat/conversations/` | List chats |
+
+---
+
+## 🔄 Deployment
+
+This project uses **GitHub Actions** for continuous deployment to PythonAnywhere.
+- **Workflow**: `.github/workflows/deploy.yml`
+- **Mechanism**: Triggers a `git pull` on the server and reloads the web app via API.
+
+---
+
+&copy; 2024 Globalink Team
