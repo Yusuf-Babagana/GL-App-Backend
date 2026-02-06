@@ -13,6 +13,7 @@ from django.db import transaction
 from .models import Wallet, Transaction, BankAccount
 from .serializers import WalletSerializer
 from .monnify import MonnifyClient
+from users.permissions import IsVerifiedUser
 # finance/views.py
 
 from .vtpass import VTPassClient  # Add this near your other imports
@@ -212,7 +213,7 @@ class MonnifyWebhookView(APIView):
             return Response({"status": "error"}, status=404)
 
 class WithdrawalView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsVerifiedUser]
 
     def post(self, request):
         amount = Decimal(str(request.data.get('amount', 0)))
@@ -283,7 +284,7 @@ class VerifyBankAccountView(APIView):
         return Response({"error": "Could not verify account. Please check details."}, status=400)
 
 class VTPassPurchaseView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsVerifiedUser]
 
     def post(self, request):
         print(f"DEBUG: Incoming Purchase Data: {request.data}")
