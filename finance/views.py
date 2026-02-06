@@ -172,40 +172,47 @@ class VerifyDepositView(APIView):
             return Response({"error": "Transaction not found"}, status=404)
 
 class MonnifyWebhookView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.AllowAny] 
 
     def post(self, request):
-        # 1. Verify the Transaction Hash for Security (Commented out for easier testing, UNCOMMENT FOR PROD)
-        # monnify_signature = request.headers.get('monnify-signature')
-        # secret_key = settings.MONNIFY_SECRET_KEY
-        # computed_hash = hmac.new(secret_key.encode(), request.body, hashlib.sha512).hexdigest()
-        # if computed_hash != monnify_signature:
-        #     return Response({"status": "error", "message": "Invalid Signature"}, status=401)
-
         data = request.data
-        # Monnify sends 'PAID' or 'SUCCESSFUL_TRANSACTION'
-        if data.get('paymentStatus') == 'PAID' or data.get('eventType') == 'SUCCESSFUL_TRANSACTION':
-            event_data = data.get('eventData', data)
-            # Use the reference we saved in the user's wallet
-            account_ref = event_data.get('product', {}).get('reference') or event_data.get('paymentReference')
+        # 1. Monnify sends events wrapped in 'eventData'
+        event_type = data.get('eventType')
+        event_data = data.get('eventData', {})
+
+        # 2. Check for successful transaction event
+        if event_type == "SUCCESSFUL_TRANSACTION" or event_data.get('paymentStatus') == 'PAID':
+            
+            # 3. Monnify Reserved Accounts use 'product' -> 'reference'
+            # This must match the 'account_reference' (UUID) in your Wallet model
+            account_ref = event_data.get('product', {}).get('reference')
             amount_paid = event_data.get('amountPaid')
 
+            if not account_ref:
+                return Response({"status": "error", "message": "No reference found"}, status=400)
+
             try:
+                # We use the existing 'transaction' import from line 12
                 with transaction.atomic():
+                    # Find wallet by the UUID reference
                     wallet = Wallet.objects.select_for_update().get(account_reference=account_ref)
+                    
+                    # Update balance
                     wallet.balance += Decimal(str(amount_paid))
                     wallet.save()
 
+                    # Create Transaction history
                     Transaction.objects.create(
                         wallet=wallet,
                         amount=amount_paid,
                         transaction_type='deposit',
                         status='success',
-                        # Fallback for description if bankName is missing
-                        description=f"Deposit via {event_data.get('bankName', 'Monnify Bank Transfer')}",
-                        reference=event_data.get('transactionReference')
+                        reference=event_data.get('transactionReference'),
+                        description=f"Deposit: {event_data.get('bankName', 'Bank Transfer')}"
                     )
+                
                 return Response({"status": "success"}, status=200)
+
             except Wallet.DoesNotExist:
                 return Response({"status": "error", "message": "Wallet not found"}, status=404)
         
