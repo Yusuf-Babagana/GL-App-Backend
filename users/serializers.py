@@ -52,6 +52,7 @@ class KYCUploadSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = User
+        # These names MUST match the keys in the React Native formData.append()
         fields = ['id_document_type', 'id_document_image', 'selfie_image']
         
     def validate(self, data):
