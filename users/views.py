@@ -136,12 +136,13 @@ class AdminKYCActionView(APIView):
         if action == 'approve':
             user.kyc_status = 'verified'
             user.save()
-            return Response({"message": f"{user.email} is now Verified!"})
+            # Note: You can trigger a notification to the user here
+            return Response({"message": f"{user.full_name} is now VERIFIED"})
         
         elif action == 'reject':
             user.kyc_status = 'rejected'
-            # Optional: Add a rejection reason field later
+            user.rejection_reason = request.data.get('reason', 'Documents were unclear')
             user.save()
-            return Response({"message": "KYC Rejected."})
+            return Response({"message": "KYC rejected successfully"})
             
         return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
