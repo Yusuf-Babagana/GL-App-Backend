@@ -179,44 +179,35 @@ class MonnifyWebhookView(APIView):
         event_type = data.get('eventType')
         event_data = data.get('eventData', {})
 
-        # Log incoming data to PythonAnywhere Server Log for debugging
-        print(f"DEBUG: Webhook Received - Event: {event_type}, Amount: {event_data.get('amountPaid')}")
-
         if event_type == "SUCCESSFUL_TRANSACTION" or event_data.get('paymentStatus') == 'PAID':
             account_ref = event_data.get('product', {}).get('reference') or event_data.get('paymentReference')
             amount_paid = Decimal(str(event_data.get('amountPaid')))
             txn_ref = event_data.get('transactionReference')
 
             try:
-                # We use the existing 'transaction' import from line 12
+                # with MySQL, this is now 100% thread-safe
                 with transaction.atomic():
-                    # 1. Find the wallet by its UUID reference
                     wallet = Wallet.objects.select_for_update().get(account_reference=account_ref)
                     
-                    # 2. Check if this SPECIFIC transaction ID was already processed
+                    # 1. STOP if this reference already exists (prevents duplicates)
                     if Transaction.objects.filter(reference=txn_ref).exists():
-                        print(f"DEBUG: Skipping duplicate transaction {txn_ref}")
                         return Response({"status": "ignored", "message": "Already processed"}, status=200)
 
-                    # 3. Credit the balance
+                    # 2. Add the money
                     wallet.balance += amount_paid
                     wallet.save()
 
-                    # 4. Record the specific transaction
+                    # 3. Create the log
                     Transaction.objects.create(
                         wallet=wallet,
                         amount=amount_paid,
                         transaction_type='deposit',
                         status='success',
                         reference=txn_ref,
-                        description=f"Deposit: {event_data.get('bankName', 'Bank Transfer')}"
+                        description=f"Deposit via {event_data.get('bankName', 'Transfer')}"
                     )
-                
-                print(f"SUCCESS: Credited ₦{amount_paid} to {wallet.user.email}. New Bal: ₦{wallet.balance}")
                 return Response({"status": "success"}, status=200)
-
             except Wallet.DoesNotExist:
-                print(f"ERROR: No wallet found for reference {account_ref}")
                 return Response({"status": "error", "message": "Wallet not found"}, status=404)
         
         return Response({"status": "ignored"}, status=200)
