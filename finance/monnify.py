@@ -91,13 +91,15 @@ class MonnifyClient:
             return response.json().get('responseBody') # Contains 'accountName'
         return None
 
-    def get_reserved_account_details(self, customer_email):
-        """Fetch details of a reserved account by customer email"""
+    def get_reserved_account_details(self, account_reference):
+        """Fetch details of a reserved account by account reference or email"""
         token = self.get_access_token()
         if not token:
             return None
 
         headers = {"Authorization": f"Bearer {token}"}
-        url = f"{self.base_url}/bank-transfer/reserved-accounts/{customer_email}"
+        # The user's snippet uses /api/v1/... but our base_url already includes it
+        # However, to be safe, I'll use the existing pattern for now
+        url = f"{self.base_url}/bank-transfer/reserved-accounts/{account_reference}"
         response = requests.get(url, headers=headers)
         return response.json()

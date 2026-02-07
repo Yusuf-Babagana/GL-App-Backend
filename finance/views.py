@@ -23,48 +23,46 @@ PAYSTACK_INITIATE_URL = "https://api.paystack.co/transaction/initialize"
 PAYSTACK_VERIFY_URL = "https://api.paystack.co/transaction/verify/"
 
 class WalletDetailView(APIView):
-    """
-    Get the current user's wallet balance and history.
-    If no virtual account exists, it attempts to generate one.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         wallet, _ = Wallet.objects.get_or_create(user=request.user)
         
-        if not wallet.account_number:
-            # 1. Ensure we have a reference
-            if not wallet.account_reference:
-                wallet.account_reference = str(uuid.uuid4())
-                wallet.save()
-
-            # 2. Hard Fallback for Name/Email
-            user_name = request.user.full_name or f"Globalink User {request.user.id}"
-            user_email = request.user.email # email is unique/required in your model
-
+        # If we have a reference but no account number, sync it now!
+        if wallet.account_reference and not wallet.account_number:
             try:
                 client = MonnifyClient()
-                resp = client.generate_virtual_account(
-                    user_name, 
-                    user_email, 
-                    wallet.account_reference
-                )
+                resp = client.get_reserved_account_details(wallet.account_reference)
                 
-                if resp and resp.get('requestSuccessful') is True: # Changed this line
+                if resp.get('requestSuccessful'):
+                    # The response body for reserved-accounts/{reference} might be a single object
+                    # or it might contain further nested fields. The user code assumes:
+                    # body = { "accounts": [...] } or similar.
+                    # Let's use the user's logic exactly for now.
                     body = resp.get('responseBody')
-                    if body:
-                        # Monnify returns the details directly in responseBody for this endpoint
-                        wallet.account_number = body.get('accountNumber')
-                        wallet.bank_name = body.get('bankName')
-                        wallet.bank_code = body.get('bankCode')
-                        wallet.save()
-                        print(f">>> SUCCESS: Wallet updated with Account: {wallet.account_number}")
-                else:
-                    # This was triggering because we checked the wrong key
-                    print(f">>> FAILED: Monnify returned {resp.get('responseMessage')}")
-
+                    
+                    # If body is dict and has accounts, assume list.
+                    # If body is list, user logic might fail?
+                    # User code: accounts = body.get('accounts', [])
+                    # Let's trust user knows Monnify returns: { "accounts": [...] } within responseBody
+                    
+                    # Wait, if responseBody IS the account object (which is common for single fetch),
+                    # then body.get('accounts') would be None if 'accounts' key doesn't exist.
+                    # But often reserved accounts have multiple banks.
+                    
+                    accounts = body.get('accounts', []) if isinstance(body, dict) else []
+                    if not accounts and isinstance(body, dict) and 'accountNumber' in body:
+                         # Fallback: maybe body IS the account
+                         accounts = [body]
+                    
+                    if accounts:
+                        wallet.account_number = accounts[0].get('accountNumber')
+                        wallet.bank_name = accounts[0].get('bankName')
+                        wallet.bank_code = accounts[0].get('bankCode')
+                        wallet.save() # This updates your UI instantly
+                        print(f"✅ Auto-Healed Wallet: {wallet.account_number}")
             except Exception as e:
-                print(f"!!! Monnify Error: {str(e)}")
+                print(f"Sync Error: {e}")
 
         wallet.transactions_preview = wallet.transactions.all().order_by('-created_at')[:20]
         serializer = WalletSerializer(wallet)
