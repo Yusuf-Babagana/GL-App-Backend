@@ -90,4 +90,8 @@ class MessageListView(generics.ListAPIView):
         if last_id:
             queryset = queryset.filter(id__gt=last_id)
             
+        # NEW: Mark messages from the OTHER person as read when I fetch them
+        # We use exclude(sender=request.user) so we don't mark our own messages as read (thought they already are usually)
+        queryset.exclude(sender=self.request.user).update(is_read=True)
+            
         return queryset.order_by('created_at')
