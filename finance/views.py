@@ -176,12 +176,31 @@ class MonnifyWebhookView(APIView):
     permission_classes = [permissions.AllowAny] 
 
     def post(self, request):
+        # 1. SECURITY: Verify Monnify Signature
+        # Monnify sends a hash of the request body using your Client Secret
+        # This proves the request is authentic.
+        monnify_signature = request.headers.get('monnify-signature')
+        if not monnify_signature:
+            return Response({"status": "error", "message": "No signature"}, status=400)
+
+        # Compute hash (Client Secret + Request Body)
+        # Assuming MONNIFY_SECRET is in your settings.py
+        secret = settings.MONNIFY_SECRET_KEY 
+        computed_hash = hmac.new(
+            secret.encode(), 
+            request.body, 
+            digestmod=hashlib.sha512
+        ).hexdigest()
+
+        if not hmac.compare_digest(computed_hash, monnify_signature):
+            print("🚨 SECURITY ALERT: Invalid Webhook Signature!")
+            return Response({"status": "error", "message": "Invalid signature"}, status=400)
+
+        # 2. PROCEED WITH EXISTING LOGIC
         data = request.data
         event_data = data.get('eventData', {})
         
-        # Simulator often uses transactionReference
         txn_ref = event_data.get('transactionReference')
-        # Reserved accounts use product -> reference
         account_ref = event_data.get('product', {}).get('reference')
 
         if not txn_ref or not account_ref:

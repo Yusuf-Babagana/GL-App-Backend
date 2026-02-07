@@ -2,26 +2,37 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from .models import Wallet
-from .utils import MonnifyAPI
+from .monnify import MonnifyClient
+import uuid
 
 User = get_user_model()
 
 @receiver(post_save, sender=User)
-def create_user_wallet_and_virtual_account(sender, instance, created, **kwargs):
+def create_user_wallet(sender, instance, created, **kwargs):
     if created:
-        # 1. Create the Wallet object first
-        wallet, _ = Wallet.objects.get_or_create(user=instance)
+        # 1. Create the Wallet locally first
+        wallet = Wallet.objects.create(
+            user=instance,
+            account_reference=str(uuid.uuid4())
+        )
         
-        # 2. Call Monnify to get the real account number
+        # 2. Trigger Monnify Account Generation
         try:
-            account_info = MonnifyAPI.create_virtual_account(instance)
-            if account_info:
-                wallet.account_number = account_info['account_number']
-                wallet.bank_name = account_info['bank_name']
-                wallet.bank_code = account_info['bank_code']
+            client = MonnifyClient()
+            user_name = instance.full_name or f"User_{instance.id}"
+            
+            resp = client.generate_virtual_account(
+                user_name,
+                instance.email,
+                wallet.account_reference
+            )
+
+            if resp and resp.get('requestSuccessful'):
+                body = resp.get('responseBody')
+                wallet.account_number = body.get('accountNumber')
+                wallet.bank_name = body.get('bankName')
+                wallet.bank_code = body.get('bankCode')
                 wallet.save()
-                print(f"Successfully generated account for {instance.email}")
-            else:
-                print(f"Monnify returned None for {instance.email}")
+                print(f"✅ Monnify Account Assigned: {wallet.account_number}")
         except Exception as e:
-            print(f"Error calling Monnify during registration: {e}")
+            print(f"❌ Monnify Auto-Generation Error: {str(e)}")
