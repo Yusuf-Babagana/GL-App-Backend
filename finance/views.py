@@ -171,18 +171,14 @@ class VerifyDepositView(APIView):
             return Response({"error": "Transaction not found"}, status=404)
 
 class MonnifyWebhookView(APIView):
-    permission_classes = [permissions.AllowAny] 
+    permission_classes = [permissions.AllowAny] # Monnify can't log in
 
     def post(self, request):
         # 1. SECURITY: Verify Monnify Signature
-        # Monnify sends a hash of the request body using your Client Secret
-        # This proves the request is authentic.
         monnify_signature = request.headers.get('monnify-signature')
         if not monnify_signature:
             return Response({"status": "error", "message": "No signature"}, status=400)
 
-        # Compute hash (Client Secret + Request Body)
-        # Assuming MONNIFY_SECRET is in your settings.py
         secret = settings.MONNIFY_SECRET_KEY 
         computed_hash = hmac.new(
             secret.encode(), 
@@ -194,40 +190,51 @@ class MonnifyWebhookView(APIView):
             print("🚨 SECURITY ALERT: Invalid Webhook Signature!")
             return Response({"status": "error", "message": "Invalid signature"}, status=400)
 
-        # 2. PROCEED WITH EXISTING LOGIC
         data = request.data
         event_data = data.get('eventData', {})
         
+        # 1. Capture the Reference (Simulator uses transactionReference)
         txn_ref = event_data.get('transactionReference')
-        account_ref = event_data.get('product', {}).get('reference')
+        
+        # 2. Capture the Account Reference (This links the payment to the User)
+        # In Monnify Webhooks, this is usually under 'product' -> 'reference'
+        product_data = event_data.get('product', {})
+        account_ref = product_data.get('reference')
+
+        print(f"DEBUG: Webhook Received. Txn: {txn_ref}, WalletRef: {account_ref}")
 
         if not txn_ref or not account_ref:
-            return Response({"status": "error", "message": "Missing Data"}, status=400)
+            return Response({"status": "error", "message": "Incomplete data"}, status=400)
 
         try:
             with transaction.atomic():
-                # select_for_update is safe now on MySQL
+                # Locate the wallet using the reference assigned during creation
                 wallet = Wallet.objects.select_for_update().get(account_reference=account_ref)
                 
-                # Check if we already handled this specific payment
+                # Prevent double-crediting
                 if Transaction.objects.filter(reference=txn_ref).exists():
-                    return Response({"status": "ignored", "message": "Already Credited"}, status=200)
+                    return Response({"status": "ignored"}, status=200)
 
                 amount = Decimal(str(event_data.get('amountPaid', 0)))
+                
+                # Update Balance
                 wallet.balance += amount
                 wallet.save()
 
+                # Create History Record
                 Transaction.objects.create(
                     wallet=wallet,
                     amount=amount,
                     transaction_type='deposit',
                     status='success',
                     reference=txn_ref,
-                    description=f"Deposit via {event_data.get('bankName', 'Transfer')}"
+                    description=f"Deposit: {event_data.get('bankName', 'Transfer')}"
                 )
+                
             return Response({"status": "success"}, status=200)
         except Wallet.DoesNotExist:
-            return Response({"status": "error"}, status=404)
+            print(f"❌ Wallet not found for ref: {account_ref}")
+            return Response({"status": "error", "message": "Wallet not found"}, status=404)
 
 class WithdrawalView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsVerifiedUser]
@@ -306,7 +313,7 @@ class VTPassPurchaseView(APIView):
     def post(self, request):
         print(f"DEBUG: Incoming Purchase Data: {request.data}")
 
-        service_id = request.data.get('service_id')
+        service_id = request.data.get('service_id') or request.data.get('serviceID')
         variation_code = request.data.get('variation_code')
         phone = request.data.get('phone')
         amount_raw = request.data.get('amount')

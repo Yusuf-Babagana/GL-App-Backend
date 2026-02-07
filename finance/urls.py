@@ -14,7 +14,7 @@ urlpatterns = [
     # Monnify Flows
     path('verify-bank/', VerifyBankAccountView.as_view(), name='verify-bank'),
     path('withdraw/', WithdrawalView.as_view(), name='withdraw'),
-    path('webhook/monnify/', csrf_exempt(MonnifyWebhookView.as_view()), name='monnify-webhook'),
+    path('monnify/webhook/', MonnifyWebhookView.as_view(), name='monnify_webhook'),
     
     # VTpass Flows
     path('vtpass/variations/', VTPassVariationsView.as_view(), name='vtpass-variations'),
