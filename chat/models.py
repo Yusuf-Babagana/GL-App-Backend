@@ -9,7 +9,10 @@ class Conversation(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Chat between {self.participants.all()[0]} and {self.participants.all()[1]}"
+        parts = self.participants.all()
+        if parts.count() >= 2:
+            return f"Chat: {parts[0].email} & {parts[1].email}"
+        return f"Conversation {self.id} (Incomplete)"
 
 class Message(models.Model):
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
