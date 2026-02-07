@@ -42,6 +42,11 @@ class ProductSerializer(serializers.ModelSerializer):
     chat_partner_id = serializers.ReadOnlyField(source='store.owner.id')
     chat_partner_name = serializers.ReadOnlyField(source='store.owner.full_name')
     chat_partner_image = serializers.ImageField(source='store.owner.profile_image', read_only=True)
+    
+    # NEW FIELDS for Chat Integration
+    seller_id = serializers.ReadOnlyField(source='store.owner.id')
+    store_name = serializers.ReadOnlyField(source='store.name')
+
     # Receive URL from mobile app
     cloudinary_url = serializers.URLField(write_only=True, required=False)
     # Allow 'video' to be a string or blank so the 'not a file' error stops
@@ -79,7 +84,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'id', 'name', 'price', 'store', 'image', 'images', 
             'video', 'video_url', 'is_ad', 'stock', 'description', 'category',
             'currency', 'cloudinary_url', 'chat_partner_id', 'chat_partner_name', 
-            'chat_partner_image', 'created_at'
+            'chat_partner_image', 'created_at', 'seller_id', 'store_name'
         ]
         read_only_fields = ['store', 'average_rating', 'total_reviews']
 
