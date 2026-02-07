@@ -90,3 +90,14 @@ class MonnifyClient:
         if response.status_code == 200:
             return response.json().get('responseBody') # Contains 'accountName'
         return None
+
+    def get_reserved_account_details(self, customer_email):
+        """Fetch details of a reserved account by customer email"""
+        token = self.get_access_token()
+        if not token:
+            return None
+
+        headers = {"Authorization": f"Bearer {token}"}
+        url = f"{self.base_url}/bank-transfer/reserved-accounts/{customer_email}"
+        response = requests.get(url, headers=headers)
+        return response.json()

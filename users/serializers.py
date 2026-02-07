@@ -61,6 +61,18 @@ class KYCUploadSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Both ID and Selfie are required.")
         return data
 
+class AdminKYCSerializer(serializers.ModelSerializer):
+    """
+    Detailed serializer for the Admin Dashboard to review documents.
+    """
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'full_name', 'phone_number', 
+            'kyc_status', 'id_document_type', 
+            'id_document_image', 'selfie_image', 'date_joined'
+        ]
+
 class AddressSerializer(serializers.ModelSerializer):
     class Meta:
         model = Address

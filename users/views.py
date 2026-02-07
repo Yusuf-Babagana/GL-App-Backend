@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth import get_user_model
-from .serializers import UserSerializer, RegistrationSerializer, KYCUploadSerializer
+from .serializers import UserSerializer, RegistrationSerializer, KYCUploadSerializer, AdminKYCSerializer
 from django.shortcuts import get_object_or_404
 
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -118,31 +118,33 @@ class AdminKYCListView(generics.ListAPIView):
     ADMIN: List all users waiting for verification.
     """
     permission_classes = [permissions.IsAdminUser]
-    serializer_class = UserSerializer
+    serializer_class = AdminKYCSerializer
 
     def get_queryset(self):
         return User.objects.filter(kyc_status='pending')
 
 class AdminKYCActionView(APIView):
     """
-    ADMIN: Approve or Reject a user's KYC.
+    Next.js will call this: POST /api/users/admin/kyc/<id>/action/
+    Body: {"action": "approve"} or {"action": "reject", "reason": "ID is blurry"}
     """
     permission_classes = [permissions.IsAdminUser]
 
     def post(self, request, pk):
-        user = get_object_or_404(User, pk=pk)
-        action = request.data.get('action') # 'approve' or 'reject'
+        user_to_verify = get_object_or_404(User, pk=pk)
+        action = request.data.get('action')
+        reason = request.data.get('reason', '')
 
         if action == 'approve':
-            user.kyc_status = 'verified'
-            user.save()
-            # Note: You can trigger a notification to the user here
-            return Response({"message": f"{user.full_name} is now VERIFIED"})
-        
+            user_to_verify.kyc_status = User.KycStatus.VERIFIED
+            user_to_verify.rejection_reason = None # Clear any old errors
+            user_to_verify.save()
+            return Response({"message": f"User {user_to_verify.email} verified successfully."})
+
         elif action == 'reject':
-            user.kyc_status = 'rejected'
-            user.rejection_reason = request.data.get('reason', 'Documents were unclear')
-            user.save()
-            return Response({"message": "KYC rejected successfully"})
-            
-        return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
+            user_to_verify.kyc_status = User.KycStatus.REJECTED
+            user_to_verify.rejection_reason = reason
+            user_to_verify.save()
+            return Response({"message": "KYC rejected. User notified of the reason."})
+
+        return Response({"error": "Invalid action. Use 'approve' or 'reject'."}, status=status.HTTP_400_BAD_REQUEST)
