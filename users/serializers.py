@@ -17,32 +17,24 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'roles', 'kyc_status']
 
 class RegistrationSerializer(serializers.ModelSerializer):
-    """
-    Handles sign-up logic with Role Selection.
-    """
     password = serializers.CharField(write_only=True)
-    role = serializers.ChoiceField(choices=User.Roles.choices, write_only=True) 
 
     class Meta:
         model = User
-        # Both 'password' and 'role' must be listed here
-        fields = ['email', 'full_name', 'password', 'phone_number', 'role']
+        fields = ['email', 'full_name', 'password', 'phone_number']
 
     def create(self, validated_data):
-        # Extract role (default to buyer if missing)
-        role = validated_data.pop('role', 'buyer')
-        
         user = User.objects.create_user(
             email=validated_data['email'],
-            username=validated_data['email'], # Use email as username
+            username=validated_data['email'],
             full_name=validated_data['full_name'],
             phone_number=validated_data.get('phone_number'),
             password=validated_data['password']
         )
         
-        # Assign the selected role
-        user.roles = [role]
-        user.active_role = role
+        # Yusuf, we default them to buyer here
+        user.roles = ['buyer'] 
+        user.active_role = 'buyer'
         user.save()
         return user
 

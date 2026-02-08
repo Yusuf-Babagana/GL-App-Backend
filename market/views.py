@@ -759,3 +759,30 @@ class ProductVideoFeedView(generics.ListAPIView):
         return Product.objects.exclude(video="").exclude(video__isnull=True).order_by('-created_at')
 
 
+
+class ActivateSellerAccountView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        
+        # Ensure user has a roles list
+        if not user.roles:
+            user.roles = []
+            
+        if 'seller' not in user.roles:
+            user.roles.append('seller')
+            user.active_role = 'seller'
+            user.save()
+            
+        # Create a default store for them if one doesn't exist
+        store, created = Store.objects.get_or_create(
+            owner=user, 
+            defaults={'name': f"{user.full_name}'s Store"}
+        )
+        
+        return Response({
+            "message": "Seller account activated",
+            "active_role": user.active_role,
+            "store_id": store.id
+        })
