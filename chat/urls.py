@@ -5,6 +5,7 @@ from .views import (
     MessageListView, 
     SendMessageView
 )
+from market.views import ActivateSellerAccountView
 
 urlpatterns = [
     # 1. Start or find a chat (POST /api/chat/start/)
@@ -18,4 +19,7 @@ urlpatterns = [
     
     # 4. Send a message (POST /api/chat/conversations/<id>/send/)
     path('conversations/<int:conversation_id>/send/', SendMessageView.as_view(), name='send-message'),
+
+    # 5. Seller Activation (Moved here for convenience)
+    path('activate-seller/', ActivateSellerAccountView.as_view(), name='activate-seller'),
 ]
