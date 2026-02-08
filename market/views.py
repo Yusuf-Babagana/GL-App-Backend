@@ -766,23 +766,30 @@ class ActivateSellerAccountView(APIView):
     def post(self, request):
         user = request.user
         
-        # Ensure user has a roles list
+        # 1. Update Roles Silently
         if not user.roles:
             user.roles = []
             
         if 'seller' not in user.roles:
             user.roles.append('seller')
+            # Important: Switch their active role to seller immediately
             user.active_role = 'seller'
             user.save()
             
-        # Create a default store for them if one doesn't exist
+        # 2. Create the Store with a default name
+        # Using get_or_create prevents errors if they click twice
         store, created = Store.objects.get_or_create(
             owner=user, 
-            defaults={'name': f"{user.full_name}'s Store"}
+            defaults={
+                'name': f"{user.full_name or 'My'}'s Store",
+                'description': "Welcome to my store! Updates coming soon."
+            }
         )
         
+        # 3. Return the store info so the frontend can update its state
         return Response({
-            "message": "Seller account activated",
+            "message": "Store created successfully",
             "active_role": user.active_role,
-            "store_id": store.id
+            "store_id": store.id,
+            "store_name": store.name
         })
