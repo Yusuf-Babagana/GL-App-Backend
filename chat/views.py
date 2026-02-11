@@ -10,7 +10,8 @@ User = get_user_model()
 
 
 
-from django.db.models import Max
+from django.db.models import Max, Q
+from django.db.models.functions import Coalesce
 from .serializers import ConversationSerializer, MessageSerializer
 
 class InboxListView(generics.ListAPIView):
@@ -18,13 +19,12 @@ class InboxListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Return conversations where the user is a participant, 
-        # ordered by the most recent message
+        # We use Coalesce so if there are no messages, it sorts by conversation creation time
         return Conversation.objects.filter(
             participants=self.request.user
         ).annotate(
-            last_message_time=Max('messages__created_at')
-        ).order_by('-last_message_time')
+            last_msg_date=Coalesce(Max('messages__created_at'), 'created_at')
+        ).order_by('-last_msg_date')
 
 
 class StartOrGetConversationView(APIView):
@@ -42,7 +42,7 @@ class StartOrGetConversationView(APIView):
 
         if not conversation:
             conversation = Conversation.objects.create(product_context_id=product_id)
-            conversation.participants.add(request.user, other_user)
+            conversation.participants.add(request.user, other_user) # Adds BOTH people
 
         # Logic to determine display name
         if hasattr(other_user, 'store'):
