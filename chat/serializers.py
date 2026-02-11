@@ -43,7 +43,7 @@ class ConversationSerializer(serializers.ModelSerializer):
 
     def get_last_message(self, obj):
         last = obj.messages.order_by('-created_at').first()
-        return last.text if last else "No messages yet"
+        return last.text if last else "New Conversation"
 
     def get_unread_count(self, obj):
         user = self.context['request'].user
