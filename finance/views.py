@@ -12,58 +12,17 @@ from rest_framework import permissions, status
 from django.db import transaction
 from .models import Wallet, Transaction, BankAccount
 from .serializers import WalletSerializer
-from .monnify import MonnifyClient
+from .services import PaystackService # Our new service
 from users.permissions import IsVerifiedUser
 # finance/views.py
 
 from .vtpass import VTPassClient  # Add this near your other imports
-
-PAYSTACK_SECRET_KEY = "sk_test_f4bc777ea48e3fe932aecea60f0ebd8db0e7cd3c" # REPLACE WITH YOUR KEY
-PAYSTACK_INITIATE_URL = "https://api.paystack.co/transaction/initialize"
-PAYSTACK_VERIFY_URL = "https://api.paystack.co/transaction/verify/"
 
 class WalletDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         wallet, _ = Wallet.objects.get_or_create(user=request.user)
-        
-        # If we have a reference but no account number, sync it now!
-        if wallet.account_reference and not wallet.account_number:
-            try:
-                client = MonnifyClient()
-                resp = client.get_reserved_account_details(wallet.account_reference)
-                
-                if resp.get('requestSuccessful'):
-                    # The response body for reserved-accounts/{reference} might be a single object
-                    # or it might contain further nested fields. The user code assumes:
-                    # body = { "accounts": [...] } or similar.
-                    # Let's use the user's logic exactly for now.
-                    body = resp.get('responseBody')
-                    
-                    # If body is dict and has accounts, assume list.
-                    # If body is list, user logic might fail?
-                    # User code: accounts = body.get('accounts', [])
-                    # Let's trust user knows Monnify returns: { "accounts": [...] } within responseBody
-                    
-                    # Wait, if responseBody IS the account object (which is common for single fetch),
-                    # then body.get('accounts') would be None if 'accounts' key doesn't exist.
-                    # But often reserved accounts have multiple banks.
-                    
-                    accounts = body.get('accounts', []) if isinstance(body, dict) else []
-                    if not accounts and isinstance(body, dict) and 'accountNumber' in body:
-                         # Fallback: maybe body IS the account
-                         accounts = [body]
-                    
-                    if accounts:
-                        wallet.account_number = accounts[0].get('accountNumber')
-                        wallet.bank_name = accounts[0].get('bankName')
-                        wallet.bank_code = accounts[0].get('bankCode')
-                        wallet.save() # This updates your UI instantly
-                        print(f"✅ Auto-Healed Wallet: {wallet.account_number}")
-            except Exception as e:
-                print(f"Sync Error: {e}")
-
         wallet.transactions_preview = wallet.transactions.all().order_by('-created_at')[:20]
         serializer = WalletSerializer(wallet)
         return Response(serializer.data)
@@ -71,241 +30,98 @@ class WalletDetailView(APIView):
 class InitiateDepositView(APIView):
     """
     Step 1: User requests to deposit money.
-    Returns: A Paystack authorization URL for the user to click.
+    Uses PaystackService to get authorization URL.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         amount = request.data.get('amount')
-        email = request.user.email
+        if not amount or Decimal(str(amount)) <= 0:
+            return Response({"error": "Valid amount is required"}, status=400)
 
-        if not amount:
-            return Response({"error": "Amount is required"}, status=400)
-
-        # Paystack expects amount in Kobo (multiply NGN by 100)
-        amount_kobo = int(float(amount) * 100)
-        reference = str(uuid.uuid4())
-
-        headers = {
-            "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
-            "Content-Type": "application/json",
-        }
+        reference = f"DEP-{uuid.uuid4().hex[:12].upper()}"
         
-        data = {
-            "email": email,
-            "amount": amount_kobo,
-            "reference": reference,
-            "callback_url": "https://standard.paystack.co/close"
-        }
-
         try:
-            # 1. Create a Pending Transaction in our DB
-            wallet = request.user.wallet
+            # 1. Create a Pending Transaction Ledger Entry
             Transaction.objects.create(
-                wallet=wallet,
-                amount=amount,
+                wallet=request.user.wallet,
+                amount=Decimal(str(amount)),
                 transaction_type='deposit',
                 status='pending',
                 reference=reference,
-                description="Wallet Top-up"
+                description="Wallet Top-up via Paystack"
             )
 
-            # 2. Call Paystack
-            response = requests.post(PAYSTACK_INITIATE_URL, json=data, headers=headers)
-            res_data = response.json()
+            # 2. Call Service to get Paystack URL
+            auth_data = PaystackService.initiate_deposit(
+                wallet=request.user.wallet,
+                email=request.user.email,
+                amount=amount,
+                reference=reference
+            )
 
-            if response.status_code == 200 and res_data['status']:
-                return Response({
-                    "authorization_url": res_data['data']['authorization_url'],
-                    "access_code": res_data['data']['access_code'],
-                    "reference": reference
-                })
-            return Response({"error": "Paystack initialization failed"}, status=400)
-
+            return Response(auth_data, status=status.HTTP_200_OK)
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response({"error": str(e)}, status=400)
 
 class VerifyDepositView(APIView):
     """
-    Step 2: Verify the payment after the user returns.
-    If success, update wallet balance.
+    Step 2: Client-side verification (After redirection).
+    Provides immediate feedback to the UI.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         reference = request.data.get('reference')
-
         if not reference:
-            return Response({"error": "Reference required"}, status=400)
+            return Response({"error": "Reference is required"}, status=400)
 
-        try:
-            txn = Transaction.objects.get(reference=reference)
-            
-            if txn.status == 'success':
-                return Response({"message": "Transaction already verified"}, status=200)
+        # Call service to verify and credit
+        # Note: We still rely on webhooks for the final truth
+        data = PaystackService.verify_payment(reference)
+        
+        if data and data.get('status') == 'success':
+            wallet, created = PaystackService.credit_wallet(
+                reference=reference, 
+                amount_kobo=data.get('amount')
+            )
+            return Response({
+                "message": "Deposit verified", 
+                "balance": wallet.balance
+            }, status=status.HTTP_200_OK)
+        
+        return Response({"error": "Payment not successful"}, status=400)
 
-            # Verify with Paystack
-            headers = {"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"}
-            response = requests.get(f"{PAYSTACK_VERIFY_URL}{reference}", headers=headers)
-            res_data = response.json()
-
-            if response.status_code == 200 and res_data['data']['status'] == 'success':
-                # ATOMIC UPDATE
-                with transaction.atomic():
-                    # 1. Update Transaction
-                    txn.status = 'success'
-                    txn.save()
-
-                    # 2. Credit Wallet
-                    txn.wallet.balance += txn.amount
-                    txn.wallet.save()
-
-                return Response({"message": "Deposit successful!", "new_balance": txn.wallet.balance})
-            
-            else:
-                txn.status = 'failed'
-                txn.save()
-                return Response({"error": "Payment verification failed"}, status=400)
-
-        except Transaction.DoesNotExist:
-            return Response({"error": "Transaction not found"}, status=404)
-
-class MonnifyWebhookView(APIView):
-    permission_classes = [permissions.AllowAny] # Monnify can't log in
+class PaystackWebhookView(APIView):
+    """
+    The Source of Truth. Paystack calls this directly.
+    """
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        # 1. SECURITY: Verify Monnify Signature
-        monnify_signature = request.headers.get('monnify-signature')
-        if not monnify_signature:
-            return Response({"status": "error", "message": "No signature"}, status=400)
+        signature = request.headers.get('x-paystack-signature')
+        payload = request.body
 
-        secret = settings.MONNIFY_SECRET_KEY 
-        computed_hash = hmac.new(
-            secret.encode(), 
-            request.body, 
-            digestmod=hashlib.sha512
-        ).hexdigest()
-
-        if not hmac.compare_digest(computed_hash, monnify_signature):
-            print("🚨 SECURITY ALERT: Invalid Webhook Signature!")
-            return Response({"status": "error", "message": "Invalid signature"}, status=400)
+        # 1. Security Check
+        if not PaystackService.verify_webhook(payload, signature):
+            return Response({"error": "Invalid signature"}, status=400)
 
         data = request.data
-        event_data = data.get('eventData', {})
-        
-        # 1. Capture the Reference (Simulator uses transactionReference)
-        txn_ref = event_data.get('transactionReference')
-        
-        # 2. Capture the Account Reference (This links the payment to the User)
-        # In Monnify Webhooks, this is usually under 'product' -> 'reference'
-        product_data = event_data.get('product', {})
-        account_ref = product_data.get('reference')
+        event = data.get('event')
 
-        print(f"DEBUG: Webhook Received. Txn: {txn_ref}, WalletRef: {account_ref}")
-
-        if not txn_ref or not account_ref:
-            return Response({"status": "error", "message": "Incomplete data"}, status=400)
-
-        try:
-            with transaction.atomic():
-                # Locate the wallet using the reference assigned during creation
-                wallet = Wallet.objects.select_for_update().get(account_reference=account_ref)
-                
-                # Prevent double-crediting
-                if Transaction.objects.filter(reference=txn_ref).exists():
-                    return Response({"status": "ignored"}, status=200)
-
-                amount = Decimal(str(event_data.get('amountPaid', 0)))
-                
-                # Update Balance
-                wallet.balance += amount
-                wallet.save()
-
-                # Create History Record
-                Transaction.objects.create(
-                    wallet=wallet,
-                    amount=amount,
-                    transaction_type='deposit',
-                    status='success',
-                    reference=txn_ref,
-                    description=f"Deposit: {event_data.get('bankName', 'Transfer')}"
-                )
-                
-            return Response({"status": "success"}, status=200)
-        except Wallet.DoesNotExist:
-            print(f"❌ Wallet not found for ref: {account_ref}")
-            return Response({"status": "error", "message": "Wallet not found"}, status=404)
-
-class WithdrawalView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsVerifiedUser]
-
-    def post(self, request):
-        amount = Decimal(str(request.data.get('amount', 0)))
-        bank_account_id = request.data.get('bank_account_id')
-        
-        # 1. Validation
-        if amount < 500: # Example minimum withdrawal
-            return Response({"error": "Minimum withdrawal is ₦500"}, status=400)
+        # 2. Handle successful charge
+        if event == "charge.success":
+            reference = data['data']['reference']
+            amount_kobo = data['data']['amount']
             
-        try:
-            with transaction.atomic():
-                wallet = Wallet.objects.select_for_update().get(user=request.user)
-                bank_acc = BankAccount.objects.get(id=bank_account_id, user=request.user)
+            try:
+                PaystackService.credit_wallet(reference, amount_kobo)
+            except Exception as e:
+                # Log error but return 200 to Paystack to stop retries
+                print(f"Webhook Processing Error: {e}")
 
-                if wallet.balance < amount:
-                    return Response({"error": "Insufficient balance"}, status=400)
+        return Response({"status": "accepted"}, status=200)
 
-                # 2. Deduct from wallet immediately
-                wallet.balance -= amount
-                wallet.save()
-
-                # 3. Create Transaction Record (Pending)
-                ref = f"WD-{uuid.uuid4().hex[:10]}"
-                txn = Transaction.objects.create(
-                    wallet=wallet,
-                    amount=-amount,
-                    transaction_type='withdrawal',
-                    status='pending',
-                    reference=ref,
-                    description=f"Withdrawal to {bank_acc.bank_name}"
-                )
-
-                # 4. Call Monnify
-                client = MonnifyClient()
-                resp = client.initiate_withdrawal(
-                    amount, ref, bank_acc.bank_code, 
-                    bank_acc.account_number, f"Globalink Payout: {request.user.full_name}"
-                )
-
-                if resp and resp.get('requestStatus') == "HTTP_OK":
-                    return Response({"message": "Withdrawal initiated successfully"}, status=200)
-                else:
-                    # If Monnify fails, roll back the balance
-                    raise Exception("Monnify payout failed")
-
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
-
-class VerifyBankAccountView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        account_number = request.data.get('account_number')
-        bank_code = request.data.get('bank_code')
-
-        if not account_number or not bank_code:
-            return Response({"error": "Account number and bank code are required"}, status=400)
-
-        client = MonnifyClient()
-        account_data = client.verify_bank_account(account_number, bank_code)
-
-        if account_data:
-            return Response({
-                "account_name": account_data.get('accountName'),
-                "status": "success"
-            })
-        
-        return Response({"error": "Could not verify account. Please check details."}, status=400)
 
 class VTPassPurchaseView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsVerifiedUser]
