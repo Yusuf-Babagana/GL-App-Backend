@@ -59,37 +59,30 @@ class PaystackService:
     @classmethod
     @transaction.atomic
     def credit_wallet(cls, reference, amount_kobo=None):
-        """
-        The critical logic to safely add money to a user's wallet.
-        Uses select_for_update to lock the wallet row.
-        """
-        # 1. Get transaction and lock it
+        # Use select_for_update() to lock the transaction row immediately
         txn = Transaction.objects.select_for_update().get(reference=reference)
 
-        # 2. Idempotency Check: Prevent double-crediting
         if txn.status == 'success':
-            return txn.wallet, False # Already processed
+            return txn.wallet, False  # Already processed, do nothing
 
-        # 3. Lock and update wallet
+        # Lock the wallet row to prevent concurrent balance updates
         wallet = Wallet.objects.select_for_update().get(id=txn.wallet.id)
         
-        # If amount_kobo is provided (from webhook/API), verify it matches
+        # Standardize the amount logic
         if amount_kobo:
             actual_amount = Decimal(amount_kobo) / 100
+            # If Paystack reports a different amount than we initiated, mark as failed for safety
             if actual_amount != txn.amount:
                 txn.status = 'failed'
-                txn.description = f"Amount mismatch: Expected {txn.amount}, got {actual_amount}"
+                txn.description = f"Fraud Alert: Expected {txn.amount}, got {actual_amount}"
                 txn.save()
                 return wallet, False
 
-        # 4. Perform the credit
         wallet.balance += txn.amount
         wallet.save()
 
-        # 5. Finalize Transaction Ledger
         txn.status = 'success'
         txn.save()
-
         return wallet, True
 
     @classmethod

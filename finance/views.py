@@ -1,4 +1,5 @@
 import requests
+import logging
 from datetime import datetime
 import pytz
 import uuid
@@ -117,8 +118,11 @@ class PaystackWebhookView(APIView):
             try:
                 PaystackService.credit_wallet(reference, amount_kobo)
             except Exception as e:
-                # Log error but return 200 to Paystack to stop retries
-                print(f"Webhook Processing Error: {e}")
+                # We log this for the admin but tell Paystack we got it
+                # This prevents Paystack from hammering your server with retries
+                logger = logging.getLogger(__name__)
+                logger.error(f"Critical Webhook Failure: {str(e)} for Ref: {reference}")
+                return Response({"status": "error", "message": "Processed with errors"}, status=200)
 
         return Response({"status": "accepted"}, status=200)
 
