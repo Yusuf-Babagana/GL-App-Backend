@@ -36,9 +36,23 @@ class InitiateDepositView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        # DEBUG: This will show up in your PythonAnywhere "Server Log"
+        print(f"--- DEPOSIT LOG ---")
+        print(f"Data received: {request.data}")
+        print(f"User: {request.user.email}")
+
         amount = request.data.get('amount')
-        if not amount or Decimal(str(amount)) <= 0:
-            return Response({"error": "Valid amount is required"}, status=400)
+        
+        if not amount:
+            return Response({"error": "Amount is missing in request"}, status=400)
+
+        try:
+            # Check if amount is a valid number
+            clean_amount = Decimal(str(amount))
+            if clean_amount <= 0:
+                return Response({"error": "Deposit amount must be greater than zero"}, status=400)
+        except Exception:
+            return Response({"error": f"Invalid amount format: {amount}"}, status=400)
 
         reference = f"DEP-{uuid.uuid4().hex[:12].upper()}"
         
