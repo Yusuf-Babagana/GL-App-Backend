@@ -306,16 +306,17 @@ class WalletService:
         if wallet.balance < amount:
             raise Exception("Insufficient funds for withdrawal.")
 
-        # 1. Resolve Account Name
+        # 1. Resolve Account Name (Will return "Approved Correspondent" for 001)
         account_name = PaystackService.resolve_bank_account(account_number, bank_code)
 
         # 2. Create Paystack Recipient
         recipient_code = PaystackService.create_transfer_recipient(account_name, account_number, bank_code)
 
-        # 3. Create a Pending Transaction record
-        reference = f"WTH-{hashlib.md5(str(user.id).encode()).hexdigest()[:6]}-{int(time.time())}"
+        # 3. Create a Unique Reference
+        # We use time.time() to ensure every test attempt is unique
+        reference = f"WTH-{user.id}-{int(time.time())}"
         
-        # 4. Deduct balance immediately (Debit)
+        # 4. Deduct balance immediately (Safety First)
         wallet.balance -= amount
         wallet.save()
 
@@ -323,14 +324,18 @@ class WalletService:
         try:
             PaystackService.initiate_transfer(amount, recipient_code, reference)
             
+            # Record the successful transaction in the ledger
             Transaction.objects.create(
-                wallet=wallet, amount=-amount, transaction_type='withdrawal',
-                status='success', reference=reference,
+                wallet=wallet, 
+                amount=-amount, 
+                transaction_type='withdrawal',
+                status='success', 
+                reference=reference,
                 description=f"Withdrawal to {account_name} ({account_number})"
             )
             return True
         except Exception as e:
-            # If Paystack fails, refund the wallet balance (Rollback logic)
+            # If Paystack fails (e.g. invalid recipient), give the money back
             wallet.balance += amount
             wallet.save()
-            raise e
+            raise Exception(f"Paystack Transfer Failed: {str(e)}")
