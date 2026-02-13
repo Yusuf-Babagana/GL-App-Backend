@@ -89,20 +89,30 @@ class PaystackService:
     @classmethod
     def resolve_bank_account(cls, account_number, bank_code):
         """
-        Step 1: Verify the account number and bank code.
-        Returns the account name.
+        Verifies the account number and bank code.
         """
-        url = f"{cls.BASE_URL}/bank/resolve"
-        params = {'account_number': account_number, 'bank_code': bank_code}
-        response = requests.get(url, params=params, headers=cls._get_headers())
-        res_data = response.json()
+        # Ensure we are using strings and stripping whitespace
+        acc_num = str(account_number).strip()
+        b_code = str(bank_code).strip()
         
-        # ADD THIS LINE TO DEBUG
-        print(f"DEBUG PAYSTACK: {res_data}") 
+        url = f"{cls.BASE_URL}/bank/resolve?account_number={acc_num}&bank_code={b_code}"
         
-        if response.status_code == 200 and res_data.get('status'):
-            return res_data['data']['account_name']
-        raise Exception(res_data.get('message', 'Could not resolve account'))
+        try:
+            # We use cls._get_headers() which includes the Bearer token
+            response = requests.get(url, headers=cls._get_headers(), timeout=10)
+            res_data = response.json()
+            
+            print(f"DEBUG PAYSTACK RESPONSE: {res_data}") 
+
+            if response.status_code == 200 and res_data.get('status'):
+                return res_data['data']['account_name']
+            
+            # If Paystack returns a specific error message, use it
+            error_msg = res_data.get('message', 'Could not resolve account')
+            raise Exception(error_msg)
+            
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Connection to Paystack failed: {str(e)}")
 
     @classmethod
     def create_transfer_recipient(cls, name, account_number, bank_code):
