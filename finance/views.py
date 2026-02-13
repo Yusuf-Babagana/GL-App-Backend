@@ -221,23 +221,26 @@ class VerifyBankAccountView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        # This will print the raw data to your PythonAnywhere Server Log
-        print(f"--- VERIFY BANK DEBUG ---")
-        print(f"Received Data: {request.data}") 
-
+        # 1. Log what we received
+        print(f"DEBUG: Data received from App: {request.data}")
+        
         account_number = request.data.get('account_number')
         bank_code = request.data.get('bank_code')
 
         if not account_number or not bank_code:
-            return Response({"error": f"Missing fields. Got number:{account_number}, code:{bank_code}"}, status=400)
+            return Response({
+                "error": f"Missing data. Need account_number and bank_code. Received: {request.data}"
+            }, status=400)
 
         try:
+            # 2. Call the service and catch the specific error
             account_name = PaystackService.resolve_bank_account(account_number, bank_code)
             return Response({"account_name": account_name}, status=200)
         except Exception as e:
-            print(f"PAYSTACK ERROR: {str(e)}")
-            # This will send the ACTUAL Paystack error message to your mobile screen
-            return Response({"error": str(e)}, status=400)
+            # 3. Print the EXACT error from Paystack to the console
+            print(f"🚨 PAYSTACK API FAILURE: {str(e)}")
+            # 4. Return the ACTUAL error to your React Native app
+            return Response({"error": f"Paystack says: {str(e)}"}, status=400)
 
 class WithdrawalView(APIView):
     """
