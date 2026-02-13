@@ -291,26 +291,41 @@ class WalletService:
     @transaction.atomic
     def initiate_withdrawal(cls, user, amount, account_number, bank_code):
         wallet = Wallet.objects.select_for_update().get(user=user)
+        print(f"--- EMPEROR WITHDRAWAL START for {user.email} ---")
 
         if wallet.balance < amount:
+            print("!!! ERROR: Insufficient Balance")
             raise Exception("Insufficient funds for withdrawal.")
 
-        # 1. Resolve Account Name
-        try:
-            account_name = PaystackService.resolve_bank_account(account_number, bank_code)
-        except Exception as e:
-            # Re-raise the specific error from Paystack (e.g., "Daily limit reached")
-            raise Exception(f"Bank Verification Failed: {str(e)}")
+        # 1. Resolve Account Name Inline to bypass method-check issues
+        url = f"https://api.paystack.co/bank/resolve?account_number={account_number}&bank_code={bank_code}"
+        headers = {
+            "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+            "Content-Type": "application/json",
+        }
+        
+        resp = requests.get(url, headers=headers)
+        res_data = resp.json()
+        print(f"DEBUG RESOLVE INLINE: {res_data}")
+
+        if resp.status_code != 200 or not res_data.get('status'):
+            msg = res_data.get('message', 'Cannot resolve account')
+            print(f"!!! ERROR RESOLVING: {msg}")
+            raise Exception(msg)
+
+        account_name = res_data['data']['account_name']
 
         # 2. Create Paystack Recipient
+        # Using cls (PaystackService) to call the helper
         recipient_code = PaystackService.create_transfer_recipient(account_name, account_number, bank_code)
+        print(f"DEBUG RECIPIENT: {recipient_code}")
 
         # 3. Reference and Debit
         reference = f"WTH-{user.id}-{int(time.time())}"
         wallet.balance -= amount
         wallet.save()
 
-        # 4. Finalize
+        # 4. Finalize Transfer
         try:
             PaystackService.initiate_transfer(amount, recipient_code, reference)
             Transaction.objects.create(
@@ -318,8 +333,10 @@ class WalletService:
                 status='success', reference=reference,
                 description=f"Withdrawal to {account_name} ({account_number})"
             )
+            print("✅ WITHDRAWAL SUCCESSFUL")
             return True
         except Exception as e:
             wallet.balance += amount
             wallet.save()
+            print(f"!!! TRANSFER ERROR: {str(e)}")
             raise Exception(f"Transfer Failed: {str(e)}")
