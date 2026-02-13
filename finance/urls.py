@@ -5,7 +5,9 @@ from .views import (
     VerifyDepositView, 
     PaystackWebhookView,
     VTPassPurchaseView, 
-    VTPassVariationsView
+    VTPassVariationsView,
+    VerifyBankAccountView,
+    WithdrawalView
 )
 
 urlpatterns = [
@@ -16,6 +18,10 @@ urlpatterns = [
     path('deposit/initiate/', InitiateDepositView.as_view(), name='deposit-initiate'),
     path('deposit/verify/', VerifyDepositView.as_view(), name='deposit-verify'),
     path('paystack/webhook/', PaystackWebhookView.as_view(), name='paystack-webhook'),
+
+    # Withdrawal Flow
+    path('verify-bank/', VerifyBankAccountView.as_view(), name='verify-bank'),
+    path('withdraw/', WithdrawalView.as_view(), name='withdraw'),
     
     # VTpass Bill Payments (Data/Airtime)
     path('vtpass/variations/', VTPassVariationsView.as_view(), name='vtpass-variations'),

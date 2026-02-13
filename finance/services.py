@@ -1,6 +1,7 @@
 import hmac
 import hashlib
 import requests
+import time
 from decimal import Decimal
 from django.conf import settings
 from django.db import transaction
@@ -86,6 +87,61 @@ class PaystackService:
         return wallet, True
 
     @classmethod
+    def resolve_bank_account(cls, account_number, bank_code):
+        """
+        Step 1: Verify the account number and bank code.
+        Returns the account name.
+        """
+        url = f"{cls.BASE_URL}/bank/resolve"
+        params = {'account_number': account_number, 'bank_code': bank_code}
+        response = requests.get(url, params=params, headers=cls._get_headers())
+        res_data = response.json()
+
+        if response.status_code == 200 and res_data.get('status'):
+            return res_data['data']['account_name']
+        raise Exception(res_data.get('message', 'Could not resolve account'))
+
+    @classmethod
+    def create_transfer_recipient(cls, name, account_number, bank_code):
+        """
+        Step 2: Create a recipient on Paystack for the transfer.
+        """
+        url = f"{cls.BASE_URL}/transferrecipient"
+        payload = {
+            "type": "nuban",
+            "name": name,
+            "account_number": account_number,
+            "bank_code": bank_code,
+            "currency": "NGN"
+        }
+        response = requests.post(url, json=payload, headers=cls._get_headers())
+        res_data = response.json()
+
+        if response.status_code in [200, 201] and res_data.get('status'):
+            return res_data['data']['recipient_code']
+        raise Exception(res_data.get('message', 'Could not create recipient'))
+
+    @classmethod
+    def initiate_transfer(cls, amount, recipient_code, reference):
+        """
+        Step 3: Send the money!
+        """
+        url = f"{cls.BASE_URL}/transfer"
+        payload = {
+            "source": "balance",
+            "amount": int(Decimal(str(amount)) * 100), # Amount in kobo
+            "recipient": recipient_code,
+            "reference": reference,
+            "reason": "Globalink Wallet Withdrawal"
+        }
+        response = requests.post(url, json=payload, headers=cls._get_headers())
+        res_data = response.json()
+
+        if response.status_code == 200 and res_data.get('status'):
+            return res_data['data']
+        raise Exception(res_data.get('message', 'Transfer initiation failed'))
+
+    @classmethod
     def verify_webhook(cls, payload, signature):
         """
         Validates Paystack Webhook signature (HMAC SHA512).
@@ -96,3 +152,172 @@ class PaystackService:
             hashlib.sha512
         ).hexdigest()
         return hmac.compare_digest(computed_hash, signature)
+
+
+
+
+class WalletService:
+    """
+    Service layer for internal wallet movements (Escrow, Payments, Refunds).
+    Ensures all movements are atomic and recorded in the ledger.
+    """
+
+    @classmethod
+    @transaction.atomic
+    def lock_funds_for_order(cls, order):
+        """
+        Moves funds from Buyer's balance to Escrow balance.
+        """
+        buyer_wallet = Wallet.objects.select_for_update().get(user=order.buyer)
+        
+        if buyer_wallet.balance < order.total_price:
+            raise Exception("Insufficient wallet balance.")
+
+        # Atomic movement
+        buyer_wallet.balance -= order.total_price
+        buyer_wallet.escrow_balance += order.total_price
+        buyer_wallet.save()
+
+        # Update Order
+        order.payment_status = 'escrow_held'
+        order.save()
+
+        # Ledger Entry
+        Transaction.objects.create(
+            wallet=buyer_wallet,
+            amount=-order.total_price,
+            transaction_type='escrow_lock',
+            status='success',
+            related_order_id=str(order.id),
+            description=f"Escrow lock for Order #{order.id}"
+        )
+        return True
+
+    @classmethod
+    @transaction.atomic
+    def release_escrow_to_seller_and_rider(cls, order):
+        """
+        Atomic release: 
+        1. Debit Buyer Escrow.
+        2. Credit Seller (90% of order total).
+        3. Credit Rider (delivery_fee).
+        4. Credit Platform (10% of order total).
+        """
+        if order.payment_status != 'escrow_held':
+            raise Exception("No funds in escrow.")
+
+        buyer_wallet = Wallet.objects.select_for_update().get(user=order.buyer)
+        seller_wallet = Wallet.objects.select_for_update().get(user=order.store.owner)
+        
+        # 1. Buyer Side
+        buyer_wallet.escrow_balance -= order.total_price
+        buyer_wallet.save()
+
+        # 2. Commission Calculation (3% capped at ₦15,000)
+        # Cap applies from ₦500,000 and above (3% of 500k = 15k)
+        commission = min(order.total_price * Decimal('0.03'), Decimal('15000'))
+        
+        # 3. Rider Side (Fixed Fee from order)
+        rider_share = Decimal('0.00')
+        if hasattr(order, 'rider') and order.rider:
+            rider_share = order.delivery_fee
+            rider_wallet = Wallet.objects.select_for_update().get(user=order.rider)
+            rider_wallet.balance += rider_share
+            rider_wallet.save()
+            
+            Transaction.objects.create(
+                wallet=rider_wallet, amount=rider_share,
+                transaction_type='payment', status='success',
+                related_order_id=str(order.id), description=f"Delivery Fee: Order #{order.id}"
+            )
+
+        # 4. Seller Side (Total - Commission - Rider Fee)
+        seller_share = order.total_price - commission - rider_share
+        seller_wallet.balance += seller_share
+        seller_wallet.save()
+
+        # 5. Finalize Order
+        order.payment_status = 'released'
+        order.save()
+
+        # Audit Trail
+        Transaction.objects.create(
+            wallet=buyer_wallet, amount=-order.total_price,
+            transaction_type='escrow_release', status='success',
+            related_order_id=str(order.id), description=f"Payment Released: Order #{order.id}"
+        )
+        Transaction.objects.create(
+            wallet=seller_wallet, amount=seller_share,
+            transaction_type='payment', status='success',
+            related_order_id=str(order.id), description=f"Earnings: Order #{order.id}"
+        )
+        return True
+
+    @classmethod
+    @transaction.atomic
+    def refund_escrow_to_buyer(cls, order):
+        """
+        Returns funds from Escrow to Buyer's balance.
+        Called on order cancellation.
+        """
+        if order.payment_status != 'escrow_held':
+            raise Exception("Cannot refund: Funds not in escrow.")
+
+        buyer_wallet = Wallet.objects.select_for_update().get(user=order.buyer)
+
+        # Move back to balance
+        buyer_wallet.escrow_balance -= order.total_price
+        buyer_wallet.balance += order.total_price
+        buyer_wallet.save()
+
+        # Update Order
+        order.payment_status = 'refunded'
+        order.save()
+
+        # Ledger Entry
+        Transaction.objects.create(
+            wallet=buyer_wallet,
+            amount=order.total_price,
+            transaction_type='refund',
+            status='success',
+            related_order_id=str(order.id),
+            description=f"Refund for Order #{order.id}"
+        )
+        return True
+
+    @classmethod
+    @transaction.atomic
+    def initiate_withdrawal(cls, user, amount, account_number, bank_code):
+        wallet = Wallet.objects.select_for_update().get(user=user)
+
+        if wallet.balance < amount:
+            raise Exception("Insufficient funds for withdrawal.")
+
+        # 1. Resolve Account Name
+        account_name = PaystackService.resolve_bank_account(account_number, bank_code)
+
+        # 2. Create Paystack Recipient
+        recipient_code = PaystackService.create_transfer_recipient(account_name, account_number, bank_code)
+
+        # 3. Create a Pending Transaction record
+        reference = f"WTH-{hashlib.md5(str(user.id).encode()).hexdigest()[:6]}-{int(time.time())}"
+        
+        # 4. Deduct balance immediately (Debit)
+        wallet.balance -= amount
+        wallet.save()
+
+        # 5. Send Transfer via Paystack
+        try:
+            PaystackService.initiate_transfer(amount, recipient_code, reference)
+            
+            Transaction.objects.create(
+                wallet=wallet, amount=-amount, transaction_type='withdrawal',
+                status='success', reference=reference,
+                description=f"Withdrawal to {account_name} ({account_number})"
+            )
+            return True
+        except Exception as e:
+            # If Paystack fails, refund the wallet balance (Rollback logic)
+            wallet.balance += amount
+            wallet.save()
+            raise e
