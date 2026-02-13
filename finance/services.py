@@ -88,31 +88,20 @@ class PaystackService:
 
     @classmethod
     def resolve_bank_account(cls, account_number, bank_code):
-        """
-        Verifies the account number and bank code.
-        """
-        # Ensure we are using strings and stripping whitespace
-        acc_num = str(account_number).strip()
-        b_code = str(bank_code).strip()
+        url = f"{cls.BASE_URL}/bank/resolve?account_number={account_number}&bank_code={bank_code}"
+        response = requests.get(url, headers=cls._get_headers())
+        res_data = response.json()
         
-        url = f"{cls.BASE_URL}/bank/resolve?account_number={acc_num}&bank_code={b_code}"
-        
-        try:
-            # We use cls._get_headers() which includes the Bearer token
-            response = requests.get(url, headers=cls._get_headers(), timeout=10)
-            res_data = response.json()
-            
-            print(f"DEBUG PAYSTACK RESPONSE: {res_data}") 
+        # Log it so we see it in the emperor console
+        print(f"DEBUG RESOLVE: {res_data}") 
 
-            if response.status_code == 200 and res_data.get('status'):
-                return res_data['data']['account_name']
-            
-            # If Paystack returns a specific error message, use it
-            error_msg = res_data.get('message', 'Could not resolve account')
-            raise Exception(error_msg)
-            
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Connection to Paystack failed: {str(e)}")
+        # Paystack returns 'status': True (boolean) or "true" (string) sometimes
+        if response.status_code == 200 and res_data.get('status') is True:
+            return res_data['data']['account_name']
+        
+        # If it's not successful, raise the error message from Paystack
+        error_msg = res_data.get('message', 'Cannot resolve account')
+        raise Exception(error_msg)
 
     @classmethod
     def create_transfer_recipient(cls, name, account_number, bank_code):
@@ -306,36 +295,31 @@ class WalletService:
         if wallet.balance < amount:
             raise Exception("Insufficient funds for withdrawal.")
 
-        # 1. Resolve Account Name (Will return "Approved Correspondent" for 001)
-        account_name = PaystackService.resolve_bank_account(account_number, bank_code)
+        # 1. Resolve Account Name
+        try:
+            account_name = PaystackService.resolve_bank_account(account_number, bank_code)
+        except Exception as e:
+            # Re-raise the specific error from Paystack (e.g., "Daily limit reached")
+            raise Exception(f"Bank Verification Failed: {str(e)}")
 
         # 2. Create Paystack Recipient
         recipient_code = PaystackService.create_transfer_recipient(account_name, account_number, bank_code)
 
-        # 3. Create a Unique Reference
-        # We use time.time() to ensure every test attempt is unique
+        # 3. Reference and Debit
         reference = f"WTH-{user.id}-{int(time.time())}"
-        
-        # 4. Deduct balance immediately (Safety First)
         wallet.balance -= amount
         wallet.save()
 
-        # 5. Send Transfer via Paystack
+        # 4. Finalize
         try:
             PaystackService.initiate_transfer(amount, recipient_code, reference)
-            
-            # Record the successful transaction in the ledger
             Transaction.objects.create(
-                wallet=wallet, 
-                amount=-amount, 
-                transaction_type='withdrawal',
-                status='success', 
-                reference=reference,
+                wallet=wallet, amount=-amount, transaction_type='withdrawal',
+                status='success', reference=reference,
                 description=f"Withdrawal to {account_name} ({account_number})"
             )
             return True
         except Exception as e:
-            # If Paystack fails (e.g. invalid recipient), give the money back
             wallet.balance += amount
             wallet.save()
-            raise Exception(f"Paystack Transfer Failed: {str(e)}")
+            raise Exception(f"Transfer Failed: {str(e)}")
