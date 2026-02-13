@@ -218,22 +218,25 @@ class VTPassVariationsView(APIView):
         return Response(data)
 
 class VerifyBankAccountView(APIView):
-    """
-    Step 1: UI calls this to verify the account number before withdrawal.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        # This will print the raw data to your PythonAnywhere Server Log
+        print(f"--- VERIFY BANK DEBUG ---")
+        print(f"Received Data: {request.data}") 
+
         account_number = request.data.get('account_number')
         bank_code = request.data.get('bank_code')
 
         if not account_number or not bank_code:
-            return Response({"error": "Account number and bank code required"}, status=400)
+            return Response({"error": f"Missing fields. Got number:{account_number}, code:{bank_code}"}, status=400)
 
         try:
             account_name = PaystackService.resolve_bank_account(account_number, bank_code)
             return Response({"account_name": account_name}, status=200)
         except Exception as e:
+            print(f"PAYSTACK ERROR: {str(e)}")
+            # This will send the ACTUAL Paystack error message to your mobile screen
             return Response({"error": str(e)}, status=400)
 
 class WithdrawalView(APIView):
