@@ -78,35 +78,35 @@ class AdminDashboardStatsView(APIView):
         # 1. User Stats
         User = get_user_model()
         total_users = User.objects.count()
-        total_sellers = Store.objects.count()
+        # total_sellers = Store.objects.count()
         
         # 2. Financial Stats (Escrow)
         # Calculate total money currently held in all user wallets (Liability)
-        total_wallet_balance = Wallet.objects.aggregate(Sum('balance'))['balance__sum'] or 0.00
-        total_escrow_locked = Wallet.objects.aggregate(Sum('escrow_balance'))['escrow_balance__sum'] or 0.00
+        # total_wallet_balance = Wallet.objects.aggregate(Sum('balance'))['balance__sum'] or 0.00
+        # total_escrow_locked = Wallet.objects.aggregate(Sum('escrow_balance'))['escrow_balance__sum'] or 0.00
         
         # 3. Order Stats
-        total_orders = Order.objects.count()
-        pending_orders = Order.objects.filter(delivery_status='pending').count()
-        completed_orders = Order.objects.filter(delivery_status='delivered').count()
+        # total_orders = Order.objects.count()
+        # pending_orders = Order.objects.filter(delivery_status='pending').count()
+        # completed_orders = Order.objects.filter(delivery_status='delivered').count()
         
         # 4. Total Volume (Gross Merchandise Value)
-        gmv = Order.objects.aggregate(Sum('total_price'))['total_price__sum'] or 0.00
+        # gmv = Order.objects.aggregate(Sum('total_price'))['total_price__sum'] or 0.00
 
         return Response({
             "users": {
                 "total": total_users,
-                "sellers": total_sellers
+                # "sellers": total_sellers
             },
             "finance": {
-                "wallet_liability": total_wallet_balance,
-                "escrow_locked": total_escrow_locked,
-                "gmv": gmv
+                # "wallet_liability": total_wallet_balance,
+                # "escrow_locked": total_escrow_locked,
+                # "gmv": gmv
             },
             "orders": {
-                "total": total_orders,
-                "pending": pending_orders,
-                "completed": completed_orders
+                # "total": total_orders,
+                # "pending": pending_orders,
+                # "completed": completed_orders
             }
         })
 
@@ -148,3 +148,28 @@ class AdminKYCActionView(APIView):
             return Response({"message": "KYC rejected. User notified of the reason."})
 
         return Response({"error": "Invalid action. Use 'approve' or 'reject'."}, status=status.HTTP_400_BAD_REQUEST)
+
+class SetTransactionPINView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        pin = request.data.get('pin')
+        old_pin = request.data.get('old_pin') # Required if changing PIN
+        
+        if not pin or len(str(pin)) != 4:
+            return Response({"error": "PIN must be 4 digits."}, status=400)
+
+        user = request.user
+
+        # If user already has a PIN, verify the old one first
+        if user.transaction_pin:
+            if not old_pin:
+                return Response({"error": "Old PIN required to set a new one."}, status=400)
+            if not user.check_transaction_pin(old_pin):
+                return Response({"error": "Incorrect Old PIN."}, status=400)
+
+        # Hash and save the new PIN
+        user.set_transaction_pin(pin)
+        user.save()
+
+        return Response({"message": "Transaction PIN updated successfully."}, status=200)
