@@ -13,7 +13,7 @@ from rest_framework import permissions, status
 from django.db import transaction
 from .models import Wallet, Transaction, BankAccount
 from .serializers import WalletSerializer
-from .services import PaystackService # Our new service
+from .services import PaystackService, WalletService # Our new services
 from users.permissions import IsVerifiedUser
 # finance/views.py
 
@@ -216,3 +216,51 @@ class VTPassVariationsView(APIView):
         client = VTPassClient()
         data = client.get_data_plans(service_id)
         return Response(data)
+
+class VerifyBankAccountView(APIView):
+    """
+    Step 1: UI calls this to verify the account number before withdrawal.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        account_number = request.data.get('account_number')
+        bank_code = request.data.get('bank_code')
+
+        if not account_number or not bank_code:
+            return Response({"error": "Account number and bank code required"}, status=400)
+
+        try:
+            account_name = PaystackService.resolve_bank_account(account_number, bank_code)
+            return Response({"account_name": account_name}, status=200)
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+class WithdrawalView(APIView):
+    """
+    Step 2: User confirms and submits the withdrawal.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        amount = request.data.get('amount')
+        account_number = request.data.get('account_number')
+        bank_code = request.data.get('bank_code')
+
+        if not all([amount, account_number, bank_code]):
+            return Response({"error": "Missing required fields"}, status=400)
+
+        try:
+            amount_decimal = Decimal(str(amount))
+            if amount_decimal < 500: # Setting a minimum withdrawal floor
+                return Response({"error": "Minimum withdrawal is ₦500"}, status=400)
+
+            WalletService.initiate_withdrawal(
+                user=request.user,
+                amount=amount_decimal,
+                account_number=account_number,
+                bank_code=bank_code
+            )
+            return Response({"message": "Withdrawal successful"}, status=200)
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
