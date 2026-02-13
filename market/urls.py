@@ -27,7 +27,8 @@ from .views import (
     SellerOrderDetailView,
     StoreListView,
     StoreDetailView,
-    ProductVideoFeedView
+    ProductVideoFeedView,
+    MarkOrderDispatchedView
 )
 
 urlpatterns = [
@@ -59,7 +60,8 @@ urlpatterns = [
     # Buyer
     path('buyer/orders/', BuyerOrderListView.as_view(), name='buyer-orders'),
     path('buyer/orders/<int:pk>/', BuyerOrderDetailView.as_view(), name='buyer-order-detail'),
-    path('buyer/orders/<int:pk>/confirm/', ConfirmOrderReceiptView.as_view(), name='buyer-confirm-receipt'),
+    path('buyer/orders/<int:order_id>/confirm/', ConfirmOrderReceiptView.as_view(), name='buyer-confirm-receipt'),
+    path('orders/<int:order_id>/confirm-receipt/', ConfirmOrderReceiptView.as_view(), name='confirm-receipt'),
 
     # Rider
     path('rider/orders/available/', AvailableDeliveriesView.as_view(), name='rider-available'),
@@ -81,4 +83,7 @@ urlpatterns = [
     path('conversations/', ConversationListView.as_view(), name='my-conversations'),
     path('chat/start/<int:userId>/', StartChatView.as_view(), name='start-chat'),
     path('chat/<int:conversationId>/send/', SendMessageView.as_view(), name='send-message'),
+
+    # Seller: Mark as Dispatched/Shipped
+    path('seller/orders/<int:order_id>/dispatch/', MarkOrderDispatchedView.as_view(), name='seller-order-dispatch'),
 ]

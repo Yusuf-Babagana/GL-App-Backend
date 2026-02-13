@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Category, Store, Product, ProductImage, Order, OrderItem, Cart, CartItem
+from users.serializers import UserSerializer
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -11,6 +12,8 @@ class StoreSerializer(serializers.ModelSerializer):
     product_count = serializers.SerializerMethodField()
     owner_name = serializers.ReadOnlyField(source='owner.full_name')
 
+    owner_id = serializers.ReadOnlyField(source='owner.id')
+
     class Meta:
         model = Store
         fields = [
@@ -19,6 +22,7 @@ class StoreSerializer(serializers.ModelSerializer):
             'description', 
             'logo', 
             'is_verified', 
+            'owner_id',
             'owner_name', 
             'product_count',
             'created_at'
@@ -157,6 +161,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
+    buyer = UserSerializer(read_only=True)
     # Add Store details so the "Track Rider" map knows the store name
     store_name = serializers.ReadOnlyField(source='store.name')
     # Add these two lines for the Buyer to contact the Rider

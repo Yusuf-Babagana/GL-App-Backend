@@ -71,6 +71,7 @@ class Order(models.Model):
         READY = 'ready_for_pickup', _('Ready for Pickup') # Seller has packed it
         PICKED_UP = 'picked_up', _('Picked Up')           # Rider has it
         IN_TRANSIT = 'in_transit', _('In Transit')        # On the way
+        SHIPPED = 'shipped', _('Shipped')
         DELIVERED = 'delivered', _('Delivered')           # Done
         CANCELLED = 'cancelled', _('Cancelled')
 
