@@ -96,7 +96,10 @@ class PaystackService:
         params = {'account_number': account_number, 'bank_code': bank_code}
         response = requests.get(url, params=params, headers=cls._get_headers())
         res_data = response.json()
-
+        
+        # ADD THIS LINE TO DEBUG
+        print(f"DEBUG PAYSTACK: {res_data}") 
+        
         if response.status_code == 200 and res_data.get('status'):
             return res_data['data']['account_name']
         raise Exception(res_data.get('message', 'Could not resolve account'))
