@@ -92,14 +92,14 @@ class PaystackService:
         response = requests.get(url, headers=cls._get_headers())
         res_data = response.json()
         
-        # Log it so we see it in the emperor console
         print(f"DEBUG RESOLVE: {res_data}") 
 
-        # Paystack returns 'status': True (boolean) or "true" (string) sometimes
-        if response.status_code == 200 and res_data.get('status') is True:
+        # We check for the BOOLEAN True or the STRING "true"
+        status_val = res_data.get('status')
+        if response.status_code == 200 and (status_val is True or str(status_val).lower() == 'true'):
             return res_data['data']['account_name']
         
-        # If it's not successful, raise the error message from Paystack
+        # Use the message from Paystack if it exists
         error_msg = res_data.get('message', 'Cannot resolve account')
         raise Exception(error_msg)
 
