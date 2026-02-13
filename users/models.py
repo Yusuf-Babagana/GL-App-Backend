@@ -60,11 +60,21 @@ class User(AbstractUser):
         choices=[('en', 'English'), ('ar', 'Arabic'), ('ha', 'Hausa')]
     )
 
+    transaction_pin = models.CharField(max_length=128, null=True, blank=True)
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['full_name']
 
     def __str__(self):
         return f"{self.email} ({self.active_role})"
+
+    def set_transaction_pin(self, raw_pin):
+        from django.contrib.auth.hashers import make_password
+        self.transaction_pin = make_password(raw_pin)
+
+    def check_transaction_pin(self, raw_pin):
+        from django.contrib.auth.hashers import check_password
+        return check_password(raw_pin, self.transaction_pin)
 
 class Address(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='addresses')

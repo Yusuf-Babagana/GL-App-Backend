@@ -243,12 +243,21 @@ class WithdrawalView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        pin = request.data.get('pin')
         amount = request.data.get('amount')
         account_number = request.data.get('account_number')
         bank_code = request.data.get('bank_code')
 
-        if not all([amount, account_number, bank_code]):
-            return Response({"error": "Missing required fields"}, status=400)
+        if not all([pin, amount, account_number, bank_code]):
+            return Response({"error": "Missing required fields (pin, amount, account_number, bank_code)"}, status=400)
+
+        # 1. Check if user has set a PIN
+        if not request.user.transaction_pin:
+            return Response({"error": "Please set a transaction PIN in profile settings first."}, status=400)
+
+        # 2. Verify PIN
+        if not request.user.check_transaction_pin(pin):
+            return Response({"error": "Incorrect Transaction PIN"}, status=400)
 
         try:
             amount_decimal = Decimal(str(amount))
