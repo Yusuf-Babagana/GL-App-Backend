@@ -23,6 +23,7 @@ from finance.models import Wallet, Transaction
 from .models import Conversation, Message
 import requests
 from django.db.models import Max
+from finance.services import WalletService
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -199,6 +200,7 @@ class CartAPIView(APIView):
 # --- 2. UPDATE THE CLASS LIKE THIS ---
 # At the top with your other imports
 from finance.utils import WalletManager
+from finance.services import WalletService
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CreateOrderView(APIView):
@@ -277,55 +279,35 @@ class BuyerOrderDetailView(generics.RetrieveAPIView):
         return Order.objects.filter(buyer=self.request.user)
 
 class ConfirmOrderReceiptView(APIView):
-    """
-    Buyer confirms receipt -> Funds moved from Escrow to Seller.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request, pk):
-        order = get_object_or_404(Order, pk=pk, buyer=request.user)
-
-        if order.payment_status == 'released':
-            return Response({"error": "Funds already released."}, status=status.HTTP_400_BAD_REQUEST)
-
-        with transaction.atomic():
-            # 1. Update Order Status
-            order.payment_status = 'released'
-            order.delivery_status = 'delivered'
-            order.save()
-
-            # 2. Unlock Funds (Debit Buyer Escrow)
-            buyer_wallet = request.user.wallet
-            buyer_wallet.escrow_balance -= order.total_price
-            buyer_wallet.save()
+    def post(self, request, order_id):
+        try:
+            # 1. Ensure only the Buyer can trigger this
+            order = Order.objects.get(id=order_id, buyer=request.user)
             
-            # --- CREATE TRANSACTION 1: ESCROW RELEASE ---
-            Transaction.objects.create(
-                wallet=buyer_wallet,
-                amount=order.total_price,
-                transaction_type='escrow_release', # New type we standardized
-                status='success',
-                description=f"Escrow Released: Order #{order.id}"
-            )
+            # 2. Prevent double-processing
+            if order.payment_status == 'released':
+                return Response({"error": "Funds have already been released for this order."}, status=400)
 
-            # 3. Pay Seller (Credit Balance)
-            fee = order.total_price * Decimal('0.10') # 10% Platform Fee
-            seller_earnings = order.total_price - fee
-            
-            seller_wallet, _ = Wallet.objects.get_or_create(user=order.store.owner)
-            seller_wallet.balance += seller_earnings
-            seller_wallet.save()
+            if order.payment_status != 'escrow_held':
+                return Response({"error": "No funds are currently held in escrow for this order."}, status=400)
 
-            # --- CREATE TRANSACTION 2: SELLER PAYMENT ---
-            Transaction.objects.create(
-                wallet=seller_wallet,
-                amount=seller_earnings,
-                transaction_type='payment',
-                status='success',
-                description=f"Earnings: Order #{order.id}"
-            )
+            with transaction.atomic():
+                # 3. Update Order Status
+                order.delivery_status = 'delivered'
+                order.save()
 
-        return Response({"message": "Delivery confirmed. Funds released to Seller."}, status=status.HTTP_200_OK)
+                # 4. Release funds (Your existing service handles the commission and 0 rider fee)
+                # It will pay the seller (Price - Commission) and 0 to rider.
+                WalletService.release_escrow_to_seller_and_rider(order)
+
+            return Response({"message": "Receipt confirmed. Funds released to seller."}, status=200)
+
+        except Order.DoesNotExist:
+            return Response({"error": "Order not found."}, status=404)
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
 
 
 
@@ -793,3 +775,29 @@ class ActivateSellerAccountView(APIView):
             "store_id": store.id,
             "store_name": store.name
         })
+
+
+class MarkOrderDispatchedView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, order_id):
+        try:
+            # 1. Ensure the user is the owner of the store that sold the item
+            order = Order.objects.get(id=order_id, store__owner=request.user)
+            
+            if order.delivery_status != 'pending':
+                return Response({"error": f"Cannot dispatch order in '{order.delivery_status}' status."}, status=400)
+
+            # 2. Update status to 'shipped'
+            order.delivery_status = 'shipped'
+            order.save()
+
+            return Response({
+                "message": "Order marked as dispatched. Buyer has been notified.",
+                "status": order.delivery_status
+            }, status=200)
+
+        except Order.DoesNotExist:
+            return Response({"error": "Order not found or you are not the seller."}, status=404)
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
