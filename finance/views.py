@@ -243,33 +243,32 @@ class VerifyBankAccountView(APIView):
             return Response({"error": f"Paystack says: {str(e)}"}, status=400)
 
 class WithdrawalView(APIView):
-    """
-    Step 2: User confirms and submits the withdrawal.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        # 1. Debug: What did we actually get?
+        print(f"DEBUG WITHDRAW DATA: {request.data}")
+        
         pin = request.data.get('pin')
         amount = request.data.get('amount')
         account_number = request.data.get('account_number')
         bank_code = request.data.get('bank_code')
 
         if not all([pin, amount, account_number, bank_code]):
-            return Response({"error": "Missing required fields (pin, amount, account_number, bank_code)"}, status=400)
+            # This will show you exactly what is missing
+            missing = [k for k in ['pin', 'amount', 'account_number', 'bank_code'] if not request.data.get(k)]
+            return Response({"error": f"Missing fields: {', '.join(missing)}"}, status=400)
 
-        # 1. Check if user has set a PIN
+        # 2. Check PIN
         if not request.user.transaction_pin:
-            return Response({"error": "Please set a transaction PIN in profile settings first."}, status=400)
+            return Response({"error": "No PIN set. Visit profile to set one."}, status=400)
 
-        # 2. Verify PIN
         if not request.user.check_transaction_pin(pin):
             return Response({"error": "Incorrect Transaction PIN"}, status=400)
 
         try:
+            # 3. Process
             amount_decimal = Decimal(str(amount))
-            if amount_decimal < 500: # Setting a minimum withdrawal floor
-                return Response({"error": "Minimum withdrawal is ₦500"}, status=400)
-
             WalletService.initiate_withdrawal(
                 user=request.user,
                 amount=amount_decimal,
@@ -278,4 +277,6 @@ class WithdrawalView(APIView):
             )
             return Response({"message": "Withdrawal successful"}, status=200)
         except Exception as e:
+            # 4. If Paystack or WalletService fails, we need to know why
+            print(f"WITHDRAWAL FAILURE: {str(e)}")
             return Response({"error": str(e)}, status=400)
