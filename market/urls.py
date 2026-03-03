@@ -86,4 +86,5 @@ urlpatterns = [
 
     # Seller: Mark as Dispatched/Shipped
     path('seller/orders/<int:order_id>/dispatch/', MarkOrderDispatchedView.as_view(), name='seller-order-dispatch'),
+    path('orders/<int:order_id>/dispatch/', MarkOrderDispatchedView.as_view(), name='order-dispatch'),
 ]
