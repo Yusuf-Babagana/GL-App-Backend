@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework import permissions, status
 from django.db import transaction
 from .models import Wallet, Transaction, BankAccount
+from market.models import Order
 from .serializers import WalletSerializer
 from .services import PaystackService, WalletService # Our new services
 from users.permissions import IsVerifiedUser
@@ -138,6 +139,60 @@ class PaystackWebhookView(APIView):
                 logger.error(f"Critical Webhook Failure: {str(e)} for Ref: {reference}")
                 return Response({"status": "error", "message": "Processed with errors"}, status=200)
 
+        return Response({"status": "accepted"}, status=200)
+
+class MonnifyWebhookView(APIView):
+    def post(self, request):
+        # 1. Signature Verification
+        monnify_signature = request.headers.get('monnify-signature')
+        secret_key = settings.MONNIFY_SECRET_KEY
+        
+        # Compute hash
+        computed_hash = hmac.new(
+            secret_key.encode(), 
+            request.body, 
+            hashlib.sha512
+        ).hexdigest()
+
+        if monnify_signature != computed_hash:
+            return Response({"error": "Invalid signature"}, status=400)
+
+        data = request.data
+        event_type = data.get('eventType')
+        body = data.get('eventData', {})
+        payment_ref = body.get('paymentReference')
+
+        # 2. Handle Successful Payment
+        if event_type == "SUCCESSFUL_TRANSACTION":
+            try:
+                # 3. Idempotency Check
+                if Transaction.objects.filter(reference=payment_ref).exists():
+                    return Response({"status": "already processed"}, status=200)
+
+                # 4. Identify if this is an Order Payment or Wallet Top-up
+                if payment_ref.startswith("ORD-"):
+                    order_id = payment_ref.split('-')[1]
+                    order = Order.objects.get(id=order_id)
+                    order.payment_status = 'escrow_held' # Payment confirmed
+                    order.monnify_reference = payment_ref
+                    order.save()
+                    
+                    # Log Transaction record for history (but don't add to wallet balance)
+                    Transaction.objects.create(
+                        wallet=order.buyer.wallet,
+                        amount=order.total_price,
+                        transaction_type='payment',
+                        status='success',
+                        reference=payment_ref,
+                        description=f"Direct Payment for Order #{order.id}"
+                    )
+                else:
+                    # Keep your existing Wallet Top-up logic here
+                    pass
+                    
+            except Exception as e:
+                print(f"Webhook processing error: {e}")
+                
         return Response({"status": "accepted"}, status=200)
 
 

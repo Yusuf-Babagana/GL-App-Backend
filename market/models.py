@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
+from finance.monnify import MonnifyClient
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -29,6 +30,28 @@ class Store(models.Model):
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_sales = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    # Add this to store the Vendor's payout destination
+    monnify_sub_account_code = models.CharField(max_length=100, null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        # Check if the store is being verified and doesn't have a sub-account yet
+        if self.is_verified and not self.monnify_sub_account_code:
+            # 1. Get the vendor's primary bank account from your finance model
+            bank_info = self.owner.bank_accounts.filter(is_primary=True).first()
+            
+            if bank_info:
+                client = MonnifyClient()
+                sub_code = client.create_sub_account(
+                    bank_code=bank_info.bank_code,
+                    account_number=bank_info.account_number,
+                    email=self.owner.email,
+                    store_name=self.name
+                )
+                if sub_code:
+                    self.monnify_sub_account_code = sub_code
+        
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
@@ -111,6 +134,12 @@ class Order(models.Model):
         default=PaymentStatus.PENDING
     )
     total_price = models.DecimalField(max_digits=12, decimal_places=2)
+    
+    # Add this to track the Monnify transaction for this specific order
+    monnify_reference = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    
+    # We keep PaymentStatus.ESCROW_HELD but it now signifies 
+    # "Paid but not yet settled/released by Monnify"
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

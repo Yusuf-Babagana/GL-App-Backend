@@ -1,5 +1,6 @@
 import requests
 import base64
+import uuid
 from django.conf import settings
 
 class MonnifyClient:
@@ -103,3 +104,66 @@ class MonnifyClient:
         url = f"{self.base_url}/bank-transfer/reserved-accounts/{account_reference}"
         response = requests.get(url, headers=headers)
         return response.json()
+
+    def initiate_order_payment(self, order, customer_name, customer_email):
+        token = self.get_access_token()
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        
+        # Calculate Commission (3% capped at 15,000)
+        total_amount = float(order.total_price)
+        commission = min(total_amount * 0.03, 15000.0)
+        vendor_share = total_amount - commission
+
+        # Monnify Split Payload
+        data = {
+            "amount": total_amount,
+            "customerName": customer_name,
+            "customerEmail": customer_email,
+            "paymentReference": f"ORD-{order.id}-{uuid.uuid4().hex[:8]}",
+            "paymentDescription": f"Payment for Order #{order.id}",
+            "currencyCode": "NGN",
+            "contractCode": self.contract_code,
+            "incomeSplitConfig": [
+                {
+                    "subAccountCode": order.store.monnify_sub_account_code,
+                    "feePercentage": 0, # We calculate exact amounts instead
+                    "splitAmount": vendor_share,
+                    "feeBearer": True
+                }
+            ],
+            "redirectUrl": "https://your-app-url.com/payment-success",
+            "methods": ["CARD", "ACCOUNT_TRANSFER"]
+        }
+
+        response = requests.post(f"{self.base_url}/merchant/transactions/init-transaction", headers=headers, json=data)
+        return response.json()
+
+    def create_sub_account(self, bank_code, account_number, email, store_name):
+        """
+        Creates a sub-account on Monnify for a vendor.
+        Returns the subAccountCode if successful.
+        """
+        token = self.get_access_token()
+        if not token:
+            return None
+
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        
+        # Payload as an array (Monnify supports bulk creation)
+        data = [{
+            "currencyCode": "NGN",
+            "bankCode": bank_code,
+            "accountNumber": account_number,
+            "email": email,
+            "defaultSplitPercentage": 100 # Not used since we pass exact split amounts, but required
+        }]
+
+        response = requests.post(f"{self.base_url}/sub-accounts", headers=headers, json=data)
+        res_json = response.json()
+
+        if res_json.get('requestSuccessful') and res_json['responseBody']:
+            # Return the unique code for the first sub-account created
+            return res_json['responseBody'][0].get('subAccountCode')
+        
+        print(f"!!! Sub-Account Creation Failed: {res_json}")
+        return None
