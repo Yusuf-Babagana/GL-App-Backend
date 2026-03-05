@@ -247,8 +247,12 @@ class VTPassPurchaseView(APIView):
                 
                 print(f"DEBUG: VTpass API Response: {resp}")
 
-                # Check for "000" (Success) or specific Sandbox success descriptions
-                if resp.get('code') == '000':
+                # VTpass Response Check
+                # 000 is the standard success code
+                # 099 is "Process in progress" which is often treated as success in sandbox
+                success_codes = ['000', '099']
+
+                if resp.get('code') in success_codes or "SUCCESSFUL" in str(resp.get('response_description')).upper():
                     Transaction.objects.create(
                         wallet=wallet, amount=-amount,
                         transaction_type='bill_payment', status='success',
