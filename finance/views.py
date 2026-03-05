@@ -197,7 +197,8 @@ class MonnifyWebhookView(APIView):
 
 
 class VTPassPurchaseView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsVerifiedUser]
+    # Temporarily remove IsVerifiedUser to get sandbox logs
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         print(f"DEBUG: Incoming Purchase Data: {request.data}")
