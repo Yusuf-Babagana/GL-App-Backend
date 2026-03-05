@@ -1,5 +1,8 @@
 import requests
 import base64
+import datetime
+import pytz
+import uuid
 from django.conf import settings
 from decimal import Decimal
 from django.db import transaction
@@ -115,3 +118,22 @@ class WalletManager:
             return False, "User wallet not found."
         except Exception as e:
             return False, f"Payment failed: {str(e)}"
+
+def generate_vtpass_request_id():
+    """
+    Generates a compliant VTpass Request ID.
+    Format: YYYYMMDDHHII + unique_suffix
+    Must be 12+ characters, first 12 must be numeric timestamp in Lagos time.
+    """
+    # 1. Force the timezone to Lagos (GMT+1)
+    lagos_tz = pytz.timezone('Africa/Lagos')
+    now_in_lagos = datetime.datetime.now(lagos_tz)
+    
+    # 2. Format the first 12 digits: YYYYMMDDHHMM
+    timestamp = now_in_lagos.strftime('%Y%m%d%H%M')
+    
+    # 3. Add a unique alphanumeric string (shortened UUID)
+    # Total length will be ~22 characters, satisfying the 12+ rule
+    unique_suffix = uuid.uuid4().hex[:10]
+    
+    return f"{timestamp}{unique_suffix}"

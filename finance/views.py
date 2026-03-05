@@ -220,8 +220,8 @@ class VTPassPurchaseView(APIView):
         wallet = request.user.wallet
 
         # 3. Generate Request ID
-        now = datetime.now(pytz.timezone('Africa/Lagos'))
-        request_id = now.strftime('%Y%m%d%H%M') + uuid.uuid4().hex[:10]
+        from .utils import generate_vtpass_request_id
+        request_id = generate_vtpass_request_id()
 
         try:
             with transaction.atomic():
@@ -235,12 +235,19 @@ class VTPassPurchaseView(APIView):
                 wallet.save()
 
                 client = VTPassClient()
-                resp = client.purchase_data(request_id, service_id, variation_code, phone, amount)
+                # Ensure amount is string for the payload
+                resp = client.purchase_data(
+                    request_id, 
+                    service_id, 
+                    variation_code, 
+                    phone, 
+                    str(amount) # Format as string
+                )
                 
                 print(f"DEBUG: VTpass API Response: {resp}")
 
-                # VTpass Response Check
-                if resp.get('code') == '000' or resp.get('response_description') == 'TRANSACTION SUCCESSFUL':
+                # Check for "000" (Success) or specific Sandbox success descriptions
+                if resp.get('code') == '000':
                     Transaction.objects.create(
                         wallet=wallet, amount=-amount,
                         transaction_type='bill_payment', status='success',
@@ -249,8 +256,7 @@ class VTPassPurchaseView(APIView):
                     )
                     return Response({"message": "Purchase successful", "data": resp})
                 else:
-                    # API FAILED: Raise an error to trigger the ROLLBACK
-                    # This automatically puts the money back into wallet.balance
+                    # Logic error or Sandbox failure: Rollback the debit
                     raise Exception(resp.get('response_description', 'Transaction Failed'))
 
         except Exception as e:
