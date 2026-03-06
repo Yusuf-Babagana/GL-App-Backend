@@ -23,10 +23,27 @@ class NellobyteClient:
         try:
             resp = requests.get(url, timeout=20)
             data = resp.json()
-            # Nellobyte returns a dict with network keys: "MTN", "Glo", etc.
+            
+            # DEBUG: See the actual keys Nellobyte is sending
+            print(f"DEBUG NELLOBYTE DATA: {data.keys()}") 
+            
+            # Nellobyte often uses 'mobile_data' or 'content' as the root key
+            # Let's adjust the extraction logic to be more flexible
+            content = data.get("content", data) 
+            
             network_name_map = {"01": "MTN", "02": "Glo", "03": "9mobile", "04": "Airtel"}
             network_key = network_name_map.get(network_code)
-            return data.get("content", {}).get(network_key, [])
+            
+            # Try to find the network key regardless of case
+            plans = []
+            if isinstance(content, dict):
+                for key in content.keys():
+                    if key.upper() == network_key.upper():
+                        plans = content[key]
+                        break
+            
+            print(f"DEBUG FOUND PLANS FOR {network_key}: {len(plans)}")            
+            return plans
         except Exception as e:
             print(f"Nellobyte Plan Fetch Error: {e}")
             return []
