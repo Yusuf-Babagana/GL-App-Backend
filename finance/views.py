@@ -251,21 +251,33 @@ class VTPassVariationsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        service_id = request.query_params.get('service_id')
+        service_id = request.query_params.get('service_id') # e.g. 'mtn-data'
         if not service_id:
             return Response({"error": "service_id is required"}, status=400)
+
+        client = NellobyteClient()
         
-        # We return a structure that the App expects, but with Nellobyte-style logic
-        # For now, we return an empty variations list to stop the 500 crash
-        # In production, you would call Nellobyte's plan API here
-        variations = []
-        if "mtn" in service_id.lower():
-            variations.append({"variation_code": "1000.0", "name": "MTN 1GB SME", "variation_amount": "567"})
+        # 1. Get numeric code from frontend string
+        network_code = client._get_network_code(service_id)
+        
+        # 2. Fetch from Nellobyte
+        raw_plans = client.get_plans(network_code)
+
+        # 3. Format plans so the React Native Picker stays happy
+        # We map 'ID' to 'variation_code' and 'Amount' to 'variation_amount'
+        formatted_variations = []
+        for plan in raw_plans:
+            formatted_variations.append({
+                "variation_code": plan.get("ID"),
+                "name": plan.get("Name"),
+                "variation_amount": str(plan.get("Amount")),
+                "fixedPrice": "Yes"
+            })
 
         return Response({
             "content": {
                 "serviceID": service_id,
-                "variations": variations
+                "variations": formatted_variations
             }
         })
 
