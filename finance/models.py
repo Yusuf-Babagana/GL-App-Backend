@@ -92,14 +92,7 @@ class BankAccount(models.Model):
     account_name = models.CharField(max_length=200)
     reference = models.CharField(max_length=100, unique=True) # Monnify reference
 
-class UserVirtualAccount(models.Model):
-    wallet = models.OneToOneField('Wallet', on_delete=models.CASCADE, related_name='virtual_account')
-    bank_name = models.CharField(max_length=100, default="Moniepoint")
-    account_number = models.CharField(max_length=15, unique=True)
-    account_name = models.CharField(max_length=200)
 
-    def __str__(self):
-        return f"{self.bank_name} - {self.account_number}"
 
 class WithdrawalRequest(models.Model):
     """
