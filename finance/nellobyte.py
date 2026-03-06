@@ -17,6 +17,20 @@ class NellobyteClient:
         }
         return mapping.get(service_id.lower(), '01')
 
+    def fetch_plans(self, network_code):
+        """Fetch real-time plans from Nellobyte"""
+        url = f"{self.base_url}/APIDatabundlePlansV2.asp?UserID={self.user_id}"
+        try:
+            resp = requests.get(url, timeout=20)
+            data = resp.json()
+            # Nellobyte returns a dict with network keys: "MTN", "Glo", etc.
+            network_name_map = {"01": "MTN", "02": "Glo", "03": "9mobile", "04": "Airtel"}
+            network_key = network_name_map.get(network_code)
+            return data.get("content", {}).get(network_key, [])
+        except Exception as e:
+            print(f"Nellobyte Plan Fetch Error: {e}")
+            return []
+
     def purchase_data(self, request_id, service_id, data_plan, phone):
         url = f"{self.base_url}/APIDatabundleV1.asp"
         params = {
