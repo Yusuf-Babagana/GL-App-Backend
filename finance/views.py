@@ -199,87 +199,62 @@ class MonnifyWebhookView(APIView):
 from .nellobyte import NellobyteClient
 
 class VTPassPurchaseView(APIView):
+    """Refactored to Nellobyte Systems"""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        # We keep the same keys coming from the App
         service_id = request.data.get('service_id')
-        data_plan = request.data.get('variation_code') # Nellobyte ID (e.g., 1000.0)
+        data_plan = request.data.get('variation_code')
         phone = request.data.get('phone')
-        amount_raw = request.data.get('amount')
+        amount = Decimal(str(request.data.get('amount')))
 
-        if not all([service_id, data_plan, phone, amount_raw]):
-            return Response({"error": "Missing required fields"}, status=400)
-
-        amount = Decimal(str(amount_raw))
         from .utils import generate_vtpass_request_id
         request_id = generate_vtpass_request_id()
 
         try:
             with transaction.atomic():
                 wallet = Wallet.objects.select_for_update().get(user=request.user)
-
                 if wallet.balance < amount:
-                    return Response({"error": "Insufficient wallet balance"}, status=400)
+                    return Response({"error": "Insufficient balance"}, status=400)
 
-                # 1. Immediate Debit
                 wallet.balance -= amount
                 wallet.save()
 
-                # 2. Call Nellobyte
                 client = NellobyteClient()
                 resp = client.purchase_data(request_id, service_id, data_plan, phone)
 
-                # 3. Handle Status Codes
-                # 100 = Order Received (Success state for Nellobyte)
-                if resp.get('statuscode') == '100' or "RECEIVED" in resp.get('status', ''):
+                # 100 = Order Received (Nellobyte success code)
+                if str(resp.get('statuscode')) == '100':
                     Transaction.objects.create(
                         wallet=wallet, amount=-amount,
                         transaction_type='bill_payment', status='success',
                         description=f"Nellobyte: {service_id.upper()} to {phone}",
                         reference=request_id
                     )
-                    return Response({"message": "Order received successfully", "data": resp})
+                    return Response({"message": "Purchase successful", "data": resp})
                 else:
-                    # API level failure, rollback wallet debit
                     raise Exception(resp.get('status', 'API Error'))
-
         except Exception as e:
             return Response({"error": str(e)}, status=400)
 
 class VTPassVariationsView(APIView):
+    """Refactored to fetch dynamic Nellobyte plans"""
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        service_id = request.query_params.get('service_id') # e.g. 'mtn-data'
-        if not service_id:
-            return Response({"error": "service_id is required"}, status=400)
-
+        service_id = request.query_params.get('service_id')
         client = NellobyteClient()
-        
-        # 1. Get numeric code from frontend string
         network_code = client._get_network_code(service_id)
-        
-        # 2. Fetch from Nellobyte
-        raw_plans = client.get_plans(network_code)
+        raw_plans = client.fetch_plans(network_code)
 
-        # 3. Format plans so the React Native Picker stays happy
-        # We map 'ID' to 'variation_code' and 'Amount' to 'variation_amount'
-        formatted_variations = []
-        for plan in raw_plans:
-            formatted_variations.append({
-                "variation_code": plan.get("ID"),
-                "name": plan.get("Name"),
-                "variation_amount": str(plan.get("Amount")),
-                "fixedPrice": "Yes"
-            })
+        # Re-format for the Frontend Picker
+        variations = [{
+            "variation_code": p.get("ID"),
+            "name": p.get("Name"),
+            "variation_amount": str(p.get("Amount"))
+        } for p in raw_plans]
 
-        return Response({
-            "content": {
-                "serviceID": service_id,
-                "variations": formatted_variations
-            }
-        })
+        return Response({"content": {"variations": variations}})
 
 class VerifyBankAccountView(APIView):
     permission_classes = [permissions.IsAuthenticated]
