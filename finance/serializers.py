@@ -1,20 +1,26 @@
 from rest_framework import serializers
-from .models import Wallet, Transaction, BankAccount, WithdrawalRequest
+from .models import Wallet, Transaction, BankAccount, WithdrawalRequest, UserVirtualAccount
 
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
         fields = ['id', 'amount', 'transaction_type', 'status', 'description', 'created_at']
 
+class VirtualAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserVirtualAccount
+        fields = ['bank_name', 'account_number', 'account_name']
+
 class WalletSerializer(serializers.ModelSerializer):
-    # This will now automatically pull the latest transactions linked to the wallet
+    # Include the virtual account details in the wallet response
+    virtual_account = VirtualAccountSerializer(read_only=True)
     transactions = serializers.SerializerMethodField()
 
     class Meta:
         model = Wallet
         fields = [
             'currency', 'balance', 'escrow_balance', 'total_assets', 
-            'transactions', 'account_number', 'bank_name'
+            'transactions', 'virtual_account'
         ]
 
     def get_transactions(self, obj):
