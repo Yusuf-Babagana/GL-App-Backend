@@ -12,8 +12,8 @@ class VirtualAccountSerializer(serializers.ModelSerializer):
         fields = ['bank_name', 'account_number', 'account_name']
 
 class WalletSerializer(serializers.ModelSerializer):
-    # Include the virtual account details in the wallet response
-    virtual_account = VirtualAccountSerializer(read_only=True)
+    # 'allow_null=True' prevents the 500 error if the account isn't ready yet
+    virtual_account = VirtualAccountSerializer(read_only=True, allow_null=True)
     transactions = serializers.SerializerMethodField()
 
     class Meta:
