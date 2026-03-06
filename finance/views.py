@@ -28,33 +28,18 @@ class WalletDetailView(APIView):
     def get(self, request):
         wallet, _ = Wallet.objects.get_or_create(user=request.user)
         
-        # 🛡️ PROTECTIVE LOGIC: Check if account exists
-        if not hasattr(wallet, 'virtual_account'):
-            # If missing, we try to create it, but we DON'T let it crash the view
-            try:
-                client = NellobyteClient()
-                resp = client.create_reserved_account(
-                    user_full_name=request.user.get_full_name() or request.user.username,
-                    user_email=request.user.email,
-                    user_phone=getattr(request.user, 'phone', '08000000000')
-                )
-                
-                if resp and resp.get('status') == 'SUCCESS':
-                    UserVirtualAccount.objects.create(
-                        wallet=wallet,
-                        bank_name=resp.get('bank_name', 'Moniepoint MFB'),
-                        account_number=resp.get('account_number'),
-                        account_name=resp.get('account_name')
-                    )
-                else:
-                    logger.warning(f"Nellobyte account generation failed for {request.user.email}")
-            except Exception as e:
-                logger.error(f"Critical error during virtual account generation: {e}")
+        # We define your official business account details here
+        # Users will see this and add their Username as a reference
+        funding_data = {
+            "bank_name": "Moniepoint MFB",
+            "account_number": "6649014083",
+            "account_name": f"NELLOBYTE-YUS ({request.user.username})"
+        }
 
-        # Now we serialize. Even if virtual_account is missing, 
-        # the Serializer should handle it gracefully.
-        serializer = WalletSerializer(wallet)
-        return Response(serializer.data)
+        return Response({
+            "balance": wallet.balance,
+            "virtual_account": funding_data
+        })
 
 class InitiateDepositView(APIView):
     """
