@@ -196,78 +196,66 @@ class MonnifyWebhookView(APIView):
         return Response({"status": "accepted"}, status=200)
 
 
+from .nellobyte import NellobyteClient
+
 class VTPassPurchaseView(APIView):
     # Temporarily remove IsVerifiedUser to get sandbox logs
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        print(f"DEBUG: Incoming Purchase Data: {request.data}")
-
         service_id = request.data.get('service_id') or request.data.get('serviceID')
-        variation_code = request.data.get('variation_code')
+        data_plan = request.data.get('variation_code') # Nellobyte 'DataPlan'
         phone = request.data.get('phone')
         amount_raw = request.data.get('amount')
 
-        # 1. Basic Validation
-        if not all([service_id, variation_code, phone, amount_raw]):
+        if not all([service_id, data_plan, phone, amount_raw]):
             return Response({"error": "Missing required fields"}, status=400)
 
-        # 2. Logic Check: Prevent Mismatched Networks
-        # If service is mtn-data but code starts with 'glo', stop it here.
-        if "mtn" in service_id and "glo" in variation_code:
-            return Response({"error": "Network mismatch: MTN service cannot use Glo plan"}, status=400)
-
         amount = Decimal(str(amount_raw))
-        wallet = request.user.wallet
-
-        # 3. Generate Request ID
+        
+        # 1. Unique Request ID (We can reuse your existing Lagos generator)
         from .utils import generate_vtpass_request_id
         request_id = generate_vtpass_request_id()
 
         try:
             with transaction.atomic():
-                # Lock the wallet row so no other process can touch it during this second
                 wallet = Wallet.objects.select_for_update().get(user=request.user)
 
                 if wallet.balance < amount:
                     return Response({"error": "Insufficient wallet balance"}, status=400)
 
+                # 2. Debit Wallet
                 wallet.balance -= amount
                 wallet.save()
 
-                client = VTPassClient()
-                # Ensure amount is string for the payload
+                # 3. Call Nellobyte
+                client = NellobyteClient()
                 resp = client.purchase_data(
-                    request_id, 
-                    service_id, 
-                    variation_code, 
-                    phone, 
-                    str(amount) # Format as string
+                    request_id=request_id,
+                    service_id=service_id,
+                    data_plan=data_plan,
+                    phone=phone,
+                    callback_url="https://glappbackend.pythonanywhere.com/api/finance/nellobyte-callback/"
                 )
+
+                # 4. Handle Response
+                # Nellobyte usually returns status: "ORDER_RECEIVED" or "TRANSACTION_SUCCESSFUL"
+                # Check their documentation for the exact success string
+                status_msg = str(resp.get('status', '')).upper()
                 
-                print(f"DEBUG: VTpass API Response: {resp}")
-
-                # VTpass Response Check
-                # 000 is the standard success code
-                # 099 is "Process in progress" which is often treated as success in sandbox
-                success_codes = ['000', '099']
-
-                if resp.get('code') in success_codes or "SUCCESSFUL" in str(resp.get('response_description')).upper():
+                if "SUCCESSFUL" in status_msg or "RECEIVED" in status_msg:
                     Transaction.objects.create(
                         wallet=wallet, amount=-amount,
                         transaction_type='bill_payment', status='success',
-                        description=f"{service_id.upper()} {variation_code} to {phone}",
+                        description=f"Nellobyte: {service_id.upper()} to {phone}",
                         reference=request_id
                     )
-                    return Response({"message": "Purchase successful", "data": resp})
+                    return Response({"message": "Purchase initiated", "data": resp})
                 else:
-                    # Logic error or Sandbox failure: Rollback the debit
-                    raise Exception(resp.get('response_description', 'Transaction Failed'))
+                    # If it failed at the API level, rollback the wallet debit
+                    raise Exception(resp.get('remark', 'Nellobyte API Error'))
 
         except Exception as e:
-            import traceback
-            print("!!! CRITICAL ERROR TRACEBACK:")
-            print(traceback.format_exc()) 
             return Response({"error": str(e)}, status=400)
 
 class VTPassVariationsView(APIView):
