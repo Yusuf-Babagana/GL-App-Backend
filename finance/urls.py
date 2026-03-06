@@ -7,12 +7,16 @@ from .views import (
     VTPassPurchaseView, 
     VTPassVariationsView,
     VerifyBankAccountView,
-    WithdrawalView
+    WithdrawalView,
+    clubkonnect_deposit_webhook
 )
 
 urlpatterns = [
     # Wallet Info
     path('wallet/', WalletDetailView.as_view(), name='wallet-detail'),
+    
+    # Clubkonnect Automated Funding
+    path('webhook/deposit/', clubkonnect_deposit_webhook, name='deposit_webhook'),
     
     # Paystack Funding Flow
     path('deposit/initiate/', InitiateDepositView.as_view(), name='deposit-initiate'),

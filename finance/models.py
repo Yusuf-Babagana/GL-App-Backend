@@ -90,7 +90,7 @@ class BankAccount(models.Model):
     bank_name = models.CharField(max_length=100)
     account_number = models.CharField(max_length=10, unique=True)
     account_name = models.CharField(max_length=200)
-    reference = models.CharField(max_length=100, unique=True) # Monnify reference
+    reference = models.CharField(max_length=100, unique=True, null=True, blank=True) # Monnify reference
 
 
 
