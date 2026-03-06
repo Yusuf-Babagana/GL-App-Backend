@@ -335,6 +335,25 @@ class WithdrawalView(APIView):
             print(f"WITHDRAWAL FAILURE: {str(e)}")
             return Response({"error": str(e)}, status=400)
 
+class DepositNotificationView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        amount = request.data.get('amount')
+        sender = request.data.get('sender_name')
+        
+        # Create a PENDING transaction record
+        Transaction.objects.create(
+            wallet=request.user.wallet,
+            amount=amount,
+            transaction_type='deposit',
+            status='pending', # <--- Important
+            description=f"Manual Deposit: {sender} ({request.user.username})"
+        )
+        # Optional: Send yourself an email or Telegram alert here!
+        return Response({"message": "Admin notified"}, status=200)
+
+
 
 @api_view(['GET', 'POST']) # Clubkonnect usually uses GET for callbacks
 @permission_classes([AllowAny]) # Must be public so Clubkonnect can reach it
