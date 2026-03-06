@@ -3,23 +3,22 @@ from django.conf import settings
 
 class NellobyteClient:
     def __init__(self):
-        self.base_url = settings.NELLOBYTE_BASE_URL
         self.user_id = settings.NELLOBYTE_USER_ID
         self.api_key = settings.NELLOBYTE_API_KEY
+        self.base_url = "https://www.nellobytesystems.com"
 
     def _get_network_code(self, service_id):
-        """Maps frontend service IDs to Nellobyte numeric codes"""
+        """Maps your app strings to Nellobyte numeric codes"""
         mapping = {
             'mtn-data': '01',
             'glo-data': '02',
-            'airtel-data': '03',
-            '9mobile-data': '04',
+            '9mobile-data': '03',
+            'airtel-data': '04'
         }
         return mapping.get(service_id.lower(), '01')
 
-    def purchase_data(self, request_id, service_id, data_plan, phone, callback_url=""):
-        endpoint = f"{self.base_url}/APIDatabundleV1.asp"
-        
+    def purchase_data(self, request_id, service_id, data_plan, phone):
+        url = f"{self.base_url}/APIDatabundleV1.asp"
         params = {
             "UserID": self.user_id,
             "APIKey": self.api_key,
@@ -27,21 +26,24 @@ class NellobyteClient:
             "DataPlan": data_plan,
             "MobileNumber": phone,
             "RequestID": request_id,
-            "CallBackURL": callback_url
+            "CallBackURL": "https://glappbackend.pythonanywhere.com/api/finance/nellobyte-callback/"
         }
-
-        # Nellobyte uses HTTPS GET as per documentation
-        response = requests.get(endpoint, params=params, timeout=30)
         
-        # Nellobyte returns JSON. Note: Check if they return a 200 even on API failure
+        # Nellobyte uses HTTPS GET
+        response = requests.get(url, params=params, timeout=30)
         return response.json()
 
-    def query_transaction(self, request_id):
-        endpoint = f"{self.base_url}/APIQueryV1.asp"
+    def query_transaction(self, order_id=None, request_id=None):
+        """Allows verification by either OrderID or RequestID"""
+        url = f"{self.base_url}/APIQueryV1.asp"
         params = {
             "UserID": self.user_id,
             "APIKey": self.api_key,
-            "OrderID": request_id # Nellobyte usually checks by RequestID/OrderID
         }
-        response = requests.get(endpoint, params=params, timeout=30)
+        if order_id:
+            params["OrderID"] = order_id
+        else:
+            params["RequestID"] = request_id
+            
+        response = requests.get(url, params=params, timeout=30)
         return response.json()
