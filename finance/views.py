@@ -242,32 +242,19 @@ class VTPassVariationsView(APIView):
 
     def get(self, request):
         service_id = request.query_params.get('service_id')
-        if not service_id:
-            return Response({"error": "service_id is required"}, status=400)
-
         client = NellobyteClient()
         network_code = client._get_network_code(service_id)
         
-        # Get raw plans from the new fetch_plans method
+        # If API is failing, this returns [], which our Layer 1 frontend handles
         raw_plans = client.fetch_plans(network_code)
 
-        # Map Nellobyte keys to the VTpass keys your frontend expects
-        # Nellobyte: ID, Name, Amount -> Frontend: variation_code, name, variation_amount
-        formatted_variations = []
-        for plan in raw_plans:
-            formatted_variations.append({
-                "variation_code": plan.get("ID"),
-                "name": plan.get("Name"),
-                "variation_amount": str(plan.get("Amount")),
-                "fixedPrice": "Yes"
-            })
+        formatted = [{
+            "variation_code": str(p.get("ID")),
+            "name": p.get("Name"),
+            "variation_amount": str(p.get("Amount"))
+        } for p in raw_plans]
 
-        return Response({
-            "content": {
-                "serviceID": service_id,
-                "variations": formatted_variations
-            }
-        })
+        return Response({"content": {"variations": formatted}})
 
 class VerifyBankAccountView(APIView):
     permission_classes = [permissions.IsAuthenticated]
