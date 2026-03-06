@@ -199,12 +199,12 @@ class MonnifyWebhookView(APIView):
 from .nellobyte import NellobyteClient
 
 class VTPassPurchaseView(APIView):
-    # Temporarily remove IsVerifiedUser to get sandbox logs
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        service_id = request.data.get('service_id') or request.data.get('serviceID')
-        data_plan = request.data.get('variation_code') # Nellobyte 'DataPlan'
+        # We keep the same keys coming from the App
+        service_id = request.data.get('service_id')
+        data_plan = request.data.get('variation_code') # Nellobyte ID (e.g., 1000.0)
         phone = request.data.get('phone')
         amount_raw = request.data.get('amount')
 
@@ -212,8 +212,6 @@ class VTPassPurchaseView(APIView):
             return Response({"error": "Missing required fields"}, status=400)
 
         amount = Decimal(str(amount_raw))
-        
-        # 1. Unique Request ID (We can reuse your existing Lagos generator)
         from .utils import generate_vtpass_request_id
         request_id = generate_vtpass_request_id()
 
@@ -224,36 +222,27 @@ class VTPassPurchaseView(APIView):
                 if wallet.balance < amount:
                     return Response({"error": "Insufficient wallet balance"}, status=400)
 
-                # 2. Debit Wallet
+                # 1. Immediate Debit
                 wallet.balance -= amount
                 wallet.save()
 
-                # 3. Call Nellobyte
+                # 2. Call Nellobyte
                 client = NellobyteClient()
-                resp = client.purchase_data(
-                    request_id=request_id,
-                    service_id=service_id,
-                    data_plan=data_plan,
-                    phone=phone,
-                    callback_url="https://glappbackend.pythonanywhere.com/api/finance/nellobyte-callback/"
-                )
+                resp = client.purchase_data(request_id, service_id, data_plan, phone)
 
-                # 4. Handle Response
-                # Nellobyte usually returns status: "ORDER_RECEIVED" or "TRANSACTION_SUCCESSFUL"
-                # Check their documentation for the exact success string
-                status_msg = str(resp.get('status', '')).upper()
-                
-                if "SUCCESSFUL" in status_msg or "RECEIVED" in status_msg:
+                # 3. Handle Status Codes
+                # 100 = Order Received (Success state for Nellobyte)
+                if resp.get('statuscode') == '100' or "RECEIVED" in resp.get('status', ''):
                     Transaction.objects.create(
                         wallet=wallet, amount=-amount,
                         transaction_type='bill_payment', status='success',
                         description=f"Nellobyte: {service_id.upper()} to {phone}",
                         reference=request_id
                     )
-                    return Response({"message": "Purchase initiated", "data": resp})
+                    return Response({"message": "Order received successfully", "data": resp})
                 else:
-                    # If it failed at the API level, rollback the wallet debit
-                    raise Exception(resp.get('remark', 'Nellobyte API Error'))
+                    # API level failure, rollback wallet debit
+                    raise Exception(resp.get('status', 'API Error'))
 
         except Exception as e:
             return Response({"error": str(e)}, status=400)
