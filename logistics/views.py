@@ -31,39 +31,36 @@ class PurchaseDataView(APIView):
         if not payment_success:
             return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 2. Call VTpass API
-        vtpass_url = f"{settings.VTPASS_BASE_URL}/pay"
-        payload = {
-            "request_id": f"GL-{Transaction.objects.filter(wallet__user=user).count() + 1}", # Unique ID
-            "serviceID": service_id,
-            "billersCode": phone,
-            "variation_code": variation_code,
-            "amount": amount,
-            "phone": phone
-        }
-        headers = {
-            "api-key": settings.VTPASS_API_KEY,
-            "secret-key": settings.VTPASS_SECRET_KEY,
-        }
+        # 2. Call Nellobyte API
+        from finance. nellobyte import NellobyteClient
+        from finance.utils import generate_vtpass_request_id
+        
+        request_id = generate_vtpass_request_id()
 
         try:
-            # We use a 30s timeout for stability
-            response = requests.post(vtpass_url, json=payload, headers=headers, timeout=30)
-            res_data = response.json()
+            client = NellobyteClient()
+            res_data = client.purchase_data(
+                request_id=request_id,
+                service_id=service_id,
+                data_plan=variation_code,
+                phone=phone
+            )
 
-            if res_data.get("code") == "000": # VTpass Success Code
+            status_msg = str(res_data.get('status', '')).upper()
+            
+            if res_data.get('statuscode') == '100' or "RECEIVED" in status_msg or "SUCCESSFUL" in status_msg:
                 return Response({
                     "message": "Data purchase successful!",
                     "details": res_data
                 }, status=200)
             else:
-                # 3. AUTO-REFUND if VTpass fails
+                # 3. AUTO-REFUND if Nellobyte fails
                 # Logic: Add money back to balance and record the failure
                 user.wallet.balance += float(amount) # Type safety
                 user.wallet.save()
                 return Response({
-                    "error": "VTpass Provider Error",
-                    "details": res_data.get("response_description")
+                    "error": "Provider Error",
+                    "details": res_data.get("remark") or res_data.get("status")
                 }, status=400)
 
         except Exception as e:
