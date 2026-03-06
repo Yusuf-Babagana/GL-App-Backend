@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions, status
 from django.db import transaction
-from .models import Wallet, Transaction, BankAccount
+from .models import Wallet, Transaction, BankAccount, UserVirtualAccount
 from market.models import Order
 from .serializers import WalletSerializer
 from .services import PaystackService, WalletService # Our new services
@@ -319,3 +319,34 @@ class WithdrawalView(APIView):
             # 4. If Paystack or WalletService fails, we need to know why
             print(f"WITHDRAWAL FAILURE: {str(e)}")
             return Response({"error": str(e)}, status=400)
+
+class NellobytePaymentWebhookView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        # Nellobyte usually sends: orderid, statuscode, amount, requestid
+        amount = request.query_params.get('amount')
+        account_num = request.query_params.get('accountnumber')
+        
+        if request.query_params.get('statuscode') == '200':
+            try:
+                # 1. Find the user who owns this account number
+                acc = UserVirtualAccount.objects.get(account_number=account_num)
+                wallet = acc.wallet
+                
+                # 2. Credit their balance
+                wallet.balance += Decimal(str(amount))
+                wallet.save()
+                
+                # 3. Log it
+                Transaction.objects.create(
+                    wallet=wallet, amount=Decimal(str(amount)), 
+                    transaction_type='deposit', status='success',
+                    description="Instant Wallet Funding via Virtual Account"
+                )
+            except UserVirtualAccount.DoesNotExist:
+                print(f"NELLOBYTE WEBHOOK ERROR: Account {account_num} not found")
+            except Exception as e:
+                print(f"NELLOBYTE WEBHOOK ERROR: {str(e)}")
+            
+        return Response("OK", status=200)

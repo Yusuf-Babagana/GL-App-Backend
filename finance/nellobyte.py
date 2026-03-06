@@ -73,3 +73,22 @@ class NellobyteClient:
             
         response = requests.get(url, params=params, timeout=30)
         return response.json()
+
+    def create_reserved_account(self, user_full_name, user_email, user_phone):
+        """
+        Calls Nellobyte to create a dedicated virtual account for a customer.
+        """
+        url = f"{self.base_url}/APIGenerateVirtualAccountV1.asp"
+        params = {
+            "UserID": self.user_id,
+            "APIKey": self.api_key,
+            "CustomerName": user_full_name,
+            "CustomerEmail": user_email,
+            "CustomerPhone": user_phone,
+        }
+        try:
+            response = requests.get(url, params=params, timeout=20)
+            return response.json()
+        except Exception as e:
+            print(f"NELLOBYTE VIRTUAL ACCOUNT ERROR: {e}")
+            return None
