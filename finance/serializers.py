@@ -12,21 +12,27 @@ class VirtualAccountSerializer(serializers.ModelSerializer):
         fields = ['bank_name', 'account_number', 'account_name']
 
 class WalletSerializer(serializers.ModelSerializer):
-    # 'allow_null=True' prevents the 500 error if the account isn't ready yet
-    virtual_account = VirtualAccountSerializer(read_only=True, allow_null=True)
-    transactions = serializers.SerializerMethodField()
+    virtual_account = serializers.SerializerMethodField()
 
     class Meta:
         model = Wallet
-        fields = [
-            'currency', 'balance', 'escrow_balance', 'total_assets', 
-            'transactions', 'virtual_account'
-        ]
+        fields = ['balance', 'virtual_account']
 
-    def get_transactions(self, obj):
-        # Return the 10 most recent transactions
-        query = obj.transactions.all().order_by('-created_at')[:10]
-        return TransactionSerializer(query, many=True).data
+    def get_virtual_account(self, obj):
+        try:
+            acc = obj.virtual_account # This is the related_name from models.py
+            return {
+                "bank_name": acc.bank_name,
+                "account_number": acc.account_number,
+                "account_name": acc.account_name
+            }
+        except:
+            # RETURN DEFAULT: Show your business account if theirs isn't ready
+            return {
+                "bank_name": "Moniepoint MFB",
+                "account_number": "6649014083",
+                "account_name": f"GLAPP FUNDING ({obj.user.username})"
+            }
 
 class BankAccountSerializer(serializers.ModelSerializer):
     class Meta:

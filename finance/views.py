@@ -20,31 +20,39 @@ from users.permissions import IsVerifiedUser
 
 from .vtpass import VTPassClient  # Add this near your other imports
 
+logger = logging.getLogger(__name__)
+
 class WalletDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         wallet, _ = Wallet.objects.get_or_create(user=request.user)
         
-        # If no account exists, try to get one from Nellobyte NOW
+        # 🛡️ PROTECTIVE LOGIC: Check if account exists
         if not hasattr(wallet, 'virtual_account'):
-            client = NellobyteClient()
+            # If missing, we try to create it, but we DON'T let it crash the view
             try:
+                client = NellobyteClient()
                 resp = client.create_reserved_account(
                     user_full_name=request.user.get_full_name() or request.user.username,
                     user_email=request.user.email,
                     user_phone=getattr(request.user, 'phone', '08000000000')
                 )
+                
                 if resp and resp.get('status') == 'SUCCESS':
                     UserVirtualAccount.objects.create(
                         wallet=wallet,
-                        bank_name=resp.get('bank_name', 'Moniepoint'),
+                        bank_name=resp.get('bank_name', 'Moniepoint MFB'),
                         account_number=resp.get('account_number'),
                         account_name=resp.get('account_name')
                     )
+                else:
+                    logger.warning(f"Nellobyte account generation failed for {request.user.email}")
             except Exception as e:
-                print(f"Manual Provisioning Failed: {e}")
+                logger.error(f"Critical error during virtual account generation: {e}")
 
+        # Now we serialize. Even if virtual_account is missing, 
+        # the Serializer should handle it gracefully.
         serializer = WalletSerializer(wallet)
         return Response(serializer.data)
 
