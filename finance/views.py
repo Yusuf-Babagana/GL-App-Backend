@@ -26,12 +26,12 @@ class WalletDetailView(APIView):
     def get(self, request):
         wallet, _ = Wallet.objects.get_or_create(user=request.user)
         
-        # STRATEGY: If account is missing, try to create it now!
+        # If no account exists, try to get one from Nellobyte NOW
         if not hasattr(wallet, 'virtual_account'):
             client = NellobyteClient()
             try:
                 resp = client.create_reserved_account(
-                    user_full_name=f"{request.user.first_name} {request.user.last_name}" or request.user.username,
+                    user_full_name=request.user.get_full_name() or request.user.username,
                     user_email=request.user.email,
                     user_phone=getattr(request.user, 'phone', '08000000000')
                 )
@@ -43,7 +43,7 @@ class WalletDetailView(APIView):
                         account_name=resp.get('account_name')
                     )
             except Exception as e:
-                print(f"FALLBACK PROVISION ERROR for {request.user.email}: {e}")
+                print(f"Manual Provisioning Failed: {e}")
 
         serializer = WalletSerializer(wallet)
         return Response(serializer.data)
