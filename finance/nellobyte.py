@@ -18,34 +18,29 @@ class NellobyteClient:
         return mapping.get(service_id.lower(), '01')
 
     def fetch_plans(self, network_code):
-        """Fetch real-time plans from Nellobyte"""
+        """Fetches and extracts the correct network list from Nellobyte"""
+        # Endpoint for JSON plans
         url = f"{self.base_url}/APIDatabundlePlansV2.asp?UserID={self.user_id}"
+        
         try:
             resp = requests.get(url, timeout=20)
             data = resp.json()
             
-            # DEBUG: See the actual keys Nellobyte is sending
-            print(f"DEBUG NELLOBYTE DATA: {data.keys()}") 
+            # Map numeric codes back to the Keys in Nellobyte's JSON
+            network_keys = {
+                "01": "MTN",
+                "02": "Glo",
+                "03": "9mobile",
+                "04": "Airtel"
+            }
+            target_key = network_keys.get(network_code)
             
-            # Nellobyte often uses 'mobile_data' or 'content' as the root key
-            # Let's adjust the extraction logic to be more flexible
-            content = data.get("content", data) 
+            # Nellobyte structure: {"content": {"MTN": [...], "Glo": [...]}}
+            all_networks = data.get("content", {})
+            return all_networks.get(target_key, [])
             
-            network_name_map = {"01": "MTN", "02": "Glo", "03": "9mobile", "04": "Airtel"}
-            network_key = network_name_map.get(network_code)
-            
-            # Try to find the network key regardless of case
-            plans = []
-            if isinstance(content, dict):
-                for key in content.keys():
-                    if key.upper() == network_key.upper():
-                        plans = content[key]
-                        break
-            
-            print(f"DEBUG FOUND PLANS FOR {network_key}: {len(plans)}")            
-            return plans
         except Exception as e:
-            print(f"Nellobyte Plan Fetch Error: {e}")
+            print(f"NELLOBYTE FETCH ERROR: {str(e)}")
             return []
 
     def purchase_data(self, request_id, service_id, data_plan, phone):
