@@ -1,5 +1,6 @@
-import requests
 import logging
+import re
+from django.contrib.auth import get_user_model
 from datetime import datetime
 import pytz
 import uuid
@@ -9,6 +10,8 @@ from decimal import Decimal
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework import permissions, status
 from django.db import transaction
 from .models import Wallet, Transaction, BankAccount
@@ -332,3 +335,47 @@ class WithdrawalView(APIView):
             print(f"WITHDRAWAL FAILURE: {str(e)}")
             return Response({"error": str(e)}, status=400)
 
+
+@api_view(['GET', 'POST']) # Clubkonnect usually uses GET for callbacks
+@permission_classes([AllowAny]) # Must be public so Clubkonnect can reach it
+def clubkonnect_deposit_webhook(request):
+    # Clubkonnect typically sends: orderid, statuscode, amount, and orderremark
+    # The 'orderremark' usually contains the account name we set up: "NELLOBYTE-YUS (username)"
+    User = get_user_model()
+    
+    remark = request.query_params.get('orderremark', '')
+    amount = request.query_params.get('amount', 0)
+    status_code = request.query_params.get('statuscode')
+
+    if status_code == '200': # 200 usually means success in their callbacks
+        # 1. Extract username from the remark "NELLOBYTE-YUS (username)"
+        try:
+            match = re.search(r'\((.*?)\)', remark)
+            if not match:
+                return Response("Username not found in remark", status=400)
+            
+            username = match.group(1)
+            
+            # 2. Find the user and their wallet
+            user = User.objects.get(username=username)
+            wallet, _ = Wallet.objects.get_or_create(user=user)
+            
+            # 3. Credit the wallet
+            wallet.balance += Decimal(str(amount))
+            wallet.save()
+            
+            # 4. Record the transaction
+            Transaction.objects.create(
+                wallet=wallet, 
+                amount=Decimal(str(amount)), 
+                transaction_type='deposit', 
+                status='success',
+                description=f"Auto-Fund: {remark}"
+            )
+            return Response("Wallet Updated", status=200)
+        except User.DoesNotExist:
+            return Response(f"User {username} not found", status=404)
+        except Exception as e:
+            return Response(f"Error: {str(e)}", status=400)
+
+    return Response("Invalid Status", status=400)
