@@ -19,7 +19,7 @@ from market.models import Order
 from .serializers import WalletSerializer
 from .services import PaystackService, WalletService # Our new services
 from users.permissions import IsVerifiedUser
-# finance/views.py
+from .utils import MonnifyAPI
 
 from .vtpass import VTPassClient  # Add this near your other imports
 
@@ -31,18 +31,17 @@ class WalletDetailView(APIView):
     def get(self, request):
         wallet, _ = Wallet.objects.get_or_create(user=request.user)
         
-        # We define your official business account details here
-        # Users will see this and add their Username as a reference
-        funding_data = {
-            "bank_name": "Moniepoint MFB",
-            "account_number": "6649014083",
-            "account_name": f"NELLOBYTE-YUS ({request.user.username})"
-        }
+        # PROFESSIONAL LOGIC: If account is missing, generate it via Monnify
+        if not wallet.account_number:
+            account_data = MonnifyAPI.create_virtual_account(request.user)
+            if account_data:
+                wallet.account_number = account_data['account_number']
+                wallet.bank_name = account_data['bank_name']
+                wallet.bank_code = account_data['bank_code']
+                wallet.save()
 
-        return Response({
-            "balance": wallet.balance,
-            "virtual_account": funding_data
-        })
+        serializer = WalletSerializer(wallet)
+        return Response(serializer.data)
 
 class InitiateDepositView(APIView):
     """
@@ -157,57 +156,50 @@ class PaystackWebhookView(APIView):
         return Response({"status": "accepted"}, status=200)
 
 class MonnifyWebhookView(APIView):
+    permission_classes = [permissions.AllowAny]
+
     def post(self, request):
-        # 1. Signature Verification
+        # 1. Security Check: Use hmac to verify the signature from Monnify
         monnify_signature = request.headers.get('monnify-signature')
-        secret_key = settings.MONNIFY_SECRET_KEY
-        
-        # Compute hash
         computed_hash = hmac.new(
-            secret_key.encode(), 
+            settings.MONNIFY_SECRET_KEY.encode(), 
             request.body, 
             hashlib.sha512
         ).hexdigest()
 
         if monnify_signature != computed_hash:
-            return Response({"error": "Invalid signature"}, status=400)
+            return Response({"error": "Unauthorized"}, status=401)
 
         data = request.data
-        event_type = data.get('eventType')
-        body = data.get('eventData', {})
-        payment_ref = body.get('paymentReference')
-
-        # 2. Handle Successful Payment
-        if event_type == "SUCCESSFUL_TRANSACTION":
+        if data.get('eventType') == "SUCCESSFUL_TRANSACTION":
+            body = data.get('eventData', {})
+            payment_ref = body.get('paymentReference')
+            
+            # Use the accountReference to find the specific wallet
+            acc_ref = body.get('product', {}).get('reference')
+            
             try:
-                # 3. Idempotency Check
-                if Transaction.objects.filter(reference=payment_ref).exists():
-                    return Response({"status": "already processed"}, status=200)
+                wallet = Wallet.objects.get(account_reference=acc_ref)
+                amount = Decimal(str(body.get('amountPaid')))
 
-                # 4. Identify if this is an Order Payment or Wallet Top-up
-                if payment_ref.startswith("ORD-"):
-                    order_id = payment_ref.split('-')[1]
-                    order = Order.objects.get(id=order_id)
-                    order.payment_status = 'escrow_held' # Payment confirmed
-                    order.monnify_reference = payment_ref
-                    order.save()
-                    
-                    # Log Transaction record for history (but don't add to wallet balance)
-                    Transaction.objects.create(
-                        wallet=order.buyer.wallet,
-                        amount=order.total_price,
-                        transaction_type='payment',
-                        status='success',
-                        reference=payment_ref,
-                        description=f"Direct Payment for Order #{order.id}"
-                    )
-                else:
-                    # Keep your existing Wallet Top-up logic here
-                    pass
-                    
-            except Exception as e:
-                print(f"Webhook processing error: {e}")
-                
+                # 2. Idempotency Check (Don't process twice)
+                if not Transaction.objects.filter(reference=payment_ref).exists():
+                    with transaction.atomic():
+                        wallet.balance += amount
+                        wallet.save()
+
+                        Transaction.objects.create(
+                            wallet=wallet,
+                            amount=amount,
+                            transaction_type='deposit',
+                            status='success',
+                            reference=payment_ref,
+                            description=f"Automated Deposit via {body.get('bankName')}"
+                        )
+                return Response({"status": "success"}, status=200)
+            except Wallet.DoesNotExist:
+                return Response({"error": "Wallet not found"}, status=404)
+
         return Response({"status": "accepted"}, status=200)
 
 
