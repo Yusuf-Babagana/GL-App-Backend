@@ -13,7 +13,7 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 
 # 3. Security & Debug (Read from .env)
 SECRET_KEY = env('SECRET_KEY')
-DEBUG = env('DEBUG')
+DEBUG = env.bool('DEBUG', default=False)
 
 ALLOWED_HOSTS = ['glappbackend.pythonanywhere.com', '127.0.0.1', 'localhost']
 
@@ -22,18 +22,21 @@ AUTH_USER_MODEL = 'users.User'
 
 # 5. Third Party Service Keys (Read from .env)
 # NELLOBYTE SYSTEMS CONFIGURATION
-NELLOBYTE_USER_ID = env('NELLOBYTE_USER_ID', default='PLACEHOLDER_USER_ID')
-NELLOBYTE_API_KEY = env('NELLOBYTE_API_KEY', default='PLACEHOLDER_API_KEY')
+NELLOBYTE_USER_ID = env('NELLOBYTE_USER_ID', default='')
+NELLOBYTE_API_KEY = env('NELLOBYTE_API_KEY', default='')
 NELLOBYTE_BASE_URL = env('NELLOBYTE_BASE_URL', default='https://www.nellobytesystems.com')
 
-PAYSTACK_PUBLIC_KEY = env('PAYSTACK_PUBLIC_KEY')
-PAYSTACK_SECRET_KEY = env('PAYSTACK_SECRET_KEY')
+# PAYSTACK CONFIGURATION
+PAYSTACK_PUBLIC_KEY = env('PAYSTACK_PUBLIC_KEY', default='')
+PAYSTACK_SECRET_KEY = env('PAYSTACK_SECRET_KEY', default='')
 
-# MONNIFY CONFIGURATION (TEST KEYS)
-MONNIFY_API_KEY = "MK_TEST_EHY73CFGYU"
-MONNIFY_SECRET_KEY = "RP5NGLN5BC0ZZRQ98V3QUQ8D22MGSE5S"
-MONNIFY_CONTRACT_CODE = "1022108728"
-MONNIFY_BASE_URL = "https://sandbox.monnify.com/api/v1"
+# MONNIFY CONFIGURATION (FULLY AUTOMATED FROM .ENV)
+# No more hardcoded MK_TEST keys here!
+MONNIFY_API_KEY = env('MONNIFY_API_KEY', default='')
+MONNIFY_SECRET_KEY = env('MONNIFY_SECRET_KEY', default='')
+MONNIFY_CONTRACT_CODE = env('MONNIFY_CONTRACT_CODE', default='')
+# We use .rstrip('/') to prevent the "Double URL" bug found in your logs
+MONNIFY_BASE_URL = env('MONNIFY_BASE_URL', default='https://api.monnify.com').rstrip('/')
 
 # 6. Application Definition
 INSTALLED_APPS = [
@@ -94,7 +97,7 @@ DATABASES = {
     'default': env.db('DATABASE_URL', default=f"sqlite:///{BASE_DIR}/db.sqlite3")
 }
 
-# If the user still wants to use the individual variables (LEGACY SUPPORT)
+# Legacy support for manual DB variables
 if not env('DATABASE_URL', default=None):
     DATABASES['default'] = {
         'ENGINE': env('DB_ENGINE', default='django.db.backends.mysql'),
@@ -118,7 +121,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # 9. Internationalization
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Africa/Lagos' # Updated to Nigeria time for finance accuracy
 USE_I18N = True
 USE_TZ = True
 
@@ -126,7 +129,6 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 
-# Only include STATICFILES_DIRS if the folder actually exists locally
 if os.path.exists(os.path.join(BASE_DIR, 'staticfiles')):
     STATICFILES_DIRS = [os.path.join(BASE_DIR, 'staticfiles')]
 
@@ -154,6 +156,6 @@ SIMPLE_JWT = {
 CORS_ALLOW_ALL_ORIGINS = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Upload Limits
+# Upload Limits (50MB)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800
 FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800
