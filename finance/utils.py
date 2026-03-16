@@ -37,57 +37,46 @@ class MonnifyAPI:
 
     @staticmethod
     def create_virtual_account(user):
-        # 1. AUTHENTICATE
         token = MonnifyAPI.get_auth_token()
         if not token: return None
 
-        # 2. REFRESH USER (Crucial fix for signals/shell sync)
         user.refresh_from_db()
-
-        # 3. VERIFY BVN PRESENCE
         user_bvn = getattr(user, 'bvn', None)
+        
         if not user_bvn:
-            print(f"❌ Aborting: No BVN found in DB for {user.email}")
+            print(f"❌ Aborting: No BVN for {user.email}")
             return None
 
-        # 4. PREPARE REQUEST
         base = settings.MONNIFY_BASE_URL.strip().rstrip('/')
         base = base.replace("/api/v1", "").replace("/api/v2", "")
         url = f"{base}/api/v2/bank-transfer/reserved-accounts"
-
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json" # ADD THIS LINE
-        }
-
-        # Clean name (Remove special characters for API compliance)
+        
+        # Clean the name: Monnify prefers 'Firstname Lastname' 
+        # without special characters like '-' or '@'
         import re
-        raw_name = f"GLAPP-{user.full_name or user.username}"
-        clean_name = re.sub(r'[^a-zA-Z0-9\s-]', '', raw_name)[:50]
+        clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', user.full_name or user.username)[:50]
 
-        # 1. Force the string format
-        clean_bvn = str(user_bvn).strip()
-
-        # 2. Use the 'Flattened' v2 Payload 
-        # (Some Monnify live contracts expect 'bvn' at the top level)
         payload = {
             "accountReference": str(user.wallet.account_reference),
             "accountName": clean_name,
             "currencyCode": "NGN",
             "contractCode": settings.MONNIFY_CONTRACT_CODE,
             "customerEmail": user.email,
-            "customerName": user.full_name or user.username,
+            "customerName": clean_name,
             "getAllAvailableBanks": True,
-            "customerBvn": clean_bvn,  # Standard v2
-            "bvn": clean_bvn,          # Fallback for older v2 contracts
-            "nin": getattr(user, 'nin', ""), # Fallback NIN
+            "customerBvn": str(user_bvn).strip() 
+        }
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
         }
 
         try:
+            # Using json=payload automatically handles the json.dumps and headers
             response = requests.post(url, json=payload, headers=headers, timeout=20)
             data = response.json()
-
+            
             if data.get('requestSuccessful'):
                 accounts = data['responseBody']['accounts']
                 return {
@@ -96,7 +85,7 @@ class MonnifyAPI:
                     "bank_code": accounts[0]['bankCode']
                 }
             else:
-                # Log the specific reason from Monnify
+                # If you get 'BVN not found', the user entered a wrong BVN
                 print(f"❌ Monnify API Error: {data.get('responseMessage')}")
                 return None
         except Exception as e:
