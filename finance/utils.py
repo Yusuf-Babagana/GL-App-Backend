@@ -20,7 +20,10 @@ class MonnifyAPI:
         auth_str = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
         encoded_auth = base64.b64encode(auth_str.encode()).decode()
         
-        url = f"{settings.MONNIFY_BASE_URL.rstrip('/')}/api/v1/auth/login"
+        # FIX: Ensure we don't double up 'api/v1'
+        base_url = settings.MONNIFY_BASE_URL.rstrip('/')
+        url = f"{base_url}/api/v1/auth/login"
+        
         headers = {"Authorization": f"Basic {encoded_auth}"}
         
         try:
@@ -28,7 +31,8 @@ class MonnifyAPI:
             response.raise_for_status()
             return response.json()['responseBody']['accessToken']
         except Exception as e:
-            print(f"CRITICAL: Monnify Auth Failure -> {e}")
+            # Check if this error still says 'sandbox'
+            print(f"CRITICAL: Monnify Auth Failure -> {e} for url: {url}")
             return None
 
     @staticmethod
@@ -38,7 +42,10 @@ class MonnifyAPI:
         if not token:
             return None
 
-        url = f"{settings.MONNIFY_BASE_URL.rstrip('/')}/api/v2/bank-transfer/reserved-accounts"
+        # FIX: Use live base URL
+        base_url = settings.MONNIFY_BASE_URL.rstrip('/')
+        url = f"{base_url}/api/v2/bank-transfer/reserved-accounts"
+        
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
