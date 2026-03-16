@@ -37,63 +37,55 @@ class MonnifyAPI:
 
     @staticmethod
     def create_virtual_account(user):
+        # 1. AUTHENTICATE
         token = MonnifyAPI.get_auth_token()
         if not token: return None
 
-        base = settings.MONNIFY_BASE_URL.strip().rstrip('/')
-        if "api/v1" in base: base = base.replace("/api/v1", "")
-        if "api/v2" in base: base = base.replace("/api/v2", "")
+        # 2. REFRESH USER (Crucial fix for signals/shell sync)
+        user.refresh_from_db()
 
+        # 3. VERIFY BVN PRESENCE
+        user_bvn = getattr(user, 'bvn', None)
+        if not user_bvn:
+            print(f"❌ Aborting: No BVN found in DB for {user.email}")
+            return None
+
+        # 4. PREPARE REQUEST
+        base = settings.MONNIFY_BASE_URL.strip().rstrip('/')
+        base = base.replace("/api/v1", "").replace("/api/v2", "")
         url = f"{base}/api/v2/bank-transfer/reserved-accounts"
-        
+
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
-        
-        # Clean name (Remove special characters for API compliance)
-        raw_name = f"GLAPP-{user.full_name or user.username}"
-        clean_name = re.sub(r'[^a-zA-Z0-9\s-]', '', raw_name)[:50]
-        
-        # Explicitly fetch BVN or NIN from the user object
-        user_bvn = getattr(user, 'bvn', None)
-        user_nin = getattr(user, 'nin', None)
-        
+
         payload = {
             "accountReference": str(user.wallet.account_reference),
-            "accountName": clean_name,
+            "accountName": f"GLAPP-{user.full_name or user.username}"[:50],
             "currencyCode": "NGN",
             "contractCode": settings.MONNIFY_CONTRACT_CODE,
             "customerEmail": user.email,
             "customerName": user.full_name or user.username,
             "getAllAvailableBanks": True,
+            "customerBvn": str(user_bvn)  # Ensure it's a string
         }
-
-        # Compliance: Add BVN or NIN (One is mandatory in Production)
-        if user_bvn:
-            payload["customerBvn"] = user_bvn
-        elif user_nin:
-            payload["customerNin"] = user_nin
-        else:
-            print(f"❌ CANCELLED: No BVN/NIN provided for {user.email}")
-            return None
 
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=20)
             data = response.json()
-            
+
             if data.get('requestSuccessful'):
                 accounts = data['responseBody']['accounts']
-                # Returns the first available account (usually Wema or Moniepoint)
                 return {
                     "bank_name": accounts[0]['bankName'],
                     "account_number": accounts[0]['accountNumber'],
                     "bank_code": accounts[0]['bankCode']
                 }
             else:
+                # Log the specific reason from Monnify
                 print(f"❌ Monnify API Error: {data.get('responseMessage')}")
                 return None
-                
         except Exception as e:
             print(f"ERROR: Monnify Account Creation -> {e}")
             return None
