@@ -51,9 +51,13 @@ class MonnifyAPI:
             "Content-Type": "application/json"
         }
         
-        # Professional Step: Clean name (Remove special characters for API compliance)
+        # Clean name (Remove special characters for API compliance)
         raw_name = f"GLAPP-{user.full_name or user.username}"
         clean_name = re.sub(r'[^a-zA-Z0-9\s-]', '', raw_name)[:50]
+        
+        # Explicitly fetch BVN or NIN from the user object
+        user_bvn = getattr(user, 'bvn', None)
+        user_nin = getattr(user, 'nin', None)
         
         payload = {
             "accountReference": str(user.wallet.account_reference),
@@ -63,21 +67,24 @@ class MonnifyAPI:
             "customerEmail": user.email,
             "customerName": user.full_name or user.username,
             "getAllAvailableBanks": True,
-            # CRITICAL: Added BVN for Production Compliance
-            # Note: Ensure you have added 'bvn' field to your User model
-            "customerBvn": getattr(user, 'bvn', None) 
         }
 
-        try:
-            # We check if BVN is missing and log it (Monnify LIVE will return 422 without it)
-            if not payload["customerBvn"]:
-                print(f"⚠️ WARNING: User {user.email} has no BVN. Account creation will likely fail.")
+        # Compliance: Add BVN or NIN (One is mandatory in Production)
+        if user_bvn:
+            payload["customerBvn"] = user_bvn
+        elif user_nin:
+            payload["customerNin"] = user_nin
+        else:
+            print(f"❌ CANCELLED: No BVN/NIN provided for {user.email}")
+            return None
 
+        try:
             response = requests.post(url, json=payload, headers=headers, timeout=20)
             data = response.json()
             
             if data.get('requestSuccessful'):
                 accounts = data['responseBody']['accounts']
+                # Returns the first available account (usually Wema or Moniepoint)
                 return {
                     "bank_name": accounts[0]['bankName'],
                     "account_number": accounts[0]['accountNumber'],
@@ -85,10 +92,11 @@ class MonnifyAPI:
                 }
             else:
                 print(f"❌ Monnify API Error: {data.get('responseMessage')}")
+                return None
                 
         except Exception as e:
             print(f"ERROR: Monnify Account Creation -> {e}")
-        return None
+            return None
 
 class WalletManager:
     """
@@ -121,7 +129,6 @@ class WalletManager:
                     wallet.balance -= amount
                 
                 wallet.save()
-                
                 ledger.status = Transaction.Status.SUCCESS
                 ledger.save()
 
