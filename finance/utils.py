@@ -3,6 +3,7 @@ import base64
 import datetime
 import pytz
 import uuid
+import re
 from django.conf import settings
 from decimal import Decimal
 from django.db import transaction
@@ -31,7 +32,6 @@ class MonnifyAPI:
             response.raise_for_status()
             return response.json()['responseBody']['accessToken']
         except Exception as e:
-            # This print will help us see the FINAL url being hit
             print(f"CRITICAL Auth Failure: {e} | URL: {url}")
             return None
 
@@ -51,27 +51,41 @@ class MonnifyAPI:
             "Content-Type": "application/json"
         }
         
+        # Professional Step: Clean name (Remove special characters for API compliance)
+        raw_name = f"GLAPP-{user.full_name or user.username}"
+        clean_name = re.sub(r'[^a-zA-Z0-9\s-]', '', raw_name)[:50]
+        
         payload = {
             "accountReference": str(user.wallet.account_reference),
-            "accountName": f"GLAPP-{user.full_name or user.username}"[:50], # Limits length for API compliance
+            "accountName": clean_name,
             "currencyCode": "NGN",
             "contractCode": settings.MONNIFY_CONTRACT_CODE,
             "customerEmail": user.email,
             "customerName": user.full_name or user.username,
-            "getAllAvailableBanks": True
+            "getAllAvailableBanks": True,
+            # CRITICAL: Added BVN for Production Compliance
+            # Note: Ensure you have added 'bvn' field to your User model
+            "customerBvn": getattr(user, 'bvn', None) 
         }
 
         try:
+            # We check if BVN is missing and log it (Monnify LIVE will return 422 without it)
+            if not payload["customerBvn"]:
+                print(f"⚠️ WARNING: User {user.email} has no BVN. Account creation will likely fail.")
+
             response = requests.post(url, json=payload, headers=headers, timeout=20)
             data = response.json()
+            
             if data.get('requestSuccessful'):
-                # We typically take the first account returned (e.g., Wema Bank)
                 accounts = data['responseBody']['accounts']
                 return {
                     "bank_name": accounts[0]['bankName'],
                     "account_number": accounts[0]['accountNumber'],
                     "bank_code": accounts[0]['bankCode']
                 }
+            else:
+                print(f"❌ Monnify API Error: {data.get('responseMessage')}")
+                
         except Exception as e:
             print(f"ERROR: Monnify Account Creation -> {e}")
         return None
@@ -82,21 +96,15 @@ class WalletManager:
     """
     @staticmethod
     def process_payment(user, amount, transaction_type, description, related_id=None):
-        """
-        Deducts funds or moves them to escrow. 
-        Uses select_for_update to prevent double-spending.
-        """
         amount = Decimal(str(amount))
         
         try:
             with transaction.atomic():
-                # Lock the wallet row until the transaction finishes
                 wallet = Wallet.objects.select_for_update().get(user=user)
 
                 if wallet.balance < amount:
                     return False, "Insufficient wallet balance."
 
-                # 1. Create the Transaction Record (Pending)
                 ledger = Transaction.objects.create(
                     wallet=wallet,
                     amount=-amount,
@@ -106,7 +114,6 @@ class WalletManager:
                     related_order_id=related_id if transaction_type == 'escrow_lock' else None
                 )
 
-                # 2. Execute the Movement
                 if transaction_type == Transaction.TransactionType.ESCROW_LOCK:
                     wallet.balance -= amount
                     wallet.escrow_balance += amount
@@ -115,7 +122,6 @@ class WalletManager:
                 
                 wallet.save()
                 
-                # 3. Mark as Success
                 ledger.status = Transaction.Status.SUCCESS
                 ledger.save()
 
@@ -127,20 +133,8 @@ class WalletManager:
             return False, f"Payment failed: {str(e)}"
 
 def generate_vtpass_request_id():
-    """
-    Generates a compliant VTpass Request ID.
-    Format: YYYYMMDDHHII + unique_suffix
-    Must be 12+ characters, first 12 must be numeric timestamp in Lagos time.
-    """
-    # 1. Force the timezone to Lagos (GMT+1)
     lagos_tz = pytz.timezone('Africa/Lagos')
     now_in_lagos = datetime.datetime.now(lagos_tz)
-    
-    # 2. Format the first 12 digits: YYYYMMDDHHMM
     timestamp = now_in_lagos.strftime('%Y%m%d%H%M')
-    
-    # 3. Add a unique alphanumeric string (shortened UUID)
-    # Total length will be ~22 characters, satisfying the 12+ rule
     unique_suffix = uuid.uuid4().hex[:10]
-    
     return f"{timestamp}{unique_suffix}"
