@@ -178,34 +178,14 @@ class UpdateBVNView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        import re
+        # We look for the key "bvn"
+        bvn = request.data.get('bvn')
+        
+        if not bvn or len(str(bvn)) != 11:
+            return Response({"error": "A valid 11-digit BVN is required"}, status=400)
+            
         user = request.user
-        bvn = request.data.get('bvn', '').strip()
-
-        # 1. Validation: Must be 11 digits
-        if not re.match(r'^\d{11}$', bvn):
-            return Response(
-                {"error": "Invalid BVN. It must be exactly 11 digits."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # 2. Check if user already has a BVN
-        if user.bvn:
-            return Response(
-                {"error": "BVN is already registered for this account."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # 3. Save BVN (This triggers the Signal automatically)
-        try:
-            user.bvn = bvn
-            user.save()
-            return Response(
-                {"message": "BVN updated successfully. Generating your bank account..."},
-                status=status.HTTP_200_OK
-            )
-        except Exception as e:
-            return Response(
-                {"error": "An error occurred while saving your BVN."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        user.bvn = str(bvn)
+        user.save() # This triggers the signal
+        
+        return Response({"message": "BVN updated. Generating account..."}, status=200)
