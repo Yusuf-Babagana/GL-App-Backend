@@ -57,30 +57,32 @@ class MonnifyAPI:
 
         headers = {
             "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Accept": "application/json" # ADD THIS LINE
         }
 
-        # Ensure we have a string and it's exactly 11 digits
-        clean_bvn = str(user_bvn).strip() if user_bvn else None
-        
+        # Clean name (Remove special characters for API compliance)
+        import re
+        raw_name = f"GLAPP-{user.full_name or user.username}"
+        clean_name = re.sub(r'[^a-zA-Z0-9\s-]', '', raw_name)[:50]
+
+        # 1. Force the string format
+        clean_bvn = str(user_bvn).strip()
+
+        # 2. Use the 'Flattened' v2 Payload 
+        # (Some Monnify live contracts expect 'bvn' at the top level)
         payload = {
             "accountReference": str(user.wallet.account_reference),
-            "accountName": f"GLAPP-{user.full_name or user.username}"[:50],
+            "accountName": clean_name,
             "currencyCode": "NGN",
             "contractCode": settings.MONNIFY_CONTRACT_CODE,
             "customerEmail": user.email,
             "customerName": user.full_name or user.username,
             "getAllAvailableBanks": True,
-            # Production usually expects 'customerBvn'
-            "customerBvn": clean_bvn,
-            # Some Monnify v2 endpoints also look for 'bvn' or 'nin'
-            "bvn": clean_bvn, 
+            "customerBvn": clean_bvn,  # Standard v2
+            "bvn": clean_bvn,          # Fallback for older v2 contracts
+            "nin": getattr(user, 'nin', ""), # Fallback NIN
         }
-
-        # Add NIN if BVN is missing but NIN exists
-        if not clean_bvn and getattr(user, 'nin', None):
-            payload["customerNin"] = str(user.nin).strip()
-            payload["nin"] = str(user.nin).strip()
 
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=20)
