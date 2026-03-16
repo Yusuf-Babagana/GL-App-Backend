@@ -8,7 +8,8 @@ from .views import (
     VTPassVariationsView,
     VerifyBankAccountView,
     WithdrawalView,
-    clubkonnect_deposit_webhook
+    clubkonnect_deposit_webhook,
+    monnify_webhook
 )
 
 urlpatterns = [
@@ -22,6 +23,7 @@ urlpatterns = [
     path('deposit/initiate/', InitiateDepositView.as_view(), name='deposit-initiate'),
     path('deposit/verify/', VerifyDepositView.as_view(), name='deposit-verify'),
     path('paystack/webhook/', PaystackWebhookView.as_view(), name='paystack-webhook'),
+    path('monnify/webhook/', monnify_webhook, name='monnify-webhook'),
 
     # Withdrawal Flow
     path('verify-bank/', VerifyBankAccountView.as_view(), name='verify-bank'),
