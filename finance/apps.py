@@ -5,5 +5,4 @@ class FinanceConfig(AppConfig):
     name = 'finance'
 
     def ready(self):
-        # THIS LINE IS VITAL. Without it, your signal is invisible.
-        import finance.signals
+        import finance.signals # This is the magic line
