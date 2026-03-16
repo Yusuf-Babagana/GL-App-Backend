@@ -31,14 +31,17 @@ class WalletDetailView(APIView):
     def get(self, request):
         wallet, _ = Wallet.objects.get_or_create(user=request.user)
         
-        # PROFESSIONAL LOGIC: If account is missing, generate it via Monnify
+        # SAFETY NET: If user has no account yet, generate it now
         if not wallet.account_number:
-            account_data = MonnifyAPI.create_virtual_account(request.user)
-            if account_data:
-                wallet.account_number = account_data['account_number']
-                wallet.bank_name = account_data['bank_name']
-                wallet.bank_code = account_data['bank_code']
-                wallet.save()
+            try:
+                acc_data = MonnifyAPI.create_virtual_account(request.user)
+                if acc_data:
+                    wallet.account_number = acc_data['account_number']
+                    wallet.bank_name = acc_data['bank_name']
+                    wallet.bank_code = acc_data['bank_code']
+                    wallet.save()
+            except Exception as e:
+                logger.error(f"On-the-fly account generation failed: {e}")
 
         serializer = WalletSerializer(wallet)
         return Response(serializer.data)
