@@ -54,40 +54,49 @@ from django.views.decorators.csrf import csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def monnify_webhook(request):
-    # 1. Security Verification
+    import json
+    # 1. Security Check: Verify Monnify Signature
     signature = request.headers.get('monnify-signature')
+    if not signature:
+        return Response(status=400)
+
+    # Recompute hash to verify the request is actually from Monnify
     computed_hash = hmac.new(
         settings.MONNIFY_SECRET_KEY.encode(),
         request.body,
         hashlib.sha512
     ).hexdigest()
 
-    if not hmac.compare_digest(computed_hash, signature):
-        return Response({"error": "Invalid Signature"}, status=401)
+    if computed_hash != signature:
+        return Response({"error": "Invalid signature"}, status=401)
 
     data = request.data
+    # 2. Process Successful Payment
     if data.get('eventType') == 'SUCCESSFUL_TRANSACTION':
-        tx = data.get('eventData', {})
-        # Use the 'accountReference' we sent during registration (GLAPP_ID_REF)
-        acc_ref = tx.get('product', {}).get('reference')
-        
+        body = data.get('eventData', {})
+        payment_ref = body.get('paymentReference')
+        amount = Decimal(str(body.get('amountPaid')))
+        account_ref = body.get('product', {}).get('reference') # This is your Wallet account_reference
+
         try:
-            wallet = Wallet.objects.get(account_reference=acc_ref)
-            amount = Decimal(str(tx.get('amountPaid')))
+            wallet = Wallet.objects.get(account_reference=account_ref)
             
             # Idempotency check: Don't credit same payment twice
-            if not Transaction.objects.filter(reference=tx.get('paymentReference')).exists():
+            if not Transaction.objects.filter(reference=payment_ref).exists():
                 with transaction.atomic():
+                    # Update wallet balance and log transaction
                     wallet.balance += amount
                     wallet.save()
                     
                     Transaction.objects.create(
-                        wallet=wallet, amount=amount,
-                        transaction_type='deposit', status='success',
-                        reference=tx.get('paymentReference'),
-                        description=f"Auto-Credit: {tx.get('bankName')}"
+                        wallet=wallet,
+                        amount=amount,
+                        transaction_type='deposit',
+                        status='success',
+                        reference=payment_ref,
+                        description=f"Auto-Credit: {body.get('bankName')}"
                     )
-            return Response({"status": "ok"}, status=200)
+            return Response({"status": "success"}, status=200)
         except Wallet.DoesNotExist:
             return Response({"error": "Wallet not found"}, status=404)
 
