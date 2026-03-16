@@ -11,30 +11,42 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 @receiver(post_save, sender=User)
-def create_user_wallet_and_account(sender, instance, created, **kwargs):
+def handle_user_wallet_and_monnify_account(sender, instance, created, **kwargs):
     """
-    Automates account creation immediately upon user registration.
+    1. Ensures every user has a wallet.
+    2. Automatically triggers Monnify account creation if BVN is present 
+       but bank details are missing.
     """
-    if created:
-        # 1. Ensure the wallet exists first
-        wallet, _ = Wallet.objects.get_or_create(user=instance)
-        
-        # 2. Trigger Monnify API in a background thread
-        thread = threading.Thread(target=provision_monnify_task, args=(instance, wallet))
+    # Always ensure a wallet exists for the user
+    wallet, _ = Wallet.objects.get_or_create(user=instance)
+
+    # Check logic:
+    # We trigger Monnify ONLY if the user has a BVN (mandatory for Live)
+    # AND the wallet doesn't have an account number yet.
+    if instance.bvn and not wallet.account_number:
+        # We use threading so the API call doesn't slow down the User's save process
+        thread = threading.Thread(
+            target=provision_monnify_task, 
+            args=(instance, wallet)
+        )
         thread.daemon = True
         thread.start()
 
 def provision_monnify_task(user, wallet):
+    """Background task to communicate with Monnify API."""
     try:
-        # Call your existing utility
+        # Attempt to create account via our utility
         acc_data = MonnifyAPI.create_virtual_account(user)
+        
         if acc_data:
             wallet.account_number = acc_data['account_number']
             wallet.bank_name = acc_data['bank_name']
             wallet.bank_code = acc_data['bank_code']
             wallet.save()
-            print(f"✅ Success: Reserved account created for {user.email}")
+            logger.info(f"✅ Success: Monnify account {wallet.account_number} provisioned for {user.email}")
         else:
-            print(f"❌ Failed: Monnify returned None for {user.email}")
+            # This usually happens if Monnify rejects the BVN/Name combination
+            logger.warning(f"⚠️ Monnify returned None for {user.email}. Check utility logs.")
+            
     except Exception as e:
-        logger.error(f"CRITICAL: Signal failed to provision account for {user.email} -> {e}")
+        logger.error(f"CRITICAL: Signal failed to provision account for {user.email} -> {str(e)}")
