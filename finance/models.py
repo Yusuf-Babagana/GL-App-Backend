@@ -86,7 +86,12 @@ class Transaction(models.Model):
         return f"{self.transaction_type} - {self.amount}"
 
 class BankAccount(models.Model):
-    wallet = models.OneToOneField(Wallet, on_delete=models.CASCADE, related_name='bank_details')
+    wallet = models.ForeignKey(
+        'Wallet', 
+        on_delete=models.CASCADE, 
+        related_name='bank_accounts',
+        null=True, 
+        blank=True)
     bank_name = models.CharField(max_length=100)
     account_number = models.CharField(max_length=10, unique=True)
     account_name = models.CharField(max_length=200)
