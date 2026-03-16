@@ -9,21 +9,20 @@ import threading
 User = get_user_model()
 
 @receiver(post_save, sender=User)
-def provision_monnify_account(sender, instance, created, **kwargs):
+def auto_provision_account(sender, instance, created, **kwargs):
     if created:
-        # 1. Ensure Wallet exists
         wallet, _ = Wallet.objects.get_or_create(user=instance)
-        
-        # 2. Call Monnify in a background thread to prevent registration delay
-        def task():
-            try:
-                account_data = MonnifyAPI.create_virtual_account(instance)
-                if account_data:
-                    wallet.account_number = account_data['account_number']
-                    wallet.bank_name = account_data['bank_name']
-                    wallet.bank_code = account_data['bank_code']
-                    wallet.save()
-            except Exception as e:
-                print(f"FAILED TO PROVISION MONNIFY: {e}")
+        # Run in background to keep registration fast
+        thread = threading.Thread(target=create_monnify_task, args=(instance, wallet))
+        thread.start()
 
-        threading.Thread(target=task).start()
+def create_monnify_task(user, wallet):
+    try:
+        acc_data = MonnifyAPI.create_virtual_account(user)
+        if acc_data:
+            wallet.account_number = acc_data['account_number']
+            wallet.bank_name = acc_data['bank_name']
+            wallet.bank_code = acc_data['bank_code']
+            wallet.save()
+    except Exception as e:
+        print(f"Provisioning Error: {e}")

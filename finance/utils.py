@@ -20,7 +20,7 @@ class MonnifyAPI:
         auth_str = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
         encoded_auth = base64.b64encode(auth_str.encode()).decode()
         
-        url = f"{settings.MONNIFY_BASE_URL}/api/v1/auth/login"
+        url = f"{settings.MONNIFY_BASE_URL.rstrip('/')}/api/v1/auth/login"
         headers = {"Authorization": f"Basic {encoded_auth}"}
         
         try:
@@ -38,7 +38,7 @@ class MonnifyAPI:
         if not token:
             return None
 
-        url = f"{settings.MONNIFY_BASE_URL}/api/v2/bank-transfer/reserved-accounts"
+        url = f"{settings.MONNIFY_BASE_URL.rstrip('/')}/api/v2/bank-transfer/reserved-accounts"
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
