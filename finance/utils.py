@@ -60,6 +60,9 @@ class MonnifyAPI:
             "Content-Type": "application/json"
         }
 
+        # Ensure we have a string and it's exactly 11 digits
+        clean_bvn = str(user_bvn).strip() if user_bvn else None
+        
         payload = {
             "accountReference": str(user.wallet.account_reference),
             "accountName": f"GLAPP-{user.full_name or user.username}"[:50],
@@ -68,8 +71,16 @@ class MonnifyAPI:
             "customerEmail": user.email,
             "customerName": user.full_name or user.username,
             "getAllAvailableBanks": True,
-            "customerBvn": str(user_bvn)  # Ensure it's a string
+            # Production usually expects 'customerBvn'
+            "customerBvn": clean_bvn,
+            # Some Monnify v2 endpoints also look for 'bvn' or 'nin'
+            "bvn": clean_bvn, 
         }
+
+        # Add NIN if BVN is missing but NIN exists
+        if not clean_bvn and getattr(user, 'nin', None):
+            payload["customerNin"] = str(user.nin).strip()
+            payload["nin"] = str(user.nin).strip()
 
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=20)
