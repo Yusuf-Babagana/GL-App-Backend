@@ -1,35 +1,27 @@
 from django.urls import path
 from .views import (
     WalletDetailView, 
-    InitiateDepositView, 
-    VerifyDepositView, 
-    PaystackWebhookView,
+    monnify_webhook, 
     VTPassPurchaseView, 
     VTPassVariationsView,
     VerifyBankAccountView,
     WithdrawalView,
-    clubkonnect_deposit_webhook,
-    monnify_webhook
+    clubkonnect_deposit_webhook
 )
 
 urlpatterns = [
-    # Wallet Info
+    # Wallet Info (This now handles account display)
     path('wallet/', WalletDetailView.as_view(), name='wallet-detail'),
     
-    # Clubkonnect Automated Funding
+    # Automated Funding Webhooks
+    path('monnify-webhook/', monnify_webhook, name='monnify-webhook'),
     path('webhook/deposit/', clubkonnect_deposit_webhook, name='deposit_webhook'),
-    
-    # Paystack Funding Flow
-    path('deposit/initiate/', InitiateDepositView.as_view(), name='deposit-initiate'),
-    path('deposit/verify/', VerifyDepositView.as_view(), name='deposit-verify'),
-    path('paystack/webhook/', PaystackWebhookView.as_view(), name='paystack-webhook'),
-    path('monnify/webhook/', monnify_webhook, name='monnify-webhook'),
 
     # Withdrawal Flow
     path('verify-bank/', VerifyBankAccountView.as_view(), name='verify-bank'),
     path('withdraw/', WithdrawalView.as_view(), name='withdraw'),
     
-    # VTpass Bill Payments (Data/Airtime)
+    # Bill Payments (Data/Airtime via Nellobyte)
     path('vtpass/variations/', VTPassVariationsView.as_view(), name='vtpass-variations'),
     path('vtpass/purchase/', VTPassPurchaseView.as_view(), name='vtpass-purchase'),
 ]
