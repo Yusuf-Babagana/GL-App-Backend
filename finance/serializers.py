@@ -7,19 +7,23 @@ class TransactionSerializer(serializers.ModelSerializer):
         fields = ['id', 'amount', 'transaction_type', 'status', 'description', 'created_at']
 
 class WalletSerializer(serializers.ModelSerializer):
-    virtual_account = serializers.SerializerMethodField()
+    # We rename this to funding_accounts to match a professional Monnify response
+    funding_accounts = serializers.SerializerMethodField()
 
     class Meta:
         model = Wallet
-        fields = ['balance', 'virtual_account']
+        fields = ['balance', 'funding_accounts']
 
-    def get_virtual_account(self, obj):
-        # We return your official business account details here as a fallback/default
-        return {
-            "bank_name": "Moniepoint MFB",
-            "account_number": "6649014083",
-            "account_name": f"GLAPP FUNDING ({obj.user.username})"
-        }
+    def get_funding_accounts(self, obj):
+        # If the user has a Monnify account in the DB, show it.
+        if obj.account_number:
+            return [{
+                "bank_name": obj.bank_name,
+                "account_number": obj.account_number,
+                "account_name": obj.user.full_name or obj.user.username
+            }]
+        # Fallback to null so the frontend knows to show "Generating..."
+        return None
 
 class BankAccountSerializer(serializers.ModelSerializer):
     class Meta:
