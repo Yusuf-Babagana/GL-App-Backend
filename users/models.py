@@ -30,9 +30,7 @@ class User(AbstractUser):
     push_token = models.CharField(max_length=255, blank=True, null=True)
     is_online = models.BooleanField(default=False)
     last_seen = models.DateTimeField(null=True, blank=True)
-    # Role Management (Users can have multiple roles, stored as a list)
-    # We use a JSONField or simple comma-separated string if using SQLite. 
-    # For robust Postgres, use ArrayField. Here is a compatible JSON approach:
+    
     roles = models.JSONField(default=list) 
     active_role = models.CharField(
         max_length=20, 
@@ -40,20 +38,24 @@ class User(AbstractUser):
         default=Roles.BUYER
     )
 
-    # KYC & Trust [cite: 48-51]
+    # --- FINANCIAL KYC DATA (Added for Monnify Production) ---
+    bvn = models.CharField(max_length=11, blank=True, null=True, help_text="11-digit Bank Verification Number")
+    nin = models.CharField(max_length=11, blank=True, null=True, help_text="11-digit National Identification Number")
+    # ---------------------------------------------------------
+
+    # KYC & Trust
     kyc_status = models.CharField(
         max_length=20, 
         choices=KycStatus.choices, 
         default=KycStatus.UNVERIFIED
     )
     
-    # KYC Documents (Only visible to Admin)
-    id_document_type = models.CharField(max_length=50, blank=True, null=True) # e.g., Passport
+    id_document_type = models.CharField(max_length=50, blank=True, null=True) 
     id_document_image = models.ImageField(upload_to='kyc_docs/', blank=True, null=True)
     selfie_image = models.ImageField(upload_to='kyc_docs/', blank=True, null=True)
     rejection_reason = models.TextField(blank=True, null=True)
 
-    # Localization [cite: 80]
+    # Localization
     language_preference = models.CharField(
         max_length=10, 
         default='en', 
@@ -78,7 +80,7 @@ class User(AbstractUser):
 
 class Address(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='addresses')
-    label = models.CharField(max_length=50, default='Home') # Home, Work
+    label = models.CharField(max_length=50, default='Home') 
     full_name = models.CharField(max_length=255)
     street_address = models.TextField()
     city = models.CharField(max_length=100)
@@ -88,12 +90,10 @@ class Address(models.Model):
     phone_number = models.CharField(max_length=20)
     is_default = models.BooleanField(default=False)
     last_seen = models.DateTimeField(auto_now=True)
-    # For Delivery Mapping
     latitude = models.FloatField(blank=True, null=True)
     longitude = models.FloatField(blank=True, null=True)
 
     def save(self, *args, **kwargs):
         if self.is_default:
-            # Set all other addresses for this user to False
             Address.objects.filter(user=self.user).update(is_default=False)
         super().save(*args, **kwargs)
