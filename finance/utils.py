@@ -15,36 +15,36 @@ class MonnifyAPI:
     """
     @staticmethod
     def get_auth_token():
-        """Generates the required Bearer token for Monnify API calls."""
-        # Monnify requires Basic Auth: base64(apiKey:secretKey)
+        # Strip trailing slashes and common path errors to prevent doubling
+        base = settings.MONNIFY_BASE_URL.strip().rstrip('/')
+        if "api/v1" in base:
+            base = base.replace("/api/v1", "")
+            
+        url = f"{base}/api/v1/auth/login"
+        
         auth_str = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
         encoded_auth = base64.b64encode(auth_str.encode()).decode()
         
-        # FIX: Ensure we don't double up 'api/v1'
-        base_url = settings.MONNIFY_BASE_URL.rstrip('/')
-        url = f"{base_url}/api/v1/auth/login"
-        
         headers = {"Authorization": f"Basic {encoded_auth}"}
-        
         try:
             response = requests.post(url, headers=headers, timeout=15)
             response.raise_for_status()
             return response.json()['responseBody']['accessToken']
         except Exception as e:
-            # Check if this error still says 'sandbox'
-            print(f"CRITICAL: Monnify Auth Failure -> {e} for url: {url}")
+            # This print will help us see the FINAL url being hit
+            print(f"CRITICAL Auth Failure: {e} | URL: {url}")
             return None
 
     @staticmethod
     def create_virtual_account(user):
-        """Creates a dedicated bank account for the user to fund their wallet."""
         token = MonnifyAPI.get_auth_token()
-        if not token:
-            return None
+        if not token: return None
 
-        # FIX: Use live base URL
-        base_url = settings.MONNIFY_BASE_URL.rstrip('/')
-        url = f"{base_url}/api/v2/bank-transfer/reserved-accounts"
+        base = settings.MONNIFY_BASE_URL.strip().rstrip('/')
+        if "api/v1" in base: base = base.replace("/api/v1", "")
+        if "api/v2" in base: base = base.replace("/api/v2", "")
+
+        url = f"{base}/api/v2/bank-transfer/reserved-accounts"
         
         headers = {
             "Authorization": f"Bearer {token}",
@@ -53,11 +53,11 @@ class MonnifyAPI:
         
         payload = {
             "accountReference": str(user.wallet.account_reference),
-            "accountName": user.full_name or user.email,
+            "accountName": f"GLAPP-{user.full_name or user.username}"[:50], # Limits length for API compliance
             "currencyCode": "NGN",
             "contractCode": settings.MONNIFY_CONTRACT_CODE,
             "customerEmail": user.email,
-            "customerName": user.full_name or user.email,
+            "customerName": user.full_name or user.username,
             "getAllAvailableBanks": True
         }
 
