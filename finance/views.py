@@ -25,6 +25,14 @@ from .vtpass import VTPassClient  # Add this near your other imports
 
 logger = logging.getLogger(__name__)
 
+class TransactionListView(generics.ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    from .serializers import TransactionSerializer
+    serializer_class = TransactionSerializer
+
+    def get_queryset(self):
+        return Transaction.objects.filter(wallet=self.request.user.wallet).order_by('-created_at')
+
 class WalletDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -137,88 +145,107 @@ def monnify_webhook(request):
 
 from .nellobyte import NellobyteClient
 
-class VTPassPurchaseView(APIView):
+class DataPurchaseView(APIView):
+    """
+    Handles Data Bundle purchases using NellobyteClient.
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        service_id = request.data.get('service_id')
-        data_plan = request.data.get('variation_code')
+        service_id = request.data.get('service_id')  # e.g., 'mtn-data'
+        data_plan = request.data.get('variation_code') # Nellobyte Plan ID
         phone = request.data.get('phone')
         amount = Decimal(str(request.data.get('amount')))
         
-        from .utils import generate_vtpass_request_id
-        request_id = request.data.get('request_id') or generate_vtpass_request_id()
+        # Unique reference for Nellobyte tracking
+        request_id = str(uuid.uuid4().hex)[:12]
 
         # 1. Idempotency Check
         if Transaction.objects.filter(reference=request_id).exists():
-            return Response({"error": "Duplicate transaction request"}, status=400)
+            return Response({"error": "Duplicate request detected."}, status=400)
 
-        # 2. Pre-debit and log PENDING transaction
+        # 2. Pre-debit Logic
         try:
             with transaction.atomic():
                 wallet = Wallet.objects.select_for_update().get(user=request.user)
                 if wallet.balance < amount:
-                    return Response({"error": "Insufficient balance"}, status=400)
+                    return Response({"error": "Insufficient wallet balance."}, status=400)
 
                 wallet.balance -= amount
                 wallet.save()
 
-                # Create record before calling API
+                # Log as PENDING
                 ledger = Transaction.objects.create(
                     wallet=wallet, 
                     amount=-amount,
                     transaction_type=Transaction.TransactionType.BILL_PAYMENT, 
                     status=Transaction.Status.PENDING,
-                    description=f"Purchase: {service_id.upper()} for {phone}",
+                    description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone}",
                     reference=request_id
                 )
         except Exception as e:
-            return Response({"error": f"Internal Error: {str(e)}"}, status=500)
+            return Response({"error": f"Internal Wallet Error: {str(e)}"}, status=500)
 
-        # 3. External API Call (OUTSIDE atomic block)
+        # 3. Call Nellobyte
         try:
             client = NellobyteClient()
             resp = client.purchase_data(request_id, service_id, data_plan, phone)
             
-            if str(resp.get('statuscode')) == '100':
+            # Nellobyte Status: 100 = Success
+            status_code = str(resp.get('statuscode'))
+            
+            if status_code == '100':
                 ledger.status = Transaction.Status.SUCCESS
                 ledger.save()
-                return Response({"message": "Purchase successful", "data": resp})
+                return Response({
+                    "message": "Data purchase successful!",
+                    "order_id": resp.get('orderid'),
+                    "new_balance": float(wallet.balance)
+                }, status=200)
             else:
-                # 4. Auto-Refund on API failure
+                # 4. AUTO-REFUND on API error
                 with transaction.atomic():
-                    wallet = Wallet.objects.select_for_update().get(user=request.user)
-                    wallet.balance += amount
-                    wallet.save()
+                    w = Wallet.objects.select_for_update().get(user=request.user)
+                    w.balance += amount
+                    w.save()
                     
                     ledger.status = Transaction.Status.FAILED
-                    ledger.description += f" (Refunded: {resp.get('status', 'API Error')})"
+                    error_msg = resp.get('status', 'Provider rejected request')
+                    ledger.description += f" (Refunded: {error_msg})"
                     ledger.save()
-                return Response({"error": f"Provider error: {resp.get('status')}"}, status=400)
+                
+                return Response({"error": f"Nellobyte Error: {error_msg}"}, status=400)
 
         except Exception as e:
-            # Handle unexpected network timeouts/crashes
-            logger.error(f"Bill Payment Network Error: {e}")
-            return Response({"message": "Transaction pending. Contact support if not received."}, status=500)
+            logger.error(f"Nellobyte Network/Critical Failure: {e}")
+            # Do NOT refund here; transaction remains PENDING for manual review
+            return Response({
+                "message": "Transaction submitted. Check history for status updates."
+            }, status=202)
 
-class VTPassVariationsView(APIView):
+class DataVariationsView(APIView):
+    """
+    Fetches available data plans from Nellobyte.
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         service_id = request.query_params.get('service_id')
+        if not service_id:
+            return Response({"error": "service_id is required"}, status=400)
+
         client = NellobyteClient()
         network_code = client._get_network_code(service_id)
-        
-        # If API is failing, this returns [], which our Layer 1 frontend handles
         raw_plans = client.fetch_plans(network_code)
 
+        # Format for Mobile Frontend
         formatted = [{
             "variation_code": str(p.get("ID")),
             "name": p.get("Name"),
             "variation_amount": str(p.get("Amount"))
         } for p in raw_plans]
 
-        return Response({"content": {"variations": formatted}})
+        return Response({"plans": formatted})
 
 class VerifyBankAccountView(APIView):
     permission_classes = [permissions.IsAuthenticated]
