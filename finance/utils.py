@@ -84,6 +84,9 @@ class MonnifyAPI:
         raw_name = user.full_name or user.username
         clean_name = re.sub(r'[^a-zA-Z\s]', '', raw_name).strip()[:50]
 
+        # Ensure BVN is a clean string
+        clean_bvn = str(user_bvn).strip()
+
         payload = {
             "accountReference": str(user.wallet.account_reference),
             "accountName": clean_name,
@@ -92,7 +95,10 @@ class MonnifyAPI:
             "customerEmail": user.email,
             "customerName": clean_name,
             "getAllAvailableBanks": True,
-            "customerBvn": str(user_bvn).strip()
+            # We send all three to satisfy different Monnify validator versions
+            "customerBvn": clean_bvn,
+            "bvn": clean_bvn,
+            "nin": getattr(user, 'nin', clean_bvn) # Use BVN as fallback if NIN isn't set
         }
 
         headers = {
