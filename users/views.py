@@ -176,7 +176,6 @@ class UpdateBVNView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        # We look for the key "bvn"
         bvn = request.data.get('bvn')
         
         if not bvn or len(str(bvn)) != 11:
@@ -184,6 +183,23 @@ class UpdateBVNView(APIView):
             
         user = request.user
         user.bvn = str(bvn)
-        user.save() # This triggers the signal
-        
-        return Response({"message": "BVN updated. Generating account..."}, status=200)
+        user.save() 
+
+        # IMMEDIATELY try to create the account and return the result
+        from finance.utils import MonnifyAPI
+        acc_data = MonnifyAPI.create_virtual_account(user)
+
+        if acc_data:
+            wallet = user.wallet
+            wallet.account_number = acc_data['account_number']
+            wallet.bank_name = acc_data['bank_name']
+            wallet.bank_code = acc_data['bank_code']
+            wallet.save()
+            return Response({
+                "message": "Identity verified and account generated!",
+                "account_number": acc_data['account_number']
+            }, status=200)
+        else:
+            return Response({
+                "error": "BVN accepted, but bank account generation failed. Please contact support or try again later."
+            }, status=500)

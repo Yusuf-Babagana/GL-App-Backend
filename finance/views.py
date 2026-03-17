@@ -70,15 +70,14 @@ def monnify_webhook(request):
         logger.warning(f"Invalid Webhook Signature attempt from {request.META.get('REMOTE_ADDR')}")
         return Response({"error": "Invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    data = request.data
+    event_type = request.data.get('eventType')
+    data = request.data.get('eventData', {})
     
-    # 2. Handle Successful Transaction
-    if data.get('eventType') == 'SUCCESSFUL_TRANSACTION':
-        body = data.get('eventData', {})
-        payment_ref = body.get('paymentReference')
-        # Body usually contains 'amountPaid' (Gross) and 'settlementAmount' (Net)
-        amount_to_credit = Decimal(str(body.get('amountPaid'))) 
-        account_ref = body.get('product', {}).get('reference') 
+    # CASE 1: Incoming Deposit (User funding wallet)
+    if event_type == 'SUCCESSFUL_TRANSACTION':
+        payment_ref = data.get('paymentReference')
+        amount_to_credit = Decimal(str(data.get('amountPaid'))) 
+        account_ref = data.get('product', {}).get('reference') 
 
         try:
             # Atomic block with row-level locking
@@ -86,23 +85,20 @@ def monnify_webhook(request):
                 wallet = Wallet.objects.select_for_update().get(account_reference=account_ref)
                 
                 # IDEMPOTENCY: Check if this payment reference was already processed
-                if Transaction.objects.filter(reference=payment_ref).exists():
-                    return Response({"status": "already_processed"}, status=status.HTTP_200_OK)
-
-                # Update wallet balance
-                wallet.balance += amount_to_credit
-                wallet.save()
-                
-                # Log the transaction
-                Transaction.objects.create(
-                    wallet=wallet,
-                    amount=amount_to_credit,
-                    transaction_type=Transaction.TransactionType.DEPOSIT,
-                    status=Transaction.Status.SUCCESS,
-                    reference=payment_ref,
-                    description=f"Bank Deposit: {body.get('bankName')} - Ref: {payment_ref}"
-                )
-                
+                if not Transaction.objects.filter(reference=payment_ref).exists():
+                    # Update wallet balance
+                    wallet.balance += amount_to_credit
+                    wallet.save()
+                    
+                    # Log the transaction
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=amount_to_credit,
+                        transaction_type=Transaction.TransactionType.DEPOSIT,
+                        status=Transaction.Status.SUCCESS,
+                        reference=payment_ref,
+                        description=f"Deposit: {data.get('bankName')} - Ref: {payment_ref}"
+                    )
             logger.info(f"✅ Wallet {wallet.id} credited with ₦{amount_to_credit}")
             return Response({"status": "success"}, status=status.HTTP_200_OK)
 
@@ -113,7 +109,30 @@ def monnify_webhook(request):
             logger.error(f"❌ Webhook Processing Error: {str(e)}")
             return Response({"error": "Internal Error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    return Response({"status": "ignored"}, status=status.HTTP_200_OK)
+    # CASE 2: Outgoing Withdrawal (Monnify finished sending money to bank)
+    elif event_type == 'DISBURSEMENT_SUCCESS':
+        ref = data.get('reference')
+        Transaction.objects.filter(reference=ref).update(status=Transaction.Status.SUCCESS)
+        logger.info(f"✅ Disbursement successful for ref {ref}")
+        return Response({"status": "success"}, status=status.HTTP_200_OK)
+
+    elif event_type == 'DISBURSEMENT_FAILED':
+        ref = data.get('reference')
+        try:
+            with transaction.atomic():
+                ledger = Transaction.objects.select_for_update().get(reference=ref)
+                if ledger.status != Transaction.Status.FAILED:
+                    # Refund the user because the bank transfer failed
+                    ledger.wallet.balance += abs(ledger.amount)
+                    ledger.wallet.save()
+                    ledger.status = Transaction.Status.FAILED
+                    ledger.description += " (Failed: Refunded)"
+                    ledger.save()
+            logger.warning(f"⚠️ Disbursement failed and refunded for ref {ref}")
+        except Exception as e:
+            logger.error(f"❌ Webhook Refund failure: {e}")
+
+    return Response({"status": "received"}, status=status.HTTP_200_OK)
 
 
 from .nellobyte import NellobyteClient
