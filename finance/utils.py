@@ -66,26 +66,16 @@ class MonnifyAPI:
     def create_virtual_account(user):
         token = MonnifyAPI.get_auth_token()
         if not token: 
-            logger.error("Failed to get Monnify token for account creation")
-            return None
+            return None, "Auth Failed"
 
-        user.refresh_from_db()
-        user_bvn = getattr(user, 'bvn', None)
-        
-        if not user_bvn:
-            logger.warning(f"No BVN found for user {user.email}")
-            return None
-
-        # Monnify v2 is the standard for Production Reserved Accounts
         url = MonnifyAPI._get_url("/api/v2/bank-transfer/reserved-accounts")
         
         # Clean name: Only letters and spaces. Max 50 chars.
-        # Monnify rejects names with @, -, or dots.
         raw_name = user.full_name or user.username
         clean_name = re.sub(r'[^a-zA-Z\s]', '', raw_name).strip()[:50]
 
         # Ensure BVN is a clean string
-        clean_bvn = str(user_bvn).strip()
+        clean_bvn = str(user.bvn).strip()
 
         payload = {
             "accountReference": str(user.wallet.account_reference),
@@ -101,29 +91,37 @@ class MonnifyAPI:
             "nin": getattr(user, 'nin', clean_bvn) # Use BVN as fallback if NIN isn't set
         }
 
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
-
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=20)
+            response = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=20)
             data = response.json()
             
+            # SUCCESS CASE
             if data.get('requestSuccessful'):
-                # Extract the first available bank account (usually Wema or Moniepoint)
                 accounts = data['responseBody']['accounts']
                 return {
                     "bank_name": accounts[0]['bankName'],
                     "account_number": accounts[0]['accountNumber'],
                     "bank_code": accounts[0]['bankCode']
-                }
-            else:
-                logger.error(f"Monnify API Error: {data.get('responseMessage')} | Payload: {payload}")
-                return None
+                }, None
+
+            # SELF-HEALING CASE: Account already exists on Monnify
+            if "already exists" in str(data.get('responseMessage')).lower():
+                # Manually fetch existing account details
+                fetch_url = MonnifyAPI._get_url(f"/api/v2/bank-transfer/reserved-accounts/{user.wallet.account_reference}")
+                fetch_resp = requests.get(fetch_url, headers={"Authorization": f"Bearer {token}"})
+                fetch_data = fetch_resp.json()
+                
+                if fetch_data.get('requestSuccessful'):
+                    accounts = fetch_data['responseBody']['accounts']
+                    return {
+                        "bank_name": accounts[0]['bankName'],
+                        "account_number": accounts[0]['accountNumber'],
+                        "bank_code": accounts[0]['bankCode']
+                    }, None
+
+            return None, data.get('responseMessage', 'Unknown Error')
         except Exception as e:
-            logger.error(f"Monnify Connection Error: {e}")
-            return None
+            return None, str(e)
 
     @staticmethod
     def initiate_order_payment(order, customer_name, customer_email):

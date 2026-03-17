@@ -182,12 +182,13 @@ class UpdateBVNView(APIView):
             return Response({"error": "A valid 11-digit BVN is required"}, status=400)
             
         user = request.user
-        user.bvn = str(bvn)
+        user.bvn = str(bvn).strip()
         user.save() 
 
         # IMMEDIATELY try to create the account and return the result
         from finance.utils import MonnifyAPI
-        acc_data = MonnifyAPI.create_virtual_account(user)
+        # Utility now returns (data, error_msg)
+        acc_data, error_msg = MonnifyAPI.create_virtual_account(user)
 
         if acc_data:
             wallet = user.wallet
@@ -195,11 +196,6 @@ class UpdateBVNView(APIView):
             wallet.bank_name = acc_data['bank_name']
             wallet.bank_code = acc_data['bank_code']
             wallet.save()
-            return Response({
-                "message": "Identity verified and account generated!",
-                "account_number": acc_data['account_number']
-            }, status=200)
-        else:
-            return Response({
-                "error": "BVN accepted, but bank account generation failed. Please contact support or try again later."
-            }, status=500)
+            return Response({"message": "Success", "account": acc_data}, status=200)
+        
+        return Response({"error": error_msg}, status=400)
