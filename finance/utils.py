@@ -40,13 +40,24 @@ class MonnifyAPI:
     @staticmethod
     def create_virtual_account(user):
         token = MonnifyAPI.get_auth_token()
-        if not token: return None
+        if not token: 
+            logger.error("Failed to get Monnify token for account creation")
+            return None
 
         user.refresh_from_db()
         user_bvn = getattr(user, 'bvn', None)
         
+        if not user_bvn:
+            logger.warning(f"No BVN found for user {user.email}")
+            return None
+
+        # Monnify v2 is the standard for Production Reserved Accounts
         url = MonnifyAPI._get_url("/api/v2/bank-transfer/reserved-accounts")
-        clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', user.full_name or user.username)[:50]
+        
+        # Clean name: Only letters and spaces. Max 50 chars.
+        # Monnify rejects names with @, -, or dots.
+        raw_name = user.full_name or user.username
+        clean_name = re.sub(r'[^a-zA-Z\s]', '', raw_name).strip()[:50]
 
         payload = {
             "accountReference": str(user.wallet.account_reference),
@@ -56,22 +67,31 @@ class MonnifyAPI:
             "customerEmail": user.email,
             "customerName": clean_name,
             "getAllAvailableBanks": True,
-            "customerBvn": str(user_bvn).strip() if user_bvn else None
+            "customerBvn": str(user_bvn).strip()
+        }
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
         }
 
         try:
-            response = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=20)
+            response = requests.post(url, json=payload, headers=headers, timeout=20)
             data = response.json()
+            
             if data.get('requestSuccessful'):
+                # Extract the first available bank account (usually Wema or Moniepoint)
                 accounts = data['responseBody']['accounts']
                 return {
                     "bank_name": accounts[0]['bankName'],
                     "account_number": accounts[0]['accountNumber'],
                     "bank_code": accounts[0]['bankCode']
                 }
-            return None
+            else:
+                logger.error(f"Monnify API Error: {data.get('responseMessage')} | Payload: {payload}")
+                return None
         except Exception as e:
-            logger.error(f"Monnify Account Error: {e}")
+            logger.error(f"Monnify Connection Error: {e}")
             return None
 
     @staticmethod
