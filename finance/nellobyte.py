@@ -18,31 +18,34 @@ class NellobyteClient:
         return mapping.get(service_id.lower(), '01')
 
     def fetch_plans(self, network_code):
+        # Using the exact URL from your documentation
         url = f"{self.base_url}/APIDatabundlePlansV2.asp?UserID={self.user_id}"
         
         try:
             resp = requests.get(url, timeout=20)
             data = resp.json()
             
-            # Nellobyte often categorizes by "MTN_SME", "MTN_CG", etc.
-            # Let's find every key that contains our network (e.g., "MTN")
+            # Nellobyte documentation shows network keys: MTN, Glo, 9mobile, Airtel
             network_map = {"01": "MTN", "02": "Glo", "03": "9mobile", "04": "Airtel"}
-            target = network_map.get(network_code, "MTN")
+            target_key = network_map.get(network_code, "MTN")
             
             all_plans = []
             content = data.get("content", {})
             
-            # Loop through all categories (SME, Gifting, CG) and merge them
+            # The JSON returns plans inside keys like "MTN_SME", "MTN_Gifting"
+            # We will grab every key that starts with our target network
             for key, plans in content.items():
-                if target.lower() in key.lower():
-                    # Add the type to the name so the user knows (e.g., "MTN SME - 500MB")
+                if key.startswith(target_key):
+                    plan_type = key.replace(target_key, "").replace("_", "").strip()
                     for p in plans:
-                        p['Name'] = f"{key.replace('_', ' ')} - {p['Name']}"
-                        all_plans.append(p)
+                        all_plans.append({
+                            "ID": p.get("ID"), # e.g., "500.0"
+                            "Name": f"{p.get('Name')} ({plan_type})",
+                            "Amount": p.get("Amount")
+                        })
             
-            # Sort by price (Amount) so the cheapest are at the top
+            # Sort by price
             all_plans.sort(key=lambda x: float(x.get('Amount', 0)))
-            
             return all_plans
             
         except Exception as e:
