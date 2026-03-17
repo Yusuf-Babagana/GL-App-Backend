@@ -4,7 +4,7 @@ from .models import Wallet, Transaction, BankAccount, WithdrawalRequest
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
-        fields = ['id', 'amount', 'transaction_type', 'status', 'description', 'created_at']
+        fields = ['id', 'amount', 'transaction_type', 'status', 'description', 'reference', 'created_at']
 
 class WalletSerializer(serializers.ModelSerializer):
     user_has_bvn = serializers.SerializerMethodField()
