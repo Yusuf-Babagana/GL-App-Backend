@@ -54,11 +54,12 @@ from django.views.decorators.csrf import csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def monnify_webhook(request):
+    # 1. Security Check: Verify Monnify Signature
     signature = request.headers.get('monnify-signature')
     if not signature:
-        return Response(status=status.HTTP_400_BAD_REQUEST)
+        return Response({"error": "No signature"}, status=status.HTTP_400_BAD_REQUEST)
 
-    # SECURE: Use compare_digest to prevent timing attacks
+    # SECURE: Recompute hash and use compare_digest
     computed_hash = hmac.new(
         settings.MONNIFY_SECRET_KEY.encode(),
         request.body,
@@ -66,38 +67,51 @@ def monnify_webhook(request):
     ).hexdigest()
 
     if not hmac.compare_digest(computed_hash, signature):
+        logger.warning(f"Invalid Webhook Signature attempt from {request.META.get('REMOTE_ADDR')}")
         return Response({"error": "Invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
     data = request.data
+    
+    # 2. Handle Successful Transaction
     if data.get('eventType') == 'SUCCESSFUL_TRANSACTION':
         body = data.get('eventData', {})
         payment_ref = body.get('paymentReference')
-        amount = Decimal(str(body.get('amountPaid')))
-        account_ref = body.get('product', {}).get('reference')
+        # Body usually contains 'amountPaid' (Gross) and 'settlementAmount' (Net)
+        amount_to_credit = Decimal(str(body.get('amountPaid'))) 
+        account_ref = body.get('product', {}).get('reference') 
 
         try:
-            # Use select_for_update to lock the wallet row during credit
+            # Atomic block with row-level locking
             with transaction.atomic():
                 wallet = Wallet.objects.select_for_update().get(account_reference=account_ref)
                 
+                # IDEMPOTENCY: Check if this payment reference was already processed
                 if Transaction.objects.filter(reference=payment_ref).exists():
-                    return Response({"status": "duplicate"}, status=status.HTTP_200_OK)
+                    return Response({"status": "already_processed"}, status=status.HTTP_200_OK)
 
-                wallet.balance += amount
+                # Update wallet balance
+                wallet.balance += amount_to_credit
                 wallet.save()
                 
+                # Log the transaction
                 Transaction.objects.create(
                     wallet=wallet,
-                    amount=amount,
+                    amount=amount_to_credit,
                     transaction_type=Transaction.TransactionType.DEPOSIT,
                     status=Transaction.Status.SUCCESS,
                     reference=payment_ref,
-                    description=f"Deposit: {body.get('bankName')} via {body.get('customerName')}"
+                    description=f"Bank Deposit: {body.get('bankName')} - Ref: {payment_ref}"
                 )
+                
+            logger.info(f"✅ Wallet {wallet.id} credited with ₦{amount_to_credit}")
             return Response({"status": "success"}, status=status.HTTP_200_OK)
+
         except Wallet.DoesNotExist:
-            logger.error(f"Webhook Error: Wallet {account_ref} not found")
+            logger.error(f"❌ Webhook Error: Wallet with reference {account_ref} not found.")
             return Response({"error": "Wallet not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"❌ Webhook Processing Error: {str(e)}")
+            return Response({"error": "Internal Error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     return Response({"status": "ignored"}, status=status.HTTP_200_OK)
 
