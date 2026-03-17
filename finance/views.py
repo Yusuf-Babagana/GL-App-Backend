@@ -12,11 +12,11 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
-from rest_framework import permissions, status
+from rest_framework import permissions, status, generics
 from django.db import transaction
 from .models import Wallet, Transaction, BankAccount
 from market.models import Order
-from .serializers import WalletSerializer
+from .serializers import WalletSerializer, TransactionSerializer
 from .services import WalletService # Our new services
 from users.permissions import IsVerifiedUser
 from .utils import MonnifyAPI
@@ -27,7 +27,6 @@ logger = logging.getLogger(__name__)
 
 class TransactionListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
-    from .serializers import TransactionSerializer
     serializer_class = TransactionSerializer
 
     def get_queryset(self):
