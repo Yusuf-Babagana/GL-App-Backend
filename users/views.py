@@ -154,24 +154,22 @@ class SetTransactionPINView(APIView):
 
     def post(self, request):
         pin = request.data.get('pin')
-        old_pin = request.data.get('old_pin') # Required if changing PIN
+        old_pin = request.data.get('old_pin')
         
         if not pin or len(str(pin)) != 4:
             return Response({"error": "PIN must be 4 digits."}, status=400)
 
         user = request.user
 
-        # If user already has a PIN, verify the old one first
-        if user.transaction_pin:
+        # FIX: Check if PIN is not None AND not an empty string
+        if user.transaction_pin and user.transaction_pin.strip() != "":
             if not old_pin:
                 return Response({"error": "Old PIN required to set a new one."}, status=400)
             if not user.check_transaction_pin(old_pin):
                 return Response({"error": "Incorrect Old PIN."}, status=400)
 
-        # Hash and save the new PIN
         user.set_transaction_pin(pin)
         user.save()
-
         return Response({"message": "Transaction PIN updated successfully."}, status=200)
 
 class UpdateBVNView(APIView):

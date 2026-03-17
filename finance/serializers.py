@@ -7,12 +7,23 @@ class TransactionSerializer(serializers.ModelSerializer):
         fields = ['id', 'amount', 'transaction_type', 'status', 'description', 'created_at']
 
 class WalletSerializer(serializers.ModelSerializer):
-    # We rename this to funding_accounts to match a professional Monnify response
+    user_has_bvn = serializers.SerializerMethodField()
+    user_has_pin = serializers.SerializerMethodField()
     funding_accounts = serializers.SerializerMethodField()
 
     class Meta:
         model = Wallet
-        fields = ['balance', 'funding_accounts']
+        fields = [
+            'balance', 'account_number', 'bank_name', 
+            'account_reference', 'user_has_bvn', 'user_has_pin', 'funding_accounts'
+        ]
+
+    def get_user_has_bvn(self, obj):
+        return bool(obj.user.bvn)
+
+    def get_user_has_pin(self, obj):
+        # Returns true only if the pin is set and not empty
+        return bool(obj.user.transaction_pin and obj.user.transaction_pin.strip() != "")
 
     def get_funding_accounts(self, obj):
         # If the user has a Monnify account in the DB, show it.
