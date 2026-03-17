@@ -14,130 +14,86 @@ from .models import Wallet, Transaction
 
 class WalletService:
     """
-    Service layer for internal wallet movements (Escrow, Payments, Refunds).
-    Ensures all movements are atomic and recorded in the ledger.
+    Refactored Service layer: Removed Escrow.
+    Handles immediate wallet settlements and withdrawals.
     """
 
     @classmethod
     @transaction.atomic
-    def lock_funds_for_order(cls, order):
+    def settle_order_payment(cls, order):
         """
-        Moves funds from Buyer's balance to Escrow balance.
+        Directly distributes funds from Buyer to Seller, Rider, and Platform.
+        No escrow involved.
         """
         buyer_wallet = Wallet.objects.select_for_update().get(user=order.buyer)
-        
+        seller_wallet = Wallet.objects.select_for_update().get(user=order.store.owner)
+
         if buyer_wallet.balance < order.total_price:
             raise Exception("Insufficient wallet balance.")
 
-        # Atomic movement
-        buyer_wallet.balance -= order.total_price
-        buyer_wallet.escrow_balance += order.total_price
-        buyer_wallet.save()
-
-        # Update Order
-        order.payment_status = 'escrow_held'
-        order.save()
-
-        # Ledger Entry
-        Transaction.objects.create(
-            wallet=buyer_wallet,
-            amount=-order.total_price,
-            transaction_type='escrow_lock',
-            status='success',
-            related_order_id=str(order.id),
-            description=f"Escrow lock for Order #{order.id}"
-        )
-        return True
-
-    @classmethod
-    @transaction.atomic
-    def release_escrow_to_seller_and_rider(cls, order):
-        """
-        Atomic release: 
-        1. Debit Buyer Escrow.
-        2. Credit Seller (90% of order total).
-        3. Credit Rider (delivery_fee).
-        4. Credit Platform (10% of order total).
-        """
-        if order.payment_status != 'escrow_held':
-            raise Exception("No funds in escrow.")
-
-        buyer_wallet = Wallet.objects.select_for_update().get(user=order.buyer)
-        seller_wallet = Wallet.objects.select_for_update().get(user=order.store.owner)
-        
-        # 1. Buyer Side
-        buyer_wallet.escrow_balance -= order.total_price
-        buyer_wallet.save()
-
-        # 2. Commission Calculation (3% capped at ₦15,000)
-        # Cap applies from ₦500,000 and above (3% of 500k = 15k)
+        # 1. Calculate Splits
+        # Commission: 3% capped at ₦15,000
         commission = min(order.total_price * Decimal('0.03'), Decimal('15000'))
         
-        # 3. Rider Side (Fixed Fee from order)
         rider_share = Decimal('0.00')
         if hasattr(order, 'rider') and order.rider:
             rider_share = order.delivery_fee
             rider_wallet = Wallet.objects.select_for_update().get(user=order.rider)
+            
+            # Credit Rider
             rider_wallet.balance += rider_share
             rider_wallet.save()
             
             Transaction.objects.create(
                 wallet=rider_wallet, amount=rider_share,
-                transaction_type='payment', status='success',
+                transaction_type=Transaction.TransactionType.PAYMENT, status=Transaction.Status.SUCCESS,
                 related_order_id=str(order.id), description=f"Delivery Fee: Order #{order.id}"
             )
 
-        # 4. Seller Side (Total - Commission - Rider Fee)
         seller_share = order.total_price - commission - rider_share
+
+        # 2. Atomic Movement
+        buyer_wallet.balance -= order.total_price
+        buyer_wallet.save()
+
         seller_wallet.balance += seller_share
         seller_wallet.save()
 
-        # 5. Finalize Order
-        order.payment_status = 'released'
+        # 3. Finalize Order Status
+        order.payment_status = 'paid'
         order.save()
 
-        # Audit Trail
+        # 4. Audit Trail for Buyer and Seller
         Transaction.objects.create(
             wallet=buyer_wallet, amount=-order.total_price,
-            transaction_type='escrow_release', status='success',
-            related_order_id=str(order.id), description=f"Payment Released: Order #{order.id}"
+            transaction_type=Transaction.TransactionType.PAYMENT, status=Transaction.Status.SUCCESS,
+            related_order_id=str(order.id), description=f"Order Payment: #{order.id}"
         )
         Transaction.objects.create(
             wallet=seller_wallet, amount=seller_share,
-            transaction_type='payment', status='success',
-            related_order_id=str(order.id), description=f"Earnings: Order #{order.id}"
+            transaction_type=Transaction.TransactionType.PAYMENT, status=Transaction.Status.SUCCESS,
+            related_order_id=str(order.id), description=f"Sales Earning: Order #{order.id}"
         )
         return True
 
     @classmethod
     @transaction.atomic
-    def refund_escrow_to_buyer(cls, order):
+    def process_direct_refund(cls, order):
         """
-        Returns funds from Escrow to Buyer's balance.
-        Called on order cancellation.
+        Directly refunds the Buyer's balance from the platform/seller.
         """
-        if order.payment_status != 'escrow_held':
-            raise Exception("Cannot refund: Funds not in escrow.")
-
         buyer_wallet = Wallet.objects.select_for_update().get(user=order.buyer)
-
-        # Move back to balance
-        buyer_wallet.escrow_balance -= order.total_price
+        
         buyer_wallet.balance += order.total_price
         buyer_wallet.save()
 
-        # Update Order
         order.payment_status = 'refunded'
         order.save()
 
-        # Ledger Entry
         Transaction.objects.create(
-            wallet=buyer_wallet,
-            amount=order.total_price,
-            transaction_type='refund',
-            status='success',
-            related_order_id=str(order.id),
-            description=f"Refund for Order #{order.id}"
+            wallet=buyer_wallet, amount=order.total_price,
+            transaction_type=Transaction.TransactionType.REFUND, status=Transaction.Status.SUCCESS,
+            related_order_id=str(order.id), description=f"Refund for Order #{order.id}"
         )
         return True
 

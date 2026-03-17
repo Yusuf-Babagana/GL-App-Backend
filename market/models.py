@@ -1,7 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
-from finance.monnify import MonnifyClient
+from finance.utils import MonnifyAPI
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -41,8 +41,7 @@ class Store(models.Model):
             bank_info = self.owner.bank_accounts.filter(is_primary=True).first()
             
             if bank_info:
-                client = MonnifyClient()
-                sub_code = client.create_sub_account(
+                sub_code = MonnifyAPI.create_sub_account(
                     bank_code=bank_info.bank_code,
                     account_number=bank_info.account_number,
                     email=self.owner.email,
