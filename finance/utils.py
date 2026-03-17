@@ -18,23 +18,48 @@ class MonnifyAPI:
     """
     @staticmethod
     def _get_url(path):
+        # 1. Get base URL from settings
         base = settings.MONNIFY_BASE_URL.strip().rstrip('/')
-        # Remove versioning from base if it exists to control it per-request
+        
+        # 2. Fix the "https:https://" bug by ensuring we only have one protocol
+        if "://" in base:
+            # Split by :// and take the last part (the actual host)
+            parts = base.split("://")
+            host = parts[-1] 
+            base = f"https://{host}"
+        
+        # 3. Clean up any existing versioning in the base URL
         base = re.sub(r'/api/v(1|2)$', '', base)
+        
+        # 4. Ensure path starts with /
+        if not path.startswith('/'):
+            path = f"/{path}"
+            
         return f"{base}{path}"
 
     @staticmethod
     def get_auth_token():
+        # This will now return 'https://api.monnify.com/api/v1/auth/login' correctly
         url = MonnifyAPI._get_url("/api/v1/auth/login")
+        
         auth_str = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
         encoded_auth = base64.b64encode(auth_str.encode()).decode()
         
+        headers = {
+            "Authorization": f"Basic {encoded_auth}",
+            "Content-Type": "application/json"
+        }
+        
         try:
-            response = requests.post(url, headers={"Authorization": f"Basic {encoded_auth}"}, timeout=15)
-            response.raise_for_status()
-            return response.json()['responseBody']['accessToken']
+            # We use verify=True to ensure SSL is valid on PythonAnywhere
+            response = requests.post(url, headers=headers, timeout=15)
+            if response.status_code == 200:
+                return response.json()['responseBody']['accessToken']
+            else:
+                logger.error(f"❌ Monnify Auth Rejected: {response.status_code} - {response.text}")
+                return None
         except Exception as e:
-            logger.error(f"Monnify Auth Failure: {e}")
+            logger.error(f"❌ Monnify Connection Error: {e} | URL used: {url}")
             return None
 
     @staticmethod
