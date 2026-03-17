@@ -83,7 +83,10 @@ def monnify_webhook(request):
     # CASE 1: Incoming Deposit (User funding wallet)
     if event_type == 'SUCCESSFUL_TRANSACTION':
         payment_ref = data.get('paymentReference')
-        amount_to_credit = Decimal(str(data.get('amountPaid'))) 
+        amount_paid = Decimal(str(data.get('amountPaid')))       # Gross (e.g., 500)
+        settlement_amt = Decimal(str(data.get('settlementAmount'))) # Net (e.g., 491.94)
+        fee = amount_paid - settlement_amt                       # The Fee (e.g., 8.06)
+        
         account_ref = data.get('product', {}).get('reference') 
 
         try:
@@ -93,21 +96,22 @@ def monnify_webhook(request):
                 
                 # IDEMPOTENCY: Check if this payment reference was already processed
                 if not Transaction.objects.filter(reference=payment_ref).exists():
-                    # Update wallet balance
-                    wallet.balance += amount_to_credit
+                    # We credit the SETTLEMENT amount (minus fee)
+                    wallet.balance += settlement_amt
                     wallet.save()
                     
                     # Log the transaction
                     Transaction.objects.create(
                         wallet=wallet,
-                        amount=amount_to_credit,
+                        amount=settlement_amt,
                         transaction_type=Transaction.TransactionType.DEPOSIT,
                         status=Transaction.Status.SUCCESS,
                         reference=payment_ref,
-                        description=f"Deposit: {data.get('bankName')} - Ref: {payment_ref}"
+                        # Better description for the user
+                        description=f"Bank Deposit (Fee: ₦{fee})" 
                     )
-            logger.info(f"✅ Wallet {wallet.id} credited with ₦{amount_to_credit}")
-            return Response({"status": "success"}, status=status.HTTP_200_OK)
+            logger.info(f"✅ Wallet {wallet.id} credited with ₦{settlement_amt} (Settlement)")
+            return Response({"status": "success"}, status=200)
 
         except Wallet.DoesNotExist:
             logger.error(f"❌ Webhook Error: Wallet with reference {account_ref} not found.")
@@ -223,26 +227,28 @@ class DataPurchaseView(APIView):
             }, status=202)
 
 class DataVariationsView(APIView):
-    """
-    Fetches available data plans from Nellobyte.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         service_id = request.query_params.get('service_id')
-        if not service_id:
-            return Response({"error": "service_id is required"}, status=400)
-
         client = NellobyteClient()
         network_code = client._get_network_code(service_id)
         raw_plans = client.fetch_plans(network_code)
 
-        # Format for Mobile Frontend
-        formatted = [{
-            "variation_code": str(p.get("ID")),
-            "name": p.get("Name"),
-            "variation_amount": str(p.get("Amount"))
-        } for p in raw_plans]
+        formatted = []
+        for p in raw_plans:
+            # 1. Get the cost price from Nellobyte (e.g., 567)
+            cost_price = float(p.get("Amount"))
+            
+            # 2. Add your markup (Fixed amount or Percentage)
+            # Example: Add ₦33 to make it a round 600, or a flat ₦50
+            selling_price = cost_price + 40 
+
+            formatted.append({
+                "variation_code": str(p.get("ID")),
+                "name": p.get("Name"),
+                "variation_amount": str(int(selling_price)) # Round to nearest Naira
+            })
 
         return Response({"plans": formatted})
 
