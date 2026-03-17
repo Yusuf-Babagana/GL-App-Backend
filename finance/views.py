@@ -54,59 +54,57 @@ from django.views.decorators.csrf import csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def monnify_webhook(request):
-    import json
-    # 1. Security Check: Verify Monnify Signature
     signature = request.headers.get('monnify-signature')
     if not signature:
-        return Response(status=400)
+        return Response(status=status.HTTP_400_BAD_REQUEST)
 
-    # Recompute hash to verify the request is actually from Monnify
+    # SECURE: Use compare_digest to prevent timing attacks
     computed_hash = hmac.new(
         settings.MONNIFY_SECRET_KEY.encode(),
         request.body,
         hashlib.sha512
     ).hexdigest()
 
-    if computed_hash != signature:
-        return Response({"error": "Invalid signature"}, status=401)
+    if not hmac.compare_digest(computed_hash, signature):
+        return Response({"error": "Invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
 
     data = request.data
-    # 2. Process Successful Payment
     if data.get('eventType') == 'SUCCESSFUL_TRANSACTION':
         body = data.get('eventData', {})
         payment_ref = body.get('paymentReference')
         amount = Decimal(str(body.get('amountPaid')))
-        account_ref = body.get('product', {}).get('reference') # This is your Wallet account_reference
+        account_ref = body.get('product', {}).get('reference')
 
         try:
-            wallet = Wallet.objects.get(account_reference=account_ref)
-            
-            # Idempotency check: Don't credit same payment twice
-            if not Transaction.objects.filter(reference=payment_ref).exists():
-                with transaction.atomic():
-                    # Update wallet balance and log transaction
-                    wallet.balance += amount
-                    wallet.save()
-                    
-                    Transaction.objects.create(
-                        wallet=wallet,
-                        amount=amount,
-                        transaction_type='deposit',
-                        status='success',
-                        reference=payment_ref,
-                        description=f"Auto-Credit: {body.get('bankName')}"
-                    )
-            return Response({"status": "success"}, status=200)
-        except Wallet.DoesNotExist:
-            return Response({"error": "Wallet not found"}, status=404)
+            # Use select_for_update to lock the wallet row during credit
+            with transaction.atomic():
+                wallet = Wallet.objects.select_for_update().get(account_reference=account_ref)
+                
+                if Transaction.objects.filter(reference=payment_ref).exists():
+                    return Response({"status": "duplicate"}, status=status.HTTP_200_OK)
 
-    return Response({"status": "ignored"}, status=200)
+                wallet.balance += amount
+                wallet.save()
+                
+                Transaction.objects.create(
+                    wallet=wallet,
+                    amount=amount,
+                    transaction_type=Transaction.TransactionType.DEPOSIT,
+                    status=Transaction.Status.SUCCESS,
+                    reference=payment_ref,
+                    description=f"Deposit: {body.get('bankName')} via {body.get('customerName')}"
+                )
+            return Response({"status": "success"}, status=status.HTTP_200_OK)
+        except Wallet.DoesNotExist:
+            logger.error(f"Webhook Error: Wallet {account_ref} not found")
+            return Response({"error": "Wallet not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    return Response({"status": "ignored"}, status=status.HTTP_200_OK)
 
 
 from .nellobyte import NellobyteClient
 
 class VTPassPurchaseView(APIView):
-    """Refactored to Nellobyte Systems"""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -114,10 +112,15 @@ class VTPassPurchaseView(APIView):
         data_plan = request.data.get('variation_code')
         phone = request.data.get('phone')
         amount = Decimal(str(request.data.get('amount')))
-
+        
         from .utils import generate_vtpass_request_id
-        request_id = generate_vtpass_request_id()
+        request_id = request.data.get('request_id') or generate_vtpass_request_id()
 
+        # 1. Idempotency Check
+        if Transaction.objects.filter(reference=request_id).exists():
+            return Response({"error": "Duplicate transaction request"}, status=400)
+
+        # 2. Pre-debit and log PENDING transaction
         try:
             with transaction.atomic():
                 wallet = Wallet.objects.select_for_update().get(user=request.user)
@@ -127,22 +130,43 @@ class VTPassPurchaseView(APIView):
                 wallet.balance -= amount
                 wallet.save()
 
-                client = NellobyteClient()
-                resp = client.purchase_data(request_id, service_id, data_plan, phone)
-
-                # 100 = Order Received (Nellobyte success code)
-                if str(resp.get('statuscode')) == '100':
-                    Transaction.objects.create(
-                        wallet=wallet, amount=-amount,
-                        transaction_type='bill_payment', status='success',
-                        description=f"Nellobyte: {service_id.upper()} to {phone}",
-                        reference=request_id
-                    )
-                    return Response({"message": "Purchase successful", "data": resp})
-                else:
-                    raise Exception(resp.get('status', 'API Error'))
+                # Create record before calling API
+                ledger = Transaction.objects.create(
+                    wallet=wallet, 
+                    amount=-amount,
+                    transaction_type=Transaction.TransactionType.BILL_PAYMENT, 
+                    status=Transaction.Status.PENDING,
+                    description=f"Purchase: {service_id.upper()} for {phone}",
+                    reference=request_id
+                )
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": f"Internal Error: {str(e)}"}, status=500)
+
+        # 3. External API Call (OUTSIDE atomic block)
+        try:
+            client = NellobyteClient()
+            resp = client.purchase_data(request_id, service_id, data_plan, phone)
+            
+            if str(resp.get('statuscode')) == '100':
+                ledger.status = Transaction.Status.SUCCESS
+                ledger.save()
+                return Response({"message": "Purchase successful", "data": resp})
+            else:
+                # 4. Auto-Refund on API failure
+                with transaction.atomic():
+                    wallet = Wallet.objects.select_for_update().get(user=request.user)
+                    wallet.balance += amount
+                    wallet.save()
+                    
+                    ledger.status = Transaction.Status.FAILED
+                    ledger.description += f" (Refunded: {resp.get('status', 'API Error')})"
+                    ledger.save()
+                return Response({"error": f"Provider error: {resp.get('status')}"}, status=400)
+
+        except Exception as e:
+            # Handle unexpected network timeouts/crashes
+            logger.error(f"Bill Payment Network Error: {e}")
+            return Response({"message": "Transaction pending. Contact support if not received."}, status=500)
 
 class VTPassVariationsView(APIView):
     permission_classes = [permissions.IsAuthenticated]

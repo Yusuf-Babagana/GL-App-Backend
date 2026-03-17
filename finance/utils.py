@@ -8,31 +8,33 @@ from django.conf import settings
 from decimal import Decimal
 from django.db import transaction
 from .models import Wallet, Transaction
+import logging
+
+logger = logging.getLogger(__name__)
 
 class MonnifyAPI:
     """
-    Handles communication with Monnify for virtual account creation 
-    and authentication.
+    Unified Monnify Service for Virtual Accounts, Withdrawals, and Split Payments.
     """
     @staticmethod
-    def get_auth_token():
-        # Strip trailing slashes and common path errors to prevent doubling
+    def _get_url(path):
         base = settings.MONNIFY_BASE_URL.strip().rstrip('/')
-        if "api/v1" in base:
-            base = base.replace("/api/v1", "")
-            
-        url = f"{base}/api/v1/auth/login"
-        
+        # Remove versioning from base if it exists to control it per-request
+        base = re.sub(r'/api/v(1|2)$', '', base)
+        return f"{base}{path}"
+
+    @staticmethod
+    def get_auth_token():
+        url = MonnifyAPI._get_url("/api/v1/auth/login")
         auth_str = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
         encoded_auth = base64.b64encode(auth_str.encode()).decode()
         
-        headers = {"Authorization": f"Basic {encoded_auth}"}
         try:
-            response = requests.post(url, headers=headers, timeout=15)
+            response = requests.post(url, headers={"Authorization": f"Basic {encoded_auth}"}, timeout=15)
             response.raise_for_status()
             return response.json()['responseBody']['accessToken']
         except Exception as e:
-            print(f"CRITICAL Auth Failure: {e} | URL: {url}")
+            logger.error(f"Monnify Auth Failure: {e}")
             return None
 
     @staticmethod
@@ -43,17 +45,7 @@ class MonnifyAPI:
         user.refresh_from_db()
         user_bvn = getattr(user, 'bvn', None)
         
-        if not user_bvn:
-            print(f"❌ Aborting: No BVN for {user.email}")
-            return None
-
-        base = settings.MONNIFY_BASE_URL.strip().rstrip('/')
-        base = base.replace("/api/v1", "").replace("/api/v2", "")
-        url = f"{base}/api/v2/bank-transfer/reserved-accounts"
-        
-        # Clean the name: Monnify prefers 'Firstname Lastname' 
-        # without special characters like '-' or '@'
-        import re
+        url = MonnifyAPI._get_url("/api/v2/bank-transfer/reserved-accounts")
         clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', user.full_name or user.username)[:50]
 
         payload = {
@@ -64,19 +56,12 @@ class MonnifyAPI:
             "customerEmail": user.email,
             "customerName": clean_name,
             "getAllAvailableBanks": True,
-            "customerBvn": str(user_bvn).strip() 
-        }
-
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
+            "customerBvn": str(user_bvn).strip() if user_bvn else None
         }
 
         try:
-            # Using json=payload automatically handles the json.dumps and headers
-            response = requests.post(url, json=payload, headers=headers, timeout=20)
+            response = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=20)
             data = response.json()
-            
             if data.get('requestSuccessful'):
                 accounts = data['responseBody']['accounts']
                 return {
@@ -84,13 +69,89 @@ class MonnifyAPI:
                     "account_number": accounts[0]['accountNumber'],
                     "bank_code": accounts[0]['bankCode']
                 }
-            else:
-                # If you get 'BVN not found', the user entered a wrong BVN
-                print(f"❌ Monnify API Error: {data.get('responseMessage')}")
-                return None
-        except Exception as e:
-            print(f"ERROR: Monnify Account Creation -> {e}")
             return None
+        except Exception as e:
+            logger.error(f"Monnify Account Error: {e}")
+            return None
+
+    @staticmethod
+    def initiate_order_payment(order, customer_name, customer_email):
+        """Handled the Split Payment logic previously in monnify.py"""
+        token = MonnifyAPI.get_auth_token()
+        url = MonnifyAPI._get_url("/api/v1/merchant/transactions/init-transaction")
+        
+        total_amount = float(order.total_price)
+        commission = min(total_amount * 0.03, 15000.0)
+        vendor_share = total_amount - commission
+
+        payload = {
+            "amount": total_amount,
+            "customerName": customer_name,
+            "customerEmail": customer_email,
+            "paymentReference": f"ORD-{order.id}-{uuid.uuid4().hex[:8]}",
+            "paymentDescription": f"Order #{order.id}",
+            "currencyCode": "NGN",
+            "contractCode": settings.MONNIFY_CONTRACT_CODE,
+            "incomeSplitConfig": [{
+                "subAccountCode": order.store.monnify_sub_account_code,
+                "splitAmount": vendor_share,
+                "feeBearer": True
+            }],
+            "methods": ["CARD", "ACCOUNT_TRANSFER"]
+        }
+        
+        response = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"})
+        return response.json()
+
+    @staticmethod
+    def create_sub_account(bank_code, account_number, email, store_name):
+        """
+        Creates a sub-account on Monnify for a vendor.
+        Returns the subAccountCode if successful.
+        """
+        token = MonnifyAPI.get_auth_token()
+        if not token:
+            return None
+
+        url = MonnifyAPI._get_url("/api/v1/sub-accounts")
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        
+        data = [{
+            "currencyCode": "NGN",
+            "bankCode": bank_code,
+            "accountNumber": account_number,
+            "email": email,
+            "defaultSplitPercentage": 100 
+        }]
+
+        response = requests.post(url, headers=headers, json=data)
+        res_json = response.json()
+
+        if res_json.get('requestSuccessful') and res_json['responseBody']:
+            return res_json['responseBody'][0].get('subAccountCode')
+        
+        logger.error(f"Sub-Account Creation Failed: {res_json}")
+        return None
+
+    @staticmethod
+    def resolve_bank_account(account_number, bank_code):
+        """Verifies the account number and returns the account name"""
+        token = MonnifyAPI.get_auth_token()
+        if not token:
+            return None
+
+        url = MonnifyAPI._get_url("/api/v1/bank-transfer/reserved-accounts/lookup")
+        headers = {"Authorization": f"Bearer {token}"}
+        params = {
+            "accountNumber": account_number,
+            "bankCode": bank_code
+        }
+
+        response = requests.get(url, headers=headers, params=params)
+        
+        if response.status_code == 200:
+            return response.json().get('responseBody') # Contains 'accountName'
+        return None
 
 class WalletManager:
     """
