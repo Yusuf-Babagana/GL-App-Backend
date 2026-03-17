@@ -18,26 +18,32 @@ class NellobyteClient:
         return mapping.get(service_id.lower(), '01')
 
     def fetch_plans(self, network_code):
-        """Fetches and extracts the correct network list from Nellobyte"""
-        # Endpoint for JSON plans
         url = f"{self.base_url}/APIDatabundlePlansV2.asp?UserID={self.user_id}"
         
         try:
             resp = requests.get(url, timeout=20)
             data = resp.json()
             
-            # Map numeric codes back to the Keys in Nellobyte's JSON
-            network_keys = {
-                "01": "MTN",
-                "02": "Glo",
-                "03": "9mobile",
-                "04": "Airtel"
-            }
-            target_key = network_keys.get(network_code)
+            # Nellobyte often categorizes by "MTN_SME", "MTN_CG", etc.
+            # Let's find every key that contains our network (e.g., "MTN")
+            network_map = {"01": "MTN", "02": "Glo", "03": "9mobile", "04": "Airtel"}
+            target = network_map.get(network_code, "MTN")
             
-            # Nellobyte structure: {"content": {"MTN": [...], "Glo": [...]}}
-            all_networks = data.get("content", {})
-            return all_networks.get(target_key, [])
+            all_plans = []
+            content = data.get("content", {})
+            
+            # Loop through all categories (SME, Gifting, CG) and merge them
+            for key, plans in content.items():
+                if target.lower() in key.lower():
+                    # Add the type to the name so the user knows (e.g., "MTN SME - 500MB")
+                    for p in plans:
+                        p['Name'] = f"{key.replace('_', ' ')} - {p['Name']}"
+                        all_plans.append(p)
+            
+            # Sort by price (Amount) so the cheapest are at the top
+            all_plans.sort(key=lambda x: float(x.get('Amount', 0)))
+            
+            return all_plans
             
         except Exception as e:
             print(f"NELLOBYTE FETCH ERROR: {str(e)}")
