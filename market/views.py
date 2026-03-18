@@ -301,33 +301,42 @@ class ConfirmOrderReceiptView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, order_id):
+        print(f"--- 🏁 CONFIRMING RECEIPT FOR ORDER #{order_id} ---")
         try:
-            # 1. Ensure only the Buyer can trigger this
-            order = Order.objects.get(id=order_id, buyer=request.user)
-            
-            # 2. Prevent double-processing
-            if order.payment_status == 'released':
-                return Response({"error": "Funds have already been released for this order."}, status=400)
-
-            if order.payment_status != 'escrow_held':
-                return Response({"error": "No funds are currently held in escrow for this order."}, status=400)
-
             with transaction.atomic():
-                # 3. Update Order Status
-                order.delivery_status = 'delivered'
+                # 1. Fetch Order
+                order = Order.objects.select_for_update().get(id=order_id, buyer=request.user)
+                
+                # 2. Check if already released
+                if order.payment_status == Order.PaymentStatus.RELEASED:
+                    print("❌ ERROR: Payment already released.")
+                    return Response({"error": "Payment already released."}, status=400)
+
+                # 3. RELEASE FUNDS (The most important part)
+                # This moves money from User's Escrow -> Seller's Balance
+                success, message = WalletManager.release_escrow(
+                    order=order,
+                    seller=order.store.owner
+                )
+
+                if not success:
+                    print(f"❌ ERROR: WalletManager failed: {message}")
+                    return Response({"error": message}, status=400)
+
+                # 4. Update Order Status
+                order.payment_status = Order.PaymentStatus.RELEASED
+                order.delivery_status = Order.DeliveryStatus.DELIVERED
                 order.save()
-
-                # 4. Release funds (Your existing service handles the commission and 0 rider fee)
-                # It will pay the seller (Price - Commission) and 0 to rider.
-                WalletService.release_escrow_to_seller_and_rider(order)
-
-            return Response({"message": "Receipt confirmed. Funds released to seller."}, status=200)
+                
+                print(f"✅ SUCCESS: Funds released to {order.store.owner.email}")
+                return Response({"message": "Order confirmed and funds released!"})
 
         except Order.DoesNotExist:
+            print(f"❌ ERROR: Order #{order_id} not found for this user.")
             return Response({"error": "Order not found."}, status=404)
         except Exception as e:
+            print(f"🔥 CRITICAL ERROR: {str(e)}")
             return Response({"error": str(e)}, status=400)
-
 
 
 class SellerOrderListView(generics.ListAPIView):
