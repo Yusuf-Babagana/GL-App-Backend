@@ -293,7 +293,8 @@ class WalletManager:
             return False, "Wallet not found for buyer or seller."
         except Exception as e:
             return False, f"Payment failed: {str(e)}"
-@staticmethod
+
+    @staticmethod
     def settle_to_pending(buyer, seller, amount, order_id=None): # Added =None to make it optional
         """
         Deferred Settlement (Step 1 of 2):
@@ -347,7 +348,7 @@ class WalletManager:
             return False, "Wallet not found for buyer or seller."
         except Exception as e:
             return False, f"Payment failed: {str(e)}"
-            
+
 
     @staticmethod
     def finalize_settlement(order):
