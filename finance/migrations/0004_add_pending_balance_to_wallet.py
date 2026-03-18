@@ -1,20 +1,31 @@
-from django.db import migrations, models
+from django.db import migrations
 
 
 class Migration(migrations.Migration):
     """
-    SAFE migration: Only adds pending_balance to Wallet.
-    Avoids touching BankAccount fields to prevent errors on PythonAnywhere.
+    Adds pending_balance to the Wallet table using raw SQL.
+    This bypasses dependency chain issues between environments.
+    Safe to run even if the column already exists (IF NOT EXISTS guard).
     """
 
+    # Intentionally empty — doesn't depend on any previous migration
+    # so it works regardless of what's already applied on the server.
     dependencies = [
-        ('finance', '0003_alter_transaction_transaction_type_and_more'),
+        ('finance', '0001_initial'),
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='wallet',
-            name='pending_balance',
-            field=models.DecimalField(decimal_places=2, default=0.00, max_digits=12),
+        migrations.RunSQL(
+            # Forward: Add the column if it doesn't already exist
+            sql="""
+                ALTER TABLE finance_wallet
+                ADD COLUMN IF NOT EXISTS pending_balance
+                DECIMAL(12, 2) NOT NULL DEFAULT 0.00;
+            """,
+            # Reverse: Drop the column on rollback
+            reverse_sql="""
+                ALTER TABLE finance_wallet
+                DROP COLUMN IF EXISTS pending_balance;
+            """,
         ),
     ]
