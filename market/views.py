@@ -204,61 +204,83 @@ from finance.services import WalletService
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CreateOrderView(APIView):
+    """
+    Handles Checkout: Validates cart, moves funds to Escrow, and creates Order.
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        print(f"\n--- 🛒 CHECKOUT ATTEMPT BY: {request.user.email} ---")
+        print(f"\n--- 🛒 CHECKOUT ATTEMPT: {request.user.email} ---")
         try:
-            cart = Cart.objects.get(user=request.user)
-            if not cart.items.exists():
-                print("❌ ERROR: Cart is empty.")
-                return Response({"error": "Cart is empty"}, status=400)
+            # 1. Fetch or create cart for the user
+            cart, created = Cart.objects.get_or_create(user=request.user)
+            items = cart.items.all()
+            item_count = items.count()
+            
+            print(f"DEBUG: Cart ID: {cart.id} | Items found: {item_count}")
 
-            # 1. Calculate Total
+            if item_count == 0:
+                print(f"❌ ERROR: Backend sees 0 items in Cart #{cart.id}")
+                return Response({
+                    "error": "Your cart is empty on the server. Please remove and re-add your items."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # 2. Calculate Total (Ensure Decimal for high precision)
             cart_total = Decimal(str(cart.total_price))
-            print(f"💰 DEBUG: Cart Total is ₦{cart_total}")
-            print(f"💳 DEBUG: User Wallet Balance is ₦{request.user.wallet.balance}")
+            print(f"💰 DEBUG: Total Price: ₦{cart_total}")
+            print(f"💳 DEBUG: Current Wallet Balance: ₦{request.user.wallet.balance}")
 
-            # 2. Check for Self-Purchase
-            seller = cart.items.first().product.store.owner
-            print(f"🏪 DEBUG: Store Owner is {seller.email}")
-            if seller == request.user:
-                print("❌ ERROR: User is trying to buy from their own store.")
+            # 3. Prevent Self-Purchase (Crucial for Escrow logic)
+            primary_store = items.first().product.store
+            if primary_store.owner == request.user:
+                print("❌ ERROR: User attempting to buy from their own store.")
                 return Response({"error": "You cannot buy from your own store."}, status=400)
 
-            # 3. Process Payment
+            # 4. Process Payment (Balance -> Escrow)
             payment_success, message = WalletManager.process_payment(
                 user=request.user,
                 amount=cart_total,
                 transaction_type=Transaction.TransactionType.ESCROW_LOCK,
-                description=f"Marketplace Order"
+                description=f"Marketplace Order #{getattr(cart, 'id', 'New')}"
             )
 
             if not payment_success:
-                print(f"❌ ERROR: WalletManager rejected payment: {message}")
-                return Response({"error": message}, status=400)
+                print(f"❌ ERROR: Payment failed: {message}")
+                return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
-            # 4. Create Order
+            # 5. Create Order & Transfer Items
             with transaction.atomic():
                 order = Order.objects.create(
                     buyer=request.user,
-                    store=cart.items.first().product.store,
+                    store=primary_store,
                     total_price=cart_total,
                     shipping_address_json=request.data.get('shipping_address', {}),
                     payment_status=Order.PaymentStatus.ESCROW_HELD,
                     delivery_status=Order.DeliveryStatus.PENDING,
                 )
-                
-                items = [OrderItem(order=order, product=i.product, quantity=i.quantity, price_at_purchase=i.product.price) for i in cart.items.all()]
-                OrderItem.objects.bulk_create(items)
+
+                order_items = [
+                    OrderItem(
+                        order=order,
+                        product=item.product,
+                        quantity=item.quantity,
+                        price_at_purchase=item.product.price
+                    ) for item in items
+                ]
+                OrderItem.objects.bulk_create(order_items)
+
+                # 6. Success: Clear the Cart
                 cart.items.all().delete()
-                
-            print(f"✅ SUCCESS: Order #{order.id} created!")
-            return Response({"message": "Success", "order_id": order.id}, status=201)
+                print(f"✅ SUCCESS: Order #{order.id} created and cart cleared.")
+
+            return Response({
+                "message": "Order placed successfully. Funds are held in escrow.", 
+                "order_id": order.id
+            }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            print(f"🔥 CRITICAL ERROR: {str(e)}")
-            return Response({"error": str(e)}, status=400)
+            print(f"🔥 CRITICAL ERROR during checkout: {str(e)}")
+            return Response({"error": f"Internal Server Error: {str(e)}"}, status=500)
 
 
 class BuyerOrderListView(generics.ListAPIView):
