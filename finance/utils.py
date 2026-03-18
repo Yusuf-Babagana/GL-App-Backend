@@ -243,6 +243,147 @@ class WalletManager:
         except Exception as e:
             return False, f"Payment failed: {str(e)}"
 
+    @staticmethod
+    def process_direct_payment(buyer, amount, seller, order_id):
+        """
+        Instant Settlement: Deducts from Buyer's balance and credits Seller directly.
+        No escrow involved.
+        """
+        amount = Decimal(str(amount))
+
+        try:
+            with transaction.atomic():
+                buyer_wallet = Wallet.objects.select_for_update().get(user=buyer)
+                seller_wallet = Wallet.objects.select_for_update().get(user=seller)
+
+                if buyer_wallet.balance < amount:
+                    return False, "Insufficient wallet balance."
+
+                # 1. Deduct from Buyer
+                buyer_wallet.balance -= amount
+                buyer_wallet.save()
+
+                # 2. Credit Seller (Instant Settlement)
+                seller_wallet.balance += amount
+                seller_wallet.save()
+
+                # 3. Audit Trail: Buyer debit
+                Transaction.objects.create(
+                    wallet=buyer_wallet,
+                    amount=-amount,
+                    transaction_type=Transaction.TransactionType.PAYMENT,
+                    status=Transaction.Status.SUCCESS,
+                    related_order_id=str(order_id),
+                    description=f"Paid for Order #{order_id}"
+                )
+
+                # 4. Audit Trail: Seller credit
+                Transaction.objects.create(
+                    wallet=seller_wallet,
+                    amount=amount,
+                    transaction_type=Transaction.TransactionType.DEPOSIT,
+                    status=Transaction.Status.SUCCESS,
+                    related_order_id=str(order_id),
+                    description=f"Received payment for Order #{order_id}"
+                )
+
+                return True, "Payment settled successfully."
+
+        except Wallet.DoesNotExist:
+            return False, "Wallet not found for buyer or seller."
+        except Exception as e:
+            return False, f"Payment failed: {str(e)}"
+
+    @staticmethod
+    def settle_to_pending(buyer, seller, amount, order_id):
+        """
+        Deferred Settlement (Step 1 of 2):
+        - Deducts from Buyer's available balance
+        - Credits Seller's pending_balance (locked until buyer confirms receipt)
+        """
+        amount = Decimal(str(amount))
+
+        try:
+            with transaction.atomic():
+                b_wallet = Wallet.objects.select_for_update().get(user=buyer)
+                s_wallet = Wallet.objects.select_for_update().get(user=seller)
+
+                if b_wallet.balance < amount:
+                    return False, "Insufficient wallet balance."
+
+                # 1. Deduct from Buyer
+                b_wallet.balance -= amount
+                b_wallet.save()
+
+                # 2. Lock in Seller's "Waiting Room"
+                s_wallet.pending_balance += amount
+                s_wallet.save()
+
+                # 3. Audit Trail: Buyer debit
+                Transaction.objects.create(
+                    wallet=b_wallet,
+                    amount=-amount,
+                    transaction_type=Transaction.TransactionType.PAYMENT,
+                    status=Transaction.Status.SUCCESS,
+                    related_order_id=str(order_id),
+                    description=f"Paid for Order #{order_id} (pending seller confirmation)"
+                )
+
+                # 4. Audit Trail: Seller credit (pending)
+                Transaction.objects.create(
+                    wallet=s_wallet,
+                    amount=amount,
+                    transaction_type=Transaction.TransactionType.ESCROW_LOCK,
+                    status=Transaction.Status.PENDING,
+                    related_order_id=str(order_id),
+                    description=f"Pending earnings for Order #{order_id} (locked)"
+                )
+
+                return True, "Funds locked in pending."
+
+        except Wallet.DoesNotExist:
+            return False, "Wallet not found for buyer or seller."
+        except Exception as e:
+            return False, f"Payment failed: {str(e)}"
+
+    @staticmethod
+    def finalize_settlement(order):
+        """
+        Deferred Settlement (Step 2 of 2):
+        Called when Buyer confirms receipt OR 7-day auto-release triggers.
+        Moves funds from Seller's pending_balance → available balance.
+        """
+        amount = Decimal(str(order.total_price))
+
+        try:
+            with transaction.atomic():
+                s_wallet = Wallet.objects.select_for_update().get(user=order.store.owner)
+
+                if s_wallet.pending_balance < amount:
+                    return False, "Pending balance insufficient for this order."
+
+                # Move from Pending → Available
+                s_wallet.pending_balance -= amount
+                s_wallet.balance += amount
+                s_wallet.save()
+
+                # Audit Trail: Seller's funds unlocked
+                Transaction.objects.create(
+                    wallet=s_wallet,
+                    amount=amount,
+                    transaction_type=Transaction.TransactionType.ESCROW_RELEASE,
+                    status=Transaction.Status.SUCCESS,
+                    related_order_id=str(order.id),
+                    description=f"Earnings released for Order #{order.id}"
+                )
+
+                return True, "Funds released to seller."
+
+        except Wallet.DoesNotExist:
+            return False, "Seller wallet not found."
+        except Exception as e:
+            return False, f"Release failed: {str(e)}"
+
 def generate_vtpass_request_id():
     lagos_tz = pytz.timezone('Africa/Lagos')
     now_in_lagos = datetime.datetime.now(lagos_tz)
