@@ -1,31 +1,48 @@
 from django.db import migrations
 
 
-class Migration(migrations.Migration):
-    """
-    Adds pending_balance to the Wallet table using raw SQL.
-    This bypasses dependency chain issues between environments.
-    Safe to run even if the column already exists (IF NOT EXISTS guard).
-    """
+def add_pending_balance(apps, schema_editor):
+    """Add pending_balance column only if it doesn't already exist."""
+    with schema_editor.connection.cursor() as cursor:
+        # Check if the column already exists
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'finance_wallet'
+              AND COLUMN_NAME = 'pending_balance'
+        """)
+        exists = cursor.fetchone()[0]
 
-    # Intentionally empty — doesn't depend on any previous migration
-    # so it works regardless of what's already applied on the server.
+        if not exists:
+            cursor.execute("""
+                ALTER TABLE finance_wallet
+                ADD COLUMN pending_balance DECIMAL(12, 2) NOT NULL DEFAULT 0.00
+            """)
+
+
+def remove_pending_balance(apps, schema_editor):
+    """Reverse: drop the column if it exists."""
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'finance_wallet'
+              AND COLUMN_NAME = 'pending_balance'
+        """)
+        exists = cursor.fetchone()[0]
+
+        if exists:
+            cursor.execute("""
+                ALTER TABLE finance_wallet DROP COLUMN pending_balance
+            """)
+
+
+class Migration(migrations.Migration):
+
     dependencies = [
         ('finance', '0001_initial'),
     ]
 
     operations = [
-        migrations.RunSQL(
-            # Forward: Add the column if it doesn't already exist
-            sql="""
-                ALTER TABLE finance_wallet
-                ADD COLUMN IF NOT EXISTS pending_balance
-                DECIMAL(12, 2) NOT NULL DEFAULT 0.00;
-            """,
-            # Reverse: Drop the column on rollback
-            reverse_sql="""
-                ALTER TABLE finance_wallet
-                DROP COLUMN IF EXISTS pending_balance;
-            """,
-        ),
+        migrations.RunPython(add_pending_balance, remove_pending_balance),
     ]
