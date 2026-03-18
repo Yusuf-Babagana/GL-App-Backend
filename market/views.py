@@ -204,12 +204,10 @@ from finance.services import WalletService
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CreateOrderView(APIView):
-    """
-    Handles Checkout: Uses WalletManager to lock funds and creates the order.
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        print(f"--- CHECKOUT START for {request.user.email} ---")
         try:
             cart = Cart.objects.get(user=request.user)
         except Cart.DoesNotExist:
@@ -220,9 +218,10 @@ class CreateOrderView(APIView):
 
         # 1. Calculate Total
         cart_total = sum(item.product.price * item.quantity for item in cart.items.all())
+        print(f"DEBUG: Cart Total is ₦{cart_total}")
 
-        # 2. Process Payment via our Unified Utility
-        # This handles checking balance, locking funds in escrow, and creating the transaction record
+        # 2. Process Payment
+        # Reverted logic: This moves money from balance -> escrow_balance
         payment_success, message = WalletManager.process_payment(
             user=request.user,
             amount=cart_total,
@@ -231,38 +230,47 @@ class CreateOrderView(APIView):
         )
 
         if not payment_success:
+            print(f"DEBUG: Payment Failed! Message: {message}")
             return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. Create Order (Database only)
-        # Note: delivery_code is handled automatically by market/signals.py
-        with transaction.atomic():
-            order = Order.objects.create(
-                buyer=request.user,
-                store=cart.items.first().product.store,
-                total_price=cart_total,
-                shipping_address_json=request.data.get('shipping_address', {}),
-                payment_status=Order.PaymentStatus.ESCROW_HELD,
-                delivery_status=Order.DeliveryStatus.PENDING,
-            )
+        # 3. Create Order
+        try:
+            with transaction.atomic():
+                shipping_data = request.data.get('shipping_address', {})
+                print(f"DEBUG: Shipping Data received: {shipping_data}")
 
-            # Move Items from Cart to Order
-            items_to_create = [
-                OrderItem(
-                    order=order,
-                    product=item.product,
-                    quantity=item.quantity,
-                    price_at_purchase=item.product.price
-                ) for item in cart.items.all()
-            ]
-            OrderItem.objects.bulk_create(items_to_create)
+                order = Order.objects.create(
+                    buyer=request.user,
+                    store=cart.items.first().product.store,
+                    total_price=cart_total,
+                    shipping_address_json=shipping_data,
+                    payment_status=Order.PaymentStatus.ESCROW_HELD,
+                    delivery_status=Order.DeliveryStatus.PENDING,
+                )
 
-            # Clear Cart
-            cart.items.all().delete()
+                items_to_create = [
+                    OrderItem(
+                        order=order,
+                        product=item.product,
+                        quantity=item.quantity,
+                        price_at_purchase=item.product.price
+                    ) for item in cart.items.all()
+                ]
+                OrderItem.objects.bulk_create(items_to_create)
 
-        return Response({
-            "message": "Order placed successfully. Funds held in Escrow.", 
-            "order_id": order.id
-        }, status=status.HTTP_201_CREATED)
+                # Clear Cart
+                cart.items.all().delete()
+                print(f"DEBUG: Order #{order.id} created successfully")
+
+                return Response({
+                    "message": "Order placed successfully. Funds held in Escrow.", 
+                    "order_id": order.id
+                }, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            print(f"DEBUG: Critical Order Error: {str(e)}")
+            return Response({"error": f"Server Error: {str(e)}"}, status=500)
+
+
 
 class BuyerOrderListView(generics.ListAPIView):
     serializer_class = OrderSerializer
