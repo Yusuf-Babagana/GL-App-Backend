@@ -107,7 +107,8 @@ class Order(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='received_orders')
     
     # Shipping Address Snapshot
-    shipping_address_json = models.JSONField() 
+    shipping_address_json = models.JSONField(null=True, blank=True, default=dict)
+    
     
     # --- UPDATED LOGISTICS FIELDS ---
     rider = models.ForeignKey(
