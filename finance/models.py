@@ -17,8 +17,11 @@ class Wallet(models.Model):
     
     # Funds that can be withdrawn or used immediately
     balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    
-    # Funds locked in ongoing orders/jobs (Escrow)
+
+    # Funds earned by Seller but locked until Buyer confirms receipt (or 7-day auto-release)
+    pending_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+
+    # Legacy: Funds locked in ongoing orders/jobs (Escrow) — kept for backward compatibility
     escrow_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
 
     # --- ADD THESE MONNIFY FIELDS ---
@@ -42,7 +45,7 @@ class Wallet(models.Model):
 
     @property
     def total_assets(self):
-        return self.balance + self.escrow_balance
+        return self.balance + self.pending_balance + self.escrow_balance
 
 class Transaction(models.Model):
     """

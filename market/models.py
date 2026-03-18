@@ -99,8 +99,9 @@ class Order(models.Model):
 
     class PaymentStatus(models.TextChoices):
         PENDING = 'pending', _('Pending')
-        ESCROW_HELD = 'escrow_held', _('Held in Escrow')
-        RELEASED = 'released', _('Released to Seller')
+        PAID = 'paid', _('Paid (Settled)')
+        ESCROW_HELD = 'escrow_held', _('Held in Escrow')  # Legacy
+        RELEASED = 'released', _('Released to Seller')     # Legacy
         REFUNDED = 'refunded', _('Refunded')
 
     buyer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='orders')

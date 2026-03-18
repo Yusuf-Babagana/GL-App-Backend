@@ -205,7 +205,8 @@ from finance.services import WalletService
 @method_decorator(csrf_exempt, name='dispatch')
 class CreateOrderView(APIView):
     """
-    Handles Checkout: Validates cart, moves funds to Escrow, and creates Order.
+    Handles Checkout: Deducts from Buyer, locks funds in Seller's pending_balance.
+    Seller's funds become available when Buyer confirms receipt (or after 7 days).
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -216,7 +217,7 @@ class CreateOrderView(APIView):
             cart, created = Cart.objects.get_or_create(user=request.user)
             items = cart.items.all()
             item_count = items.count()
-            
+
             print(f"DEBUG: Cart ID: {cart.id} | Items found: {item_count}")
 
             if item_count == 0:
@@ -225,62 +226,64 @@ class CreateOrderView(APIView):
                     "error": "Your cart is empty on the server. Please remove and re-add your items."
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # 2. Calculate Total (Ensure Decimal for high precision)
+            # 2. Calculate Total
             cart_total = Decimal(str(cart.total_price))
-            print(f"💰 DEBUG: Total Price: ₦{cart_total}")
-            print(f"💳 DEBUG: Current Wallet Balance: ₦{request.user.wallet.balance}")
+            print(f"💰 DEBUG: Total: ₦{cart_total} | Buyer Balance: ₦{request.user.wallet.balance}")
 
-            # 3. Prevent Self-Purchase (Crucial for Escrow logic)
+            # 3. Prevent Self-Purchase
             primary_store = items.first().product.store
-            if primary_store.owner == request.user:
-                print("❌ ERROR: User attempting to buy from their own store.")
+            seller = primary_store.owner
+            if seller == request.user:
                 return Response({"error": "You cannot buy from your own store."}, status=400)
 
-            # 4. Process Payment (Balance -> Escrow)
-            payment_success, message = WalletManager.process_payment(
-                user=request.user,
-                amount=cart_total,
-                transaction_type=Transaction.TransactionType.ESCROW_LOCK,
-                description=f"Marketplace Order #{getattr(cart, 'id', 'New')}"
-            )
-
-            if not payment_success:
-                print(f"❌ ERROR: Payment failed: {message}")
-                return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
-
-            # 5. Create Order & Transfer Items
+            # 4. All operations in one atomic block (order rolls back if payment fails)
             with transaction.atomic():
                 order = Order.objects.create(
                     buyer=request.user,
                     store=primary_store,
                     total_price=cart_total,
                     shipping_address_json=request.data.get('shipping_address', {}),
-                    payment_status=Order.PaymentStatus.ESCROW_HELD,
+                    payment_status=Order.PaymentStatus.PENDING,
                     delivery_status=Order.DeliveryStatus.PENDING,
                 )
 
-                order_items = [
+                # 5. Deferred Settlement: Buyer balance → Seller pending_balance
+                payment_success, message = WalletManager.settle_to_pending(
+                    buyer=request.user,
+                    seller=seller,
+                    amount=cart_total,
+                    order_id=order.id
+                )
+
+                if not payment_success:
+                    print(f"❌ ERROR: Payment failed: {message}")
+                    raise Exception(message)  # Rolls back the order creation atomically
+
+                # 6. Mark as Paid & create order items
+                order.payment_status = Order.PaymentStatus.ESCROW_HELD
+                order.save()
+
+                OrderItem.objects.bulk_create([
                     OrderItem(
                         order=order,
                         product=item.product,
                         quantity=item.quantity,
                         price_at_purchase=item.product.price
                     ) for item in items
-                ]
-                OrderItem.objects.bulk_create(order_items)
+                ])
 
-                # 6. Success: Clear the Cart
+                # 7. Clear the Cart
                 cart.items.all().delete()
-                print(f"✅ SUCCESS: Order #{order.id} created and cart cleared.")
+                print(f"✅ SUCCESS: Order #{order.id} created. ₦{cart_total} locked in Seller pending balance.")
 
             return Response({
-                "message": "Order placed successfully. Funds are held in escrow.", 
+                "message": "Order placed! Funds are locked — the seller will be paid when you confirm receipt.",
                 "order_id": order.id
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             print(f"🔥 CRITICAL ERROR during checkout: {str(e)}")
-            return Response({"error": f"Internal Server Error: {str(e)}"}, status=500)
+            return Response({"error": f"{str(e)}"}, status=400)
 
 
 class BuyerOrderListView(generics.ListAPIView):
@@ -298,41 +301,36 @@ class BuyerOrderDetailView(generics.RetrieveAPIView):
         return Order.objects.filter(buyer=self.request.user)
 
 class ConfirmOrderReceiptView(APIView):
+    """
+    Buyer confirms they received the item.
+    This triggers the release of funds from Seller's pending_balance → available balance.
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, order_id):
         print(f"--- 🏁 CONFIRMING RECEIPT FOR ORDER #{order_id} ---")
         try:
             with transaction.atomic():
-                # 1. Fetch Order
                 order = Order.objects.select_for_update().get(id=order_id, buyer=request.user)
-                
-                # 2. Check if already released
-                if order.payment_status == Order.PaymentStatus.RELEASED:
-                    print("❌ ERROR: Payment already released.")
-                    return Response({"error": "Payment already released."}, status=400)
 
-                # 3. RELEASE FUNDS (The most important part)
-                # This moves money from User's Escrow -> Seller's Balance
-                success, message = WalletManager.release_escrow(
-                    order=order,
-                    seller=order.store.owner
-                )
+                if order.delivery_status == Order.DeliveryStatus.DELIVERED:
+                    return Response({"error": "This order is already marked as delivered."}, status=400)
 
+                # Release funds: Seller pending_balance → available balance
+                success, message = WalletManager.finalize_settlement(order)
                 if not success:
-                    print(f"❌ ERROR: WalletManager failed: {message}")
+                    print(f"❌ ERROR: Could not release funds: {message}")
                     return Response({"error": message}, status=400)
 
-                # 4. Update Order Status
-                order.payment_status = Order.PaymentStatus.RELEASED
+                # Update statuses
                 order.delivery_status = Order.DeliveryStatus.DELIVERED
+                order.payment_status = Order.PaymentStatus.RELEASED
                 order.save()
-                
-                print(f"✅ SUCCESS: Funds released to {order.store.owner.email}")
-                return Response({"message": "Order confirmed and funds released!"})
+
+                print(f"✅ SUCCESS: Funds released to {order.store.owner.email}. Order #{order.id} complete.")
+                return Response({"message": "Receipt confirmed! The seller has been paid. 🎉"})
 
         except Order.DoesNotExist:
-            print(f"❌ ERROR: Order #{order_id} not found for this user.")
             return Response({"error": "Order not found."}, status=404)
         except Exception as e:
             print(f"🔥 CRITICAL ERROR: {str(e)}")
@@ -462,6 +460,10 @@ class AcceptDeliveryView(APIView):
         return Response({"message": "Job accepted! Head to the store for pickup."}, status=status.HTTP_200_OK)
 
 class RiderUpdateStatusView(APIView):
+    """
+    Rider updates delivery status. Since payment is settled at checkout,
+    delivery confirmation only updates the order status.
+    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
@@ -482,57 +484,12 @@ class RiderUpdateStatusView(APIView):
             if str(provided_pin).strip() != str(order.delivery_code).strip():
                 return Response({"error": "Incorrect PIN"}, status=400)
 
-            try:
-                with transaction.atomic():
-                    order.delivery_status = 'delivered'
-                    order.payment_status = 'released'
-                    order.save()
+            # Payment already settled at checkout — just update delivery status
+            order.delivery_status = Order.DeliveryStatus.DELIVERED
+            order.save()
 
-                    # 1. Pay Seller (90%)
-                    seller_share = order.total_price * Decimal('0.90')
-                    seller_wallet, _ = Wallet.objects.get_or_create(user=order.store.owner)
-                    seller_wallet.balance += seller_share
-                    seller_wallet.save()
-                    
-                    Transaction.objects.create(
-                        wallet=seller_wallet,
-                        amount=seller_share,
-                        transaction_type=Transaction.TransactionType.PAYMENT,
-                        status=Transaction.Status.SUCCESS,
-                        description=f"Earnings: Order #{order.id}"
-                    )
-
-                    # 2. Pay Rider (₦1,500 fee)
-                    rider_wallet, _ = Wallet.objects.get_or_create(user=request.user)
-                    rider_wallet.balance += Decimal(str(order.delivery_fee))
-                    rider_wallet.save()
-
-                    # CRITICAL: Create the record for the Rider's list
-                    Transaction.objects.create(
-                        wallet=rider_wallet,
-                        amount=order.delivery_fee,
-                        transaction_type=Transaction.TransactionType.PAYMENT,
-                        status=Transaction.Status.SUCCESS,
-                        description=f"Delivery Fee: Order #{order.id}"
-                    )
-
-                    # 3. Deduct from Buyer Escrow
-                    buyer_wallet = Wallet.objects.get(user=order.buyer)
-                    buyer_wallet.escrow_balance -= order.total_price
-                    buyer_wallet.save()
-                    
-                    # Record the release for the Buyer
-                    Transaction.objects.create(
-                        wallet=buyer_wallet,
-                        amount=-order.total_price,
-                        transaction_type=Transaction.TransactionType.ESCROW_RELEASE,
-                        status=Transaction.Status.SUCCESS,
-                        description=f"Payment Released: Order #{order.id}"
-                    )
-
-                return Response({"message": "Success! Money released."})
-            except Exception as e:
-                return Response({"error": f"Transaction Error: {str(e)}"}, status=500)
+            print(f"✅ Rider confirmed delivery for Order #{order.id}")
+            return Response({"message": "Delivery confirmed successfully!"})
 
         return Response({"error": "Invalid status"}, status=400)
 
@@ -548,15 +505,14 @@ class AdminDashboardStatsView(APIView):
         total_users = User.objects.count()
         total_sellers = Store.objects.count()
         
-        # 2. Financial Stats (Escrow)
-        # Calculate total money currently held in all user wallets (Liability)
+        # 2. Financial Stats
         total_wallet_balance = Wallet.objects.aggregate(Sum('balance'))['balance__sum'] or 0.00
-        total_escrow_locked = Wallet.objects.aggregate(Sum('escrow_balance'))['escrow_balance__sum'] or 0.00
         
         # 3. Order Stats
         total_orders = Order.objects.count()
         pending_orders = Order.objects.filter(delivery_status='pending').count()
         completed_orders = Order.objects.filter(delivery_status='delivered').count()
+        paid_orders = Order.objects.filter(payment_status='paid').count()
         
         # 4. Total Volume (Gross Merchandise Value)
         gmv = Order.objects.aggregate(Sum('total_price'))['total_price__sum'] or 0.00
@@ -568,13 +524,13 @@ class AdminDashboardStatsView(APIView):
             },
             "finance": {
                 "wallet_liability": total_wallet_balance,
-                "escrow_locked": total_escrow_locked,
                 "gmv": gmv
             },
             "orders": {
                 "total": total_orders,
                 "pending": pending_orders,
-                "completed": completed_orders
+                "completed": completed_orders,
+                "paid": paid_orders
             }
         })
 
