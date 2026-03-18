@@ -204,88 +204,55 @@ from finance.services import WalletService
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CreateOrderView(APIView):
-    """
-    Handles Checkout: Deducts from Buyer, locks funds in Seller's pending_balance.
-    Seller's funds become available when Buyer confirms receipt (or after 7 days).
-    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        print(f"\n--- 🛒 CHECKOUT ATTEMPT: {request.user.email} ---")
+        print(f"\n--- 🛒 DIRECT SETTLEMENT CHECKOUT: {request.user.email} ---")
         try:
-            # 1. Fetch or create cart for the user
-            cart, created = Cart.objects.get_or_create(user=request.user)
-            items = cart.items.all()
-            item_count = items.count()
+            cart = Cart.objects.get(user=request.user)
+            if not cart.items.exists():
+                return Response({"error": "Cart is empty"}, status=400)
 
-            print(f"DEBUG: Cart ID: {cart.id} | Items found: {item_count}")
-
-            if item_count == 0:
-                print(f"❌ ERROR: Backend sees 0 items in Cart #{cart.id}")
-                return Response({
-                    "error": "Your cart is empty on the server. Please remove and re-add your items."
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            # 2. Calculate Total
             cart_total = Decimal(str(cart.total_price))
-            print(f"💰 DEBUG: Total: ₦{cart_total} | Buyer Balance: ₦{request.user.wallet.balance}")
+            seller = cart.items.first().product.store.owner
 
-            # 3. Prevent Self-Purchase
-            primary_store = items.first().product.store
-            seller = primary_store.owner
             if seller == request.user:
                 return Response({"error": "You cannot buy from your own store."}, status=400)
 
-            # 4. All operations in one atomic block (order rolls back if payment fails)
+            # 1. Direct Settlement to Seller's PENDING balance
+            success, message = WalletManager.settle_to_pending(
+                buyer=request.user,
+                amount=cart_total,
+                seller=seller
+            )
+
+            if not success:
+                return Response({"error": message}, status=400)
+
+            # 2. Create the Order (Marked as Released because buyer has already paid)
             with transaction.atomic():
                 order = Order.objects.create(
                     buyer=request.user,
-                    store=primary_store,
+                    store=cart.items.first().product.store,
                     total_price=cart_total,
                     shipping_address_json=request.data.get('shipping_address', {}),
-                    payment_status=Order.PaymentStatus.PENDING,
+                    payment_status=Order.PaymentStatus.RELEASED, 
                     delivery_status=Order.DeliveryStatus.PENDING,
                 )
-
-                # 5. Deferred Settlement: Buyer balance → Seller pending_balance
-                payment_success, message = WalletManager.settle_to_pending(
-                    buyer=request.user,
-                    seller=seller,
-                    amount=cart_total,
-                    order_id=order.id
-                )
-
-                if not payment_success:
-                    print(f"❌ ERROR: Payment failed: {message}")
-                    raise Exception(message)  # Rolls back the order creation atomically
-
-                # 6. Mark as Paid & create order items
-                order.payment_status = Order.PaymentStatus.ESCROW_HELD
-                order.save()
-
-                OrderItem.objects.bulk_create([
-                    OrderItem(
-                        order=order,
-                        product=item.product,
-                        quantity=item.quantity,
-                        price_at_purchase=item.product.price
-                    ) for item in items
-                ])
-
-                # 7. Clear the Cart
+                
+                # Transfer items from Cart to OrderItems
+                items = [OrderItem(order=order, product=i.product, quantity=i.quantity, price_at_purchase=i.product.price) for i in cart.items.all()]
+                OrderItem.objects.bulk_create(items)
                 cart.items.all().delete()
-                print(f"✅ SUCCESS: Order #{order.id} created. ₦{cart_total} locked in Seller pending balance.")
-
-            return Response({
-                "message": "Order placed! Funds are locked — the seller will be paid when you confirm receipt.",
-                "order_id": order.id
-            }, status=status.HTTP_201_CREATED)
+                
+            print(f"✅ SUCCESS: Order #{order.id} settled to Seller Pending.")
+            return Response({"message": "Order placed!", "order_id": order.id}, status=201)
 
         except Exception as e:
-            print(f"🔥 CRITICAL ERROR during checkout: {str(e)}")
-            return Response({"error": f"{str(e)}"}, status=400)
+            print(f"🔥 ERROR: {str(e)}")
+            return Response({"error": str(e)}, status=400)
 
-
+            
 class BuyerOrderListView(generics.ListAPIView):
     serializer_class = OrderSerializer
     permission_classes = [permissions.IsAuthenticated]
