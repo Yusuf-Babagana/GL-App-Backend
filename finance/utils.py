@@ -293,15 +293,16 @@ class WalletManager:
             return False, "Wallet not found for buyer or seller."
         except Exception as e:
             return False, f"Payment failed: {str(e)}"
-
-    @staticmethod
-    def settle_to_pending(buyer, seller, amount, order_id):
+@staticmethod
+    def settle_to_pending(buyer, seller, amount, order_id=None): # Added =None to make it optional
         """
         Deferred Settlement (Step 1 of 2):
         - Deducts from Buyer's available balance
         - Credits Seller's pending_balance (locked until buyer confirms receipt)
         """
         amount = Decimal(str(amount))
+        # Create a display ID for logs if the real ID isn't ready yet
+        display_id = order_id if order_id else "New"
 
         try:
             with transaction.atomic():
@@ -325,18 +326,19 @@ class WalletManager:
                     amount=-amount,
                     transaction_type=Transaction.TransactionType.PAYMENT,
                     status=Transaction.Status.SUCCESS,
-                    related_order_id=str(order_id),
-                    description=f"Paid for Order #{order_id} (pending seller confirmation)"
+                    related_order_id=str(order_id) if order_id else None,
+                    description=f"Paid for Order #{display_id} (pending seller confirmation)"
                 )
 
                 # 4. Audit Trail: Seller credit (pending)
                 Transaction.objects.create(
                     wallet=s_wallet,
                     amount=amount,
+                    # We keep this as ESCROW_LOCK as it's the best type for "locked" funds
                     transaction_type=Transaction.TransactionType.ESCROW_LOCK,
                     status=Transaction.Status.PENDING,
-                    related_order_id=str(order_id),
-                    description=f"Pending earnings for Order #{order_id} (locked)"
+                    related_order_id=str(order_id) if order_id else None,
+                    description=f"Pending earnings for Order #{display_id} (locked)"
                 )
 
                 return True, "Funds locked in pending."
@@ -345,6 +347,7 @@ class WalletManager:
             return False, "Wallet not found for buyer or seller."
         except Exception as e:
             return False, f"Payment failed: {str(e)}"
+            
 
     @staticmethod
     def finalize_settlement(order):
