@@ -14,8 +14,9 @@ class WalletSerializer(serializers.ModelSerializer):
     class Meta:
         model = Wallet
         fields = [
-            'balance', 'pending_balance', 'account_number', 'bank_name', 
+            'balance', 'account_number', 'bank_name', 
             'account_reference', 'user_has_bvn', 'user_has_pin', 'funding_accounts'
+            # 'pending_balance' — add back after running: python manage.py migrate finance
         ]
 
     def get_user_has_bvn(self, obj):
@@ -39,8 +40,7 @@ class WalletSerializer(serializers.ModelSerializer):
 class BankAccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = BankAccount
-        fields = ['id', 'bank_name', 'account_number', 'account_name', 'is_primary']
-        read_only_fields = ['is_verified']
+        fields = ['id', 'bank_name', 'account_number', 'account_name']
 
 class WithdrawalRequestSerializer(serializers.ModelSerializer):
     class Meta:
