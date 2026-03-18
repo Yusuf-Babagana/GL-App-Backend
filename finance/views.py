@@ -36,22 +36,32 @@ class WalletDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        wallet, _ = Wallet.objects.get_or_create(user=request.user)
-        
-        # SAFETY NET: If user has no account yet, generate it now
-        if not wallet.account_number:
-            try:
-                acc_data = MonnifyAPI.create_virtual_account(request.user)
-                if acc_data:
-                    wallet.account_number = acc_data['account_number']
-                    wallet.bank_name = acc_data['bank_name']
-                    wallet.bank_code = acc_data['bank_code']
-                    wallet.save()
-            except Exception as e:
-                logger.error(f"On-the-fly account generation failed: {e}")
+        try:
+            # 1. get_or_create ensures no crash if the user somehow has no wallet
+            wallet, created = Wallet.objects.get_or_create(user=request.user)
+            
+            # 2. Safety Net for Virtual Account
+            if not wallet.account_number:
+                try:
+                    acc_data = MonnifyAPI.create_virtual_account(request.user)
+                    if acc_data:
+                        wallet.account_number = acc_data.get('account_number')
+                        wallet.bank_name = acc_data.get('bank_name')
+                        wallet.bank_code = acc_data.get('bank_code')
+                        # VERY IMPORTANT: Monnify Webhook needs this reference to find the wallet
+                        wallet.account_reference = acc_data.get('account_reference')
+                        wallet.save()
+                except Exception as e:
+                    logger.error(f"Monnify Account Generation Error: {e}")
 
-        serializer = WalletSerializer(wallet)
-        return Response(serializer.data)
+            # 3. Serialize and return
+            serializer = WalletSerializer(wallet)
+            return Response(serializer.data)
+            
+        except Exception as e:
+            # This will show up in your PythonAnywhere "Error Log"
+            logger.error(f"WalletDetailView 500 Error: {str(e)}")
+            return Response({"error": "Internal Server Error", "details": str(e)}, status=500)
 
 
 
@@ -231,26 +241,38 @@ class DataVariationsView(APIView):
 
     def get(self, request):
         service_id = request.query_params.get('service_id')
-        client = NellobyteClient()
-        network_code = client._get_network_code(service_id)
-        raw_plans = client.fetch_plans(network_code)
+        if not service_id:
+            return Response({"plans": [], "error": "service_id is required"}, status=400)
 
-        formatted = []
-        for p in raw_plans:
-            # 1. Get the cost price from Nellobyte (e.g., 567)
-            cost_price = float(p.get("Amount"))
+        try:
+            client = NellobyteClient()
+            network_code = client._get_network_code(service_id)
             
-            # 2. Add your markup (Fixed amount or Percentage)
-            # Example: Add ₦33 to make it a round 600, or a flat ₦50
-            selling_price = cost_price + 40 
+            # LOG THIS: See if 'mtn-data' correctly becomes '1' (or whatever Nellobyte needs)
+            logger.info(f"Fetching plans for service: {service_id}, mapped code: {network_code}")
+            
+            raw_plans = client.fetch_plans(network_code)
 
-            formatted.append({
-                "variation_code": str(p.get("ID")),
-                "name": p.get("Name"),
-                "variation_amount": str(int(selling_price)) # Round to nearest Naira
-            })
+            if not raw_plans:
+                return Response({"plans": [], "message": "No plans returned from provider"})
 
-        return Response({"plans": formatted})
+            formatted = []
+            for p in raw_plans:
+                cost_price = float(p.get("Amount", 0))
+                # Markup of ₦40
+                selling_price = cost_price + 40 
+
+                formatted.append({
+                    "variation_code": str(p.get("ID")),
+                    "name": p.get("Name"),
+                    "variation_amount": str(int(selling_price))
+                })
+
+            return Response({"plans": formatted})
+        except Exception as e:
+            logger.error(f"DataVariationsView Error: {e}")
+            return Response({"plans": [], "error": str(e)}, status=500)
+
 
 class VerifyBankAccountView(APIView):
     permission_classes = [permissions.IsAuthenticated]
