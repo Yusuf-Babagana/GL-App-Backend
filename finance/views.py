@@ -291,8 +291,10 @@ class VerifyBankAccountView(APIView):
 
         try:
             # 2. Call the service and catch the specific error
-            account_name = MonnifyAPI.resolve_bank_account(account_number, bank_code)
-            return Response({"account_name": account_name}, status=200)
+            account_name, error_msg = MonnifyAPI.resolve_bank_account(account_number, bank_code)
+            if account_name:
+                return Response({"account_name": account_name}, status=200)
+            return Response({"error": error_msg}, status=400)
         except Exception as e:
             # 3. Print the EXACT error from Monnify to the console
             print(f"🚨 MONNIFY API FAILURE: {str(e)}")
