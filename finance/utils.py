@@ -189,7 +189,7 @@ class MonnifyAPI:
         if not token:
             return None
 
-        url = MonnifyAPI._get_url("/api/v1/bank-transfer/reserved-accounts/lookup")
+        url = MonnifyAPI._get_url("/api/v1/disbursements/account/validate")
         headers = {"Authorization": f"Bearer {token}"}
         params = {
             "accountNumber": account_number,
