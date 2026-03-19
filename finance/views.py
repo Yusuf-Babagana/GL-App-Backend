@@ -165,29 +165,34 @@ class DataPurchaseView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        service_id = request.data.get('service_id')  # e.g., 'mtn-data'
-        data_plan = request.data.get('variation_code') # Nellobyte Plan ID
+        logger.info(f"Data Purchase Request: {request.data}")
+        service_id = request.data.get('service_id')
+        data_plan = request.data.get('variation_code')
         phone = request.data.get('phone')
-        amount = Decimal(str(request.data.get('amount')))
         
-        # Unique reference for Nellobyte tracking
+        raw_amount = request.data.get('amount')
+        if not all([service_id, data_plan, phone, raw_amount]):
+            logger.error("Data Purchase 400: Missing required fields.")
+            return Response({"error": "Missing service_id, variation_code, phone, or amount."}, status=400)
+
+        try:
+            amount = Decimal(str(raw_amount))
+        except Exception as e:
+            logger.error(f"Data Purchase 400: Invalid amount format: {raw_amount}")
+            return Response({"error": "Invalid amount format.", "details": str(e)}, status=400)
+        
         request_id = str(uuid.uuid4().hex)[:12]
 
-        # 1. Idempotency Check
-        if Transaction.objects.filter(reference=request_id).exists():
-            return Response({"error": "Duplicate request detected."}, status=400)
-
-        # 2. Pre-debit Logic
         try:
             with transaction.atomic():
                 wallet = Wallet.objects.select_for_update().get(user=request.user)
                 if wallet.balance < amount:
+                    logger.error(f"Data Purchase 400: Insufficient Balance. Need {amount}, have {wallet.balance}")
                     return Response({"error": "Insufficient wallet balance."}, status=400)
 
                 wallet.balance -= amount
                 wallet.save()
 
-                # Log as PENDING
                 ledger = Transaction.objects.create(
                     wallet=wallet, 
                     amount=-amount,
@@ -197,14 +202,15 @@ class DataPurchaseView(APIView):
                     reference=request_id
                 )
         except Exception as e:
+            logger.error(f"Data Purchase 500: Internal Wallet Error: {e}")
             return Response({"error": f"Internal Wallet Error: {str(e)}"}, status=500)
 
         # 3. Call Nellobyte
         try:
             client = NellobyteClient()
+            logger.info(f"Calling Nellobyte with req_id={request_id}, svc={service_id}, plan={data_plan}, ph={phone}")
             resp = client.purchase_data(request_id, service_id, data_plan, phone)
             
-            # Nellobyte Status: 100 = Success
             status_code = str(resp.get('statuscode'))
             
             if status_code == '100':
@@ -216,7 +222,6 @@ class DataPurchaseView(APIView):
                     "new_balance": float(wallet.balance)
                 }, status=200)
             else:
-                # 4. AUTO-REFUND on API error
                 with transaction.atomic():
                     w = Wallet.objects.select_for_update().get(user=request.user)
                     w.balance += amount
@@ -227,14 +232,12 @@ class DataPurchaseView(APIView):
                     ledger.description += f" (Refunded: {error_msg})"
                     ledger.save()
                 
+                logger.error(f"Data Purchase 400: Nellobyte Error: {error_msg} | Code: {status_code} | Raw: {resp}")
                 return Response({"error": f"Nellobyte Error: {error_msg}"}, status=400)
 
         except Exception as e:
             logger.error(f"Nellobyte Network/Critical Failure: {e}")
-            # Do NOT refund here; transaction remains PENDING for manual review
-            return Response({
-                "message": "Transaction submitted. Check history for status updates."
-            }, status=202)
+            return Response({"message": "Transaction submitted. Check history for status updates."}, status=202)
 
 class DataVariationsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -333,7 +336,7 @@ class WithdrawalView(APIView):
             return Response({"error": "Invalid Transaction PIN"}, status=400)
 
         try:
-            success, message = WithdrawalService.initiate_payout(
+            success, result = WithdrawalService.initiate_payout(
                 user=request.user,
                 amount=amount,
                 bank_code=bank_code,
@@ -341,11 +344,21 @@ class WithdrawalView(APIView):
             )
 
             if success:
-                return Response({"message": message}, status=200)
-            return Response({"error": message}, status=400)
+                return Response({"message": result.get("message", "Success")}, status=200)
+            
+            # Error Formatting Strategy for the Frontend
+            error_msg = result.get("error", "Transaction rejected by provider")
+            error_code = result.get("code", "UNKNOWN")
+            
+            logger.error(f"Monnify Payout Blocked: {error_code} - {error_msg}")
+            return Response({
+                "error": error_msg,
+                "code": error_code
+            }, status=400)
+
         except Exception as e:
             logger.error(f"WITHDRAWAL FAILURE: {str(e)}")
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": "Internal Error Handling Withdrawal", "details": str(e)}, status=500)
 
 class DepositNotificationView(APIView):
     permission_classes = [permissions.IsAuthenticated]
