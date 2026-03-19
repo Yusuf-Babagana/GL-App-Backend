@@ -299,6 +299,18 @@ class VerifyBankAccountView(APIView):
             # 4. Return the ACTUAL error to your React Native app
             return Response({"error": f"Monnify says: {str(e)}"}, status=400)
 
+class BankListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        try:
+            # Call Monnify utility to get the bank list
+            banks = MonnifyAPI.get_banks()
+            return Response(banks, status=200)
+        except Exception as e:
+            logger.error(f"Failed to fetch banks: {e}")
+            return Response({"error": "Could not load bank list"}, status=500)
+
 class WithdrawalView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
