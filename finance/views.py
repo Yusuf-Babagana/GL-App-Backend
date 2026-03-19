@@ -277,16 +277,16 @@ class DataVariationsView(APIView):
 class VerifyBankAccountView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request):
+    def get(self, request):
         # 1. Log what we received
-        print(f"DEBUG: Data received from App: {request.data}")
+        print(f"DEBUG: Params received from App: {request.query_params}")
         
-        account_number = request.data.get('account_number')
-        bank_code = request.data.get('bank_code')
+        account_number = request.query_params.get('account_number')
+        bank_code = request.query_params.get('bank_code')
 
         if not account_number or not bank_code:
             return Response({
-                "error": f"Missing data. Need account_number and bank_code. Received: {request.data}"
+                "error": f"Missing query params. Need account_number and bank_code."
             }, status=400)
 
         try:
