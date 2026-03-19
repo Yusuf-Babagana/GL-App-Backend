@@ -136,10 +136,19 @@ class WithdrawalService:
                         reference=reference,
                         description=f"Withdrawal to {account_number}"
                     )
-                    return True, "Withdrawal processed successfully."
+                    return True, {"message": "Withdrawal processed successfully."}
                 else:
-                    # 3. Rollback if Monnify rejects the request
-                    raise Exception(response.get("responseMessage", "Monnify Error"))
+                    # 3. Rollback
+                    error_msg = response.get("responseMessage", "Transaction rejected by provider")
+                    error_code = response.get("responseCode", "UNKNOWN")
+                    # Raising exception to trigger rollback
+                    raise ValueError(f"{error_code}|{error_msg}")
 
+        except ValueError as ve:
+            # We catch our custom ValueError to parse the code and message securely
+            parts = str(ve).split('|', 1)
+            code = parts[0] if len(parts) > 1 else "UNKNOWN"
+            msg = parts[1] if len(parts) > 1 else str(ve)
+            return False, {"error": msg, "code": code}
         except Exception as e:
-            return False, f"Withdrawal failed: {str(e)}"
+            return False, {"error": f"Withdrawal failed: {str(e)}", "code": "SYS_ERR"}

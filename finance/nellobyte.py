@@ -17,39 +17,21 @@ class NellobyteClient:
         }
         return mapping.get(service_id.lower(), '01')
 
-    def fetch_plans(self, network_code):
-        # Using the exact URL from your documentation
-        url = f"{self.base_url}/APIDatabundlePlansV2.asp?UserID={self.user_id}"
+    def fetch_all_variations(self, network_id):
+        """
+        Fetches all available plans for a specific network (1=MTN, 2=Glo, etc.)
+        """
+        # Endpoint varies; usually: APIPackage.asp or APIDataPlan.asp
+        url = f"{self.base_url}/APIDataPlan.asp?UserID={self.user_id}&APIKey={self.api_key}&Network={network_id}"
         
         try:
-            resp = requests.get(url, timeout=20)
-            data = resp.json()
-            
-            # Nellobyte documentation shows network keys: MTN, Glo, 9mobile, Airtel
-            network_map = {"01": "MTN", "02": "Glo", "03": "9mobile", "04": "Airtel"}
-            target_key = network_map.get(network_code, "MTN")
-            
-            all_plans = []
-            content = data.get("content", {})
-            
-            # The JSON returns plans inside keys like "MTN_SME", "MTN_Gifting"
-            # We will grab every key that starts with our target network
-            for key, plans in content.items():
-                if key.startswith(target_key):
-                    plan_type = key.replace(target_key, "").replace("_", "").strip()
-                    for p in plans:
-                        all_plans.append({
-                            "ID": p.get("ID"), # e.g., "500.0"
-                            "Name": f"{p.get('Name')} ({plan_type})",
-                            "Amount": p.get("Amount")
-                        })
-            
-            # Sort by price
-            all_plans.sort(key=lambda x: float(x.get('Amount', 0)))
-            return all_plans
-            
+            response = requests.get(url, timeout=20)
+            data = response.json()
+            # Nellobyte often returns plans under a 'dataplan' or 'packages' key
+            # But the new V1/V2 structure sometimes uses different keys. We'll stick to 'dataplan' as requested.
+            return data.get('DATAPLAN', data.get('dataplan', []))
         except Exception as e:
-            print(f"NELLOBYTE FETCH ERROR: {str(e)}")
+            print(f"Nellobyte Fetch Error: {e}")
             return []
 
     def purchase_data(self, request_id, service_id, data_plan, phone):

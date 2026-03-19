@@ -243,38 +243,32 @@ class DataVariationsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        service_id = request.query_params.get('service_id')
-        if not service_id:
-            return Response({"plans": [], "error": "service_id is required"}, status=400)
+        service_id = request.query_params.get('service_id') # e.g., 'mtn-data'
+        client = NellobyteClient()
+        
+        # Map your frontend string to Nellobyte's numeric network ID
+        network_mapping = {'mtn-data': '1', 'glo-data': '2', 'airtel-data': '3', '9mobile-data': '4'}
+        network_id = network_mapping.get(service_id)
 
-        try:
-            client = NellobyteClient()
-            network_code = client._get_network_code(service_id)
-            
-            # LOG THIS: See if 'mtn-data' correctly becomes '1' (or whatever Nellobyte needs)
-            logger.info(f"Fetching plans for service: {service_id}, mapped code: {network_code}")
-            
-            raw_plans = client.fetch_plans(network_code)
+        if not network_id:
+            return Response({"error": "Invalid service"}, status=400)
 
-            if not raw_plans:
-                return Response({"plans": [], "message": "No plans returned from provider"})
+        all_plans = client.fetch_all_variations(network_id)
 
-            formatted = []
-            for p in raw_plans:
-                cost_price = float(p.get("Amount", 0))
-                # Markup of ₦40
-                selling_price = cost_price + 40 
+        formatted_plans = []
+        for plan in all_plans:
+            # Add your profit margin (e.g., ₦50)
+            original_price = float(plan.get('price', 0))
+            selling_price = original_price + 50 
 
-                formatted.append({
-                    "variation_code": str(p.get("ID")),
-                    "name": p.get("Name"),
-                    "variation_amount": str(int(selling_price))
-                })
+            formatted_plans.append({
+                "variation_code": str(plan.get('ID')),
+                "name": str(plan.get('name', '')).upper(),
+                "variation_amount": str(int(selling_price)),
+                "type": plan.get('type', 'Standard') # e.g., 'SME' or 'Gifting'
+            })
 
-            return Response({"plans": formatted})
-        except Exception as e:
-            logger.error(f"DataVariationsView Error: {e}")
-            return Response({"plans": [], "error": str(e)}, status=500)
+        return Response({"plans": formatted_plans})
 
 
 class VerifyBankAccountView(APIView):
