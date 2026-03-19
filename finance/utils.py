@@ -197,10 +197,14 @@ class MonnifyAPI:
         }
 
         response = requests.get(url, headers=headers, params=params)
+        res_json = response.json()
         
-        if response.status_code == 200:
-            return response.json().get('responseBody') # Contains 'accountName'
-        return None
+        # If Monnify returns a success but requestSuccessful is false
+        if res_json.get('requestSuccessful'):
+            response_body = res_json.get('responseBody', {})
+            return response_body.get('accountName'), None
+            
+        return None, res_json.get('responseMessage', 'Invalid Account or Bank.')
 
     @staticmethod
     def disburse_funds(amount, reference, bank_code, account_number, narration):
