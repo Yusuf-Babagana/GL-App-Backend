@@ -97,15 +97,49 @@ class WalletService:
         )
         return True
 
-    @classmethod
-    @transaction.atomic
-    def initiate_withdrawal(cls, user, amount, account_number, bank_code):
-        wallet = Wallet.objects.select_for_update().get(user=user)
-        print(f"--- EMPEROR WITHDRAWAL START for {user.email} ---")
+class WithdrawalService:
+    @staticmethod
+    def initiate_payout(user, amount, bank_code, account_number):
+        import uuid
+        from .utils import MonnifyAPI
+        
+        amount = Decimal(str(amount))
+        reference = f"WITHDRAW-{uuid.uuid4().hex[:8]}"
 
-        if wallet.balance < amount:
-            print("!!! ERROR: Insufficient Balance")
-            raise Exception("Insufficient funds for withdrawal.")
+        try:
+            with transaction.atomic():
+                wallet = Wallet.objects.select_for_update().get(user=user)
 
-        # Removed Paystack logic. TODO: Implement Monnify Disbursement logic
-        raise Exception("Withdrawals are currently being migrated to Monnify. Please try again later.")
+                if wallet.balance < amount:
+                    return False, "Insufficient balance."
+
+                # 1. Deduct immediately (Pre-debit)
+                wallet.balance -= amount
+                wallet.save()
+
+                # 2. Call Monnify Disbursement API
+                # This moves real money from your Monnify account to the user
+                response = MonnifyAPI.disburse_funds(
+                    amount=amount,
+                    reference=reference,
+                    bank_code=bank_code,
+                    account_number=account_number,
+                    narration=f"Withdrawal for {user.username}"
+                )
+
+                if response.get("requestSuccessful"):
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=-amount,
+                        transaction_type=Transaction.TransactionType.WITHDRAWAL,
+                        status=Transaction.Status.SUCCESS,
+                        reference=reference,
+                        description=f"Withdrawal to {account_number}"
+                    )
+                    return True, "Withdrawal processed successfully."
+                else:
+                    # 3. Rollback if Monnify rejects the request
+                    raise Exception(response.get("responseMessage", "Monnify Error"))
+
+        except Exception as e:
+            return False, f"Withdrawal failed: {str(e)}"

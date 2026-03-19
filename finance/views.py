@@ -17,7 +17,7 @@ from django.db import transaction
 from .models import Wallet, Transaction, BankAccount
 from market.models import Order
 from .serializers import WalletSerializer, TransactionSerializer
-from .services import WalletService # Our new services
+from .services import WalletService, WithdrawalService # Our new services
 from users.permissions import IsVerifiedUser
 from .utils import MonnifyAPI
 
@@ -303,39 +303,34 @@ class WithdrawalView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        # 1. Debug: What did we actually get?
-        print(f"DEBUG WITHDRAW DATA: {request.data}")
-        
-        pin = request.data.get('pin')
         amount = request.data.get('amount')
-        account_number = request.data.get('account_number')
         bank_code = request.data.get('bank_code')
+        account_number = request.data.get('account_number')
+        pin = request.data.get('pin')
 
-        if not all([pin, amount, account_number, bank_code]):
-            # This will show you exactly what is missing
-            missing = [k for k in ['pin', 'amount', 'account_number', 'bank_code'] if not request.data.get(k)]
-            return Response({"error": f"Missing fields: {', '.join(missing)}"}, status=400)
+        if not all([amount, bank_code, account_number, pin]):
+            return Response({"error": "Missing required fields (amount, bank_code, account_number, pin)"}, status=400)
 
-        # 2. Check PIN
+        # Security: Check PIN
         if not request.user.transaction_pin:
             return Response({"error": "No PIN set. Visit profile to set one."}, status=400)
 
         if not request.user.check_transaction_pin(pin):
-            return Response({"error": "Incorrect Transaction PIN"}, status=400)
+            return Response({"error": "Invalid Transaction PIN"}, status=400)
 
         try:
-            # 3. Process
-            amount_decimal = Decimal(str(amount))
-            WalletService.initiate_withdrawal(
+            success, message = WithdrawalService.initiate_payout(
                 user=request.user,
-                amount=amount_decimal,
-                account_number=account_number,
-                bank_code=bank_code
+                amount=amount,
+                bank_code=bank_code,
+                account_number=account_number
             )
-            return Response({"message": "Withdrawal successful"}, status=200)
+
+            if success:
+                return Response({"message": message}, status=200)
+            return Response({"error": message}, status=400)
         except Exception as e:
-            # 4. If Paystack or WalletService fails, we need to know why
-            print(f"WITHDRAWAL FAILURE: {str(e)}")
+            logger.error(f"WITHDRAWAL FAILURE: {str(e)}")
             return Response({"error": str(e)}, status=400)
 
 class DepositNotificationView(APIView):

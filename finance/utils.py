@@ -202,6 +202,47 @@ class MonnifyAPI:
             return response.json().get('responseBody') # Contains 'accountName'
         return None
 
+    @staticmethod
+    def disburse_funds(amount, reference, bank_code, account_number, narration):
+        """
+        Transfers funds from the platform's Monnify wallet to a user's bank account.
+        """
+        token = MonnifyAPI.get_auth_token()
+        if not token:
+            logger.error("Disbursement Failed: Unable to get Auth Token")
+            return {"requestSuccessful": False, "responseMessage": "Auth failed"}
+
+        url = MonnifyAPI._get_url("/api/v2/disbursements/single")
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        # We need the platform's Monnify wallet account number from settings
+        source_account = getattr(settings, 'MONNIFY_WALLET_ACCOUNT_NUMBER', '')
+        if not source_account:
+            logger.error("Disbursement Failed: MONNIFY_WALLET_ACCOUNT_NUMBER not set in settings.")
+            return {"requestSuccessful": False, "responseMessage": "Server configuration error: Source Account not set."}
+
+        payload = {
+            "amount": float(amount),
+            "reference": reference,
+            "narration": narration,
+            "destinationBankCode": bank_code,
+            "destinationAccountNumber": account_number,
+            "currency": "NGN",
+            "sourceAccountNumber": source_account
+        }
+
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            res_json = response.json()
+            logger.info(f"Monnify Disbursement Response: {res_json}")
+            return res_json
+        except Exception as e:
+            logger.error(f"Monnify Disbursement Error: {str(e)}")
+            return {"requestSuccessful": False, "responseMessage": f"API Error: {str(e)}"}
+
 class WalletManager:
     """
     Handles all internal wallet movements (Marketplace and Data purchases).
