@@ -243,6 +243,32 @@ class MonnifyAPI:
             logger.error(f"Monnify Disbursement Error: {str(e)}")
             return {"requestSuccessful": False, "responseMessage": f"API Error: {str(e)}"}
 
+    @staticmethod
+    def get_banks():
+        """
+        Fetches the list of supported Nigerian banks directly from Monnify.
+        """
+        token = MonnifyAPI.get_auth_token()
+        if not token:
+            logger.error("Failed to get auth token for get_banks")
+            return []
+
+        url = MonnifyAPI._get_url("/api/v1/banks")
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            response = requests.get(url, headers=headers)
+            res_json = response.json()
+            if res_json.get('requestSuccessful'):
+                return res_json.get('responseBody', [])
+            return []
+        except Exception as e:
+            logger.error(f"Monnify get_banks error: {e}")
+            return []
+
 class WalletManager:
     """
     Handles all internal wallet movements (Marketplace and Data purchases).
