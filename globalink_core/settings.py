@@ -35,6 +35,7 @@ PAYSTACK_SECRET_KEY = env('PAYSTACK_SECRET_KEY', default='')
 MONNIFY_API_KEY = env('MONNIFY_API_KEY', default='')
 MONNIFY_SECRET_KEY = env('MONNIFY_SECRET_KEY', default='')
 MONNIFY_CONTRACT_CODE = env('MONNIFY_CONTRACT_CODE', default='')
+MONNIFY_WALLET_ACCOUNT_NUMBER = env('MONNIFY_WALLET_ACCOUNT_NUMBER', default='')
 # We use .rstrip('/') to prevent the "Double URL" bug found in your logs
 MONNIFY_BASE_URL = env('MONNIFY_BASE_URL', default='https://api.monnify.com').rstrip('/')
 
