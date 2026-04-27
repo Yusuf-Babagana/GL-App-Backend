@@ -63,7 +63,7 @@ class Shop(models.Model):
 
 
 class Product(models.Model):
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='products')
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='products', null=True, blank=True)
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, related_name='products')
     name = models.CharField(max_length=255)
     description = models.TextField()
@@ -110,7 +110,7 @@ class Order(models.Model):
         REFUNDED = 'refunded', _('Refunded')
 
     buyer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='orders')
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='received_orders')
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='received_orders', null=True, blank=True)
     
     # Shipping Address Snapshot
     shipping_address_json = models.JSONField(null=True, blank=True, default=dict)
