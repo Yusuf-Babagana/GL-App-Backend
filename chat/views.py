@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from .models import Conversation, Message
-from market.models import Store
+from market.models import Shop
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -45,8 +45,8 @@ class StartOrGetConversationView(APIView):
             conversation.participants.add(request.user, other_user) # Adds BOTH people
 
         # Logic to determine display name
-        if hasattr(other_user, 'store'):
-            partner_name = other_user.store.name
+        if hasattr(other_user, 'merchant_shop'):
+            partner_name = other_user.merchant_shop.name
         else:
             partner_name = other_user.full_name or other_user.email
 
