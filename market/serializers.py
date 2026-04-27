@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Category, Store, Product, ProductImage, Order, OrderItem, Cart, CartItem
+from .models import Category, Shop, Product, ProductImage, Order, OrderItem, Cart, CartItem
 from users.serializers import UserSerializer
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -7,25 +7,26 @@ class CategorySerializer(serializers.ModelSerializer):
         model = Category
         fields = ['id', 'name', 'slug', 'icon']
 
-class StoreSerializer(serializers.ModelSerializer):
-    # Dynamic field to show how many products the store has
+class ShopSerializer(serializers.ModelSerializer):
+    # Dynamic field to show how many products the shop has
     product_count = serializers.SerializerMethodField()
     owner_name = serializers.ReadOnlyField(source='owner.full_name')
 
     owner_id = serializers.ReadOnlyField(source='owner.id')
 
     class Meta:
-        model = Store
+        model = Shop
         fields = [
             'id', 
             'name', 
             'description', 
             'logo', 
-            'is_verified', 
+            'is_active', 
             'owner_id',
             'owner_name', 
             'product_count',
-            'created_at'
+            'created_at',
+            'rejection_reason'
         ]
 
     def get_product_count(self, obj):
@@ -39,17 +40,17 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
         
 class ProductSerializer(serializers.ModelSerializer):
-    store = StoreSerializer(read_only=True) 
+    shop = ShopSerializer(read_only=True) 
     images = ProductImageSerializer(many=True, read_only=True)
     
 
-    chat_partner_id = serializers.ReadOnlyField(source='store.owner.id')
-    chat_partner_name = serializers.ReadOnlyField(source='store.owner.full_name')
-    chat_partner_image = serializers.ImageField(source='store.owner.profile_image', read_only=True)
+    chat_partner_id = serializers.ReadOnlyField(source='shop.owner.id')
+    chat_partner_name = serializers.ReadOnlyField(source='shop.owner.full_name')
+    chat_partner_image = serializers.ImageField(source='shop.owner.profile_image', read_only=True)
     
     # NEW FIELDS for Chat Integration
-    seller_id = serializers.ReadOnlyField(source='store.owner.id')
-    store_name = serializers.ReadOnlyField(source='store.name')
+    seller_id = serializers.ReadOnlyField(source='shop.owner.id')
+    shop_name = serializers.ReadOnlyField(source='shop.name')
 
     # Receive URL from mobile app
     cloudinary_url = serializers.URLField(write_only=True, required=False)
@@ -85,12 +86,12 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
-            'id', 'name', 'price', 'store', 'image', 'images', 
+            'id', 'name', 'price', 'shop', 'image', 'images', 
             'video', 'video_url', 'is_ad', 'stock', 'description', 'category',
             'currency', 'cloudinary_url', 'chat_partner_id', 'chat_partner_name', 
-            'chat_partner_image', 'created_at', 'seller_id', 'store_name'
+            'chat_partner_image', 'created_at', 'seller_id', 'shop_name'
         ]
-        read_only_fields = ['store', 'average_rating', 'total_reviews']
+        read_only_fields = ['shop', 'average_rating', 'total_reviews']
 
     def to_internal_value(self, data):
         # Handle empty strings from FormData
@@ -162,8 +163,8 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     buyer = UserSerializer(read_only=True)
-    # Add Store details so the "Track Rider" map knows the store name
-    store_name = serializers.ReadOnlyField(source='store.name')
+    # Add Shop details so the "Track Rider" map knows the shop name
+    shop_name = serializers.ReadOnlyField(source='shop.name')
     # Add these two lines for the Buyer to contact the Rider
     rider_name = serializers.ReadOnlyField(source='rider.full_name')
     rider_phone = serializers.ReadOnlyField(source='rider.phone_number') # Ensure this field exists in your User model
@@ -171,9 +172,9 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            'id', 'buyer', 'store', 'store_name', 'items', 'total_price', 
+            'id', 'buyer', 'shop', 'shop_name', 'items', 'total_price', 
             'delivery_status', 'payment_status', 'delivery_code', 
             'shipping_address_json', 'rider_name', 'rider_phone', 'created_at'
         ]
         # REMOVE 'delivery_status' from read_only so the Seller can update it!
-        read_only_fields = ['buyer', 'total_price', 'payment_status']
+        read_only_fields = ['buyer', 'total_price', 'payment_status']

@@ -1,7 +1,7 @@
 from django.urls import path, re_path
 from .views import (
     CategoryListView, ProductListView, ProductDetailView,
-    StoreCreateView, SellerProductListView, ProductCreateView,
+    ShopCreateView, SellerProductListView, ProductCreateView,
     CartAPIView, CreateOrderView, BuyerOrderListView,
     BuyerOrderDetailView, ConfirmOrderReceiptView,
     SellerOrderListView, SellerDashboardStatsView,
@@ -10,7 +10,7 @@ from .views import (
     RiderUpdateStatusView, AdminDashboardStatsView,
     StartChatView, SendMessageView, ConversationListView,
     ProductDeleteView, ProductUpdateView, SellerOrderDetailView,
-    StoreListView, StoreDetailView, ProductVideoFeedView,
+    ShopListView, ShopDetailView, ProductVideoFeedView,
     MarkOrderDispatchedView
 )
 
@@ -20,8 +20,8 @@ urlpatterns = [
     path('orders/create/', CreateOrderView.as_view(), name='checkout-alias'),
     path('checkout/', CreateOrderView.as_view(), name='checkout'),
     
-    # --- SELLER / STORE ---
-    path('store/create/', StoreCreateView.as_view(), name='store-create'),
+    # --- SELLER / SHOP ---
+    path('store/create/', ShopCreateView.as_view(), name='shop-create'),
     path('seller/stats/', SellerDashboardStatsView.as_view(), name='seller-stats'),
     path('seller/products/', SellerProductListView.as_view(), name='seller-products'),
     path('seller/products/add/', ProductCreateView.as_view(), name='product-add'),
@@ -47,8 +47,8 @@ urlpatterns = [
     path('categories/', CategoryListView.as_view(), name='category-list'),
     path('products/', ProductListView.as_view(), name='product-list'),
     path('products/<int:pk>/', ProductDetailView.as_view(), name='product-detail'),
-    path('stores/', StoreListView.as_view(), name='store-list'),
-    path('stores/<int:pk>/', StoreDetailView.as_view(), name='store-detail'),
+    path('stores/', ShopListView.as_view(), name='shop-list'),
+    path('stores/<int:pk>/', ShopDetailView.as_view(), name='shop-detail'),
     path('video-ads/', ProductVideoFeedView.as_view(), name='video-ads-feed'),
 
     # --- RIDER ---
