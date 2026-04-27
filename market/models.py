@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
@@ -14,29 +15,33 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
-class Store(models.Model):
+class Shop(models.Model):
+    # Standard engineering practice: One shop per user, approval control
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.OneToOneField(
         settings.AUTH_USER_MODEL, 
         on_delete=models.CASCADE, 
-        related_name='store'
+        related_name='merchant_shop'
     )
-    name = models.CharField(max_length=255, unique=True)
-    description = models.TextField()
-    logo = models.ImageField(upload_to='store_logos/', blank=True, null=True)
+    name = models.CharField(max_length=200, unique=True)
+    description = models.TextField(blank=True)
+    logo = models.ImageField(upload_to='shop_logos/', blank=True, null=True)
     
-    # ADD THIS LINE
-    is_verified = models.BooleanField(default=False) 
-    
+    # Crucial for scaling: Allow you to ban/approve merchants
+    is_active = models.BooleanField(default=False) 
+    rejection_reason = models.TextField(blank=True, null=True)
+
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_sales = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     
     # Add this to store the Vendor's payout destination
     monnify_sub_account_code = models.CharField(max_length=100, null=True, blank=True)
 
     def save(self, *args, **kwargs):
-        # Check if the store is being verified and doesn't have a sub-account yet
-        if self.is_verified and not self.monnify_sub_account_code:
+        # Check if the shop is being activated and doesn't have a sub-account yet
+        if self.is_active and not self.monnify_sub_account_code:
             # 1. Get the vendor's primary bank account from your finance model
             bank_info = self.owner.bank_accounts.filter(is_primary=True).first()
             
@@ -58,7 +63,7 @@ class Store(models.Model):
 
 
 class Product(models.Model):
-    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='products')
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='products')
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, related_name='products')
     name = models.CharField(max_length=255)
     description = models.TextField()
@@ -105,7 +110,7 @@ class Order(models.Model):
         REFUNDED = 'refunded', _('Refunded')
 
     buyer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='orders')
-    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='received_orders')
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='received_orders')
     
     # Shipping Address Snapshot
     shipping_address_json = models.JSONField(null=True, blank=True, default=dict)

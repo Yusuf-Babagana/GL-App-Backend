@@ -14,9 +14,9 @@ from django.contrib.auth import get_user_model
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 # Local Imports
-from .models import Category, Store, Product, Order, OrderItem, Cart, CartItem, ProductImage
+from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage
 from .serializers import (
-    CategorySerializer, StoreSerializer, ProductSerializer, 
+    CategorySerializer, ShopSerializer, ProductSerializer, 
     OrderSerializer, CartSerializer
 )
 from finance.models import Wallet, Transaction
@@ -34,15 +34,15 @@ from rest_framework.permissions import AllowAny # Professional: Let visitors see
 
 # --- SELLER / STORE VIEWS ---
 
-class StoreCreateView(generics.CreateAPIView):
-    """ Allows a user to create their own store """
-    serializer_class = StoreSerializer
+class ShopCreateView(generics.CreateAPIView):
+    """ Allows a user to create their own shop """
+    serializer_class = ShopSerializer
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     # --- DEBUGGING FIX: Override POST to see errors ---
     def post(self, request, *args, **kwargs):
-        print("Received Store Data:", request.data) # <--- Debug Print
+        print("Received Shop Data:", request.data) # <--- Debug Print
         serializer = self.get_serializer(data=request.data)
         
         if not serializer.is_valid():
@@ -70,7 +70,7 @@ class SellerProductListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Product.objects.filter(store__owner=self.request.user).order_by('-created_at')
+        return Product.objects.filter(shop__owner=self.request.user).order_by('-created_at')
 
 # Find the ProductCreateView and update the parser_classes
 @method_decorator(csrf_exempt, name='dispatch')
@@ -97,14 +97,14 @@ class ProductCreateView(generics.CreateAPIView):
             video_url = self.request.data.get('video_url')
             image_links = self.request.data.get('images', [])
             
-            # 2. Get the user's store
-            store = Store.objects.get(owner=self.request.user)
+            # 2. Get the user's shop
+            shop = Shop.objects.get(owner=self.request.user)
             
             # 3. Save the product (Automation: ensure is_ad is True)
             if video_url:
-                product = serializer.save(store=store, video=video_url, is_ad=True)
+                product = serializer.save(shop=shop, video=video_url, is_ad=True)
             else:
-                product = serializer.save(store=store, is_ad=True)
+                product = serializer.save(shop=shop, is_ad=True)
 
             # 4. Automatic "Image Creation": Save the list of links to the database
             if isinstance(image_links, list):
@@ -114,8 +114,8 @@ class ProductCreateView(generics.CreateAPIView):
                         image=link,
                         is_primary=(i == 0) # Set first as primary
                     )
-        except Store.DoesNotExist:
-            raise serializers.ValidationError("You must create a store first.")
+        except Shop.DoesNotExist:
+            raise serializers.ValidationError("You must create a shop first.")
 
 # --- PUBLIC BROWSING ---
 
@@ -143,14 +143,14 @@ class SellerProductListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        if not hasattr(self.request.user, 'store'):
+        if not hasattr(self.request.user, 'merchant_shop'):
             return Product.objects.none()
-        return Product.objects.filter(store=self.request.user.store)
+        return Product.objects.filter(shop=self.request.user.merchant_shop)
 
     def perform_create(self, serializer):
-        if not hasattr(self.request.user, 'store'):
-            raise permissions.PermissionDenied("You must open a store first.")
-        serializer.save(store=self.request.user.store)
+        if not hasattr(self.request.user, 'merchant_shop'):
+            raise permissions.PermissionDenied("You must open a shop first.")
+        serializer.save(shop=self.request.user.merchant_shop)
 
 
 # --- CART & ORDERING ---
@@ -214,10 +214,10 @@ class CreateOrderView(APIView):
                 return Response({"error": "Cart is empty"}, status=400)
 
             cart_total = Decimal(str(cart.total_price))
-            seller = cart.items.first().product.store.owner
+            seller = cart.items.first().product.shop.owner
 
             if seller == request.user:
-                return Response({"error": "You cannot buy from your own store."}, status=400)
+                return Response({"error": "You cannot buy from your own shop."}, status=400)
 
             # 1. Direct Settlement to Seller's PENDING balance
             success, message = WalletManager.settle_to_pending(
@@ -233,7 +233,7 @@ class CreateOrderView(APIView):
             with transaction.atomic():
                 order = Order.objects.create(
                     buyer=request.user,
-                    store=cart.items.first().product.store,
+                    shop=cart.items.first().product.shop,
                     total_price=cart_total,
                     shipping_address_json=request.data.get('shipping_address', {}),
                     payment_status=Order.PaymentStatus.RELEASED, 
@@ -294,7 +294,7 @@ class ConfirmOrderReceiptView(APIView):
                 order.payment_status = Order.PaymentStatus.RELEASED
                 order.save()
 
-                print(f"✅ SUCCESS: Funds released to {order.store.owner.email}. Order #{order.id} complete.")
+                print(f"✅ SUCCESS: Funds released to {order.shop.owner.email}. Order #{order.id} complete.")
                 return Response({"message": "Receipt confirmed! The seller has been paid. 🎉"})
 
         except Order.DoesNotExist:
@@ -312,9 +312,9 @@ class SellerOrderListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Find the store owned by this user
-        # Then find orders linked to that store
-        return Order.objects.filter(store__owner=self.request.user).order_by('-created_at')
+        # Find the shop owned by this user
+        # Then find orders linked to that shop
+        return Order.objects.filter(shop__owner=self.request.user).order_by('-created_at')
 
 class SellerDashboardStatsView(APIView):
     """
@@ -324,21 +324,21 @@ class SellerDashboardStatsView(APIView):
 
     def get(self, request):
         try:
-            store = Store.objects.get(owner=request.user)
-            products_count = Product.objects.filter(store=store).count()
-            # Count orders for this store
-            orders_count = Order.objects.filter(store=store).count()
+            shop = Shop.objects.get(owner=request.user)
+            products_count = Product.objects.filter(shop=shop).count()
+            # Count orders for this shop
+            orders_count = Order.objects.filter(shop=shop).count()
             # Calculate Revenue (Sum of delivered orders)
-            revenue = Order.objects.filter(store=store, delivery_status='delivered').aggregate(total=models.Sum('total_price'))['total'] or 0
+            revenue = Order.objects.filter(shop=shop, delivery_status='delivered').aggregate(total=models.Sum('total_price'))['total'] or 0
             
             return Response({
                 "products": products_count,
                 "orders": orders_count,
                 "revenue": revenue,
-                "store_name": store.name
+                "store_name": shop.name
             })
-        except Store.DoesNotExist:
-            return Response({"error": "No store found"}, status=404)
+        except Shop.DoesNotExist:
+            return Response({"error": "No shop found"}, status=404)
 
 
 
@@ -349,7 +349,7 @@ class SellerUpdateOrderStatusView(APIView):
 
     def post(self, request, pk):
         # 1. Fetch order and ensure ownership
-        order = get_object_or_404(Order, pk=pk, store__owner=request.user)
+        order = get_object_or_404(Order, pk=pk, shop__owner=request.user)
 
         # 2. Extract status from request (usually 'ready_for_pickup')
         new_status = request.data.get('status')
@@ -511,12 +511,12 @@ class StartChatView(APIView):
     def post(self, request, userId):
         other_user = get_object_or_404(get_user_model(), pk=userId)
         
-        # --- FIX: LOOKUP STORE NAME ---
-        # 1. Check if the 'other_user' owns a store
-        store = Store.objects.filter(owner=other_user).first()
+        # --- FIX: LOOKUP SHOP NAME ---
+        # 1. Check if the 'other_user' owns a shop
+        shop = Shop.objects.filter(owner=other_user).first()
         
-        if store:
-            partner_name = store.name  # Use Store Name (e.g. "Samsung")
+        if shop:
+            partner_name = shop.name  # Use Shop Name (e.g. "Samsung")
         else:
             partner_name = other_user.full_name or "User" # Fallback
 
@@ -600,14 +600,14 @@ class ConversationListView(generics.ListAPIView):
             other_user = chat.participants.exclude(id=request.user.id).first()
             if not other_user: continue
 
-            # 3. Determine Name (If they are a store, show Store Name. If user, show User Name)
+            # 3. Determine Name (If they are a shop, show Shop Name. If user, show User Name)
             # Logic: If I am a Seller, 'other_user' is a Buyer (show Name).
-            # If I am a Buyer, 'other_user' is a Seller (show Store Name).
+            # If I am a Buyer, 'other_user' is a Seller (show Shop Name).
             
-            store = Store.objects.filter(owner=other_user).first()
-            if store:
-                name = store.name
-                image = store.logo.url if store.logo else None
+            shop = Shop.objects.filter(owner=other_user).first()
+            if shop:
+                name = shop.name
+                image = shop.logo.url if shop.logo else None
             else:
                 name = other_user.full_name or "User"
                 image = None
@@ -639,8 +639,8 @@ class ProductDeleteView(generics.DestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Isolation: Users can only see/delete products from their own store
-        return Product.objects.filter(store__owner=self.request.user)
+        # Isolation: Users can only see/delete products from their own shop
+        return Product.objects.filter(shop__owner=self.request.user)
 
 
 
@@ -652,8 +652,8 @@ class ProductUpdateView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Isolation: Vendors can only access and update products from their own store
-        return Product.objects.filter(store__owner=self.request.user)
+        # Isolation: Vendors can only access and update products from their own shop
+        return Product.objects.filter(shop__owner=self.request.user)
 
 
 class SellerOrderDetailView(generics.RetrieveUpdateAPIView):
@@ -663,21 +663,21 @@ class SellerOrderDetailView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # We ensure the vendor only sees orders from their own store
-        return Order.objects.filter(store__owner=self.request.user)
+        # We ensure the vendor only sees orders from their own shop
+        return Order.objects.filter(shop__owner=self.request.user)
 
 
-class StoreListView(generics.ListAPIView):
-    queryset = Store.objects.all()
-    serializer_class = StoreSerializer
+class ShopListView(generics.ListAPIView):
+    queryset = Shop.objects.all()
+    serializer_class = ShopSerializer
     permission_classes = [AllowAny] # This allows visitors to browse the directory
 
 
 
-class StoreDetailView(generics.RetrieveAPIView):
-    queryset = Store.objects.all()
-    serializer_class = StoreSerializer
-    permission_classes = [AllowAny] # Anyone can visit a store
+class ShopDetailView(generics.RetrieveAPIView):
+    queryset = Shop.objects.all()
+    serializer_class = ShopSerializer
+    permission_classes = [AllowAny] # Anyone can visit a shop
 
 
 
@@ -709,22 +709,22 @@ class ActivateSellerAccountView(APIView):
             user.active_role = 'seller'
             user.save()
             
-        # 2. Create the Store with a default name
+        # 2. Create the Shop with a default name
         # Using get_or_create prevents errors if they click twice
-        store, created = Store.objects.get_or_create(
+        shop, created = Shop.objects.get_or_create(
             owner=user, 
             defaults={
-                'name': f"{user.full_name or 'My'}'s Store",
-                'description': "Welcome to my store! Updates coming soon."
+                'name': f"{user.full_name or 'My'}'s Shop",
+                'description': "Welcome to my shop! Updates coming soon."
             }
         )
         
-        # 3. Return the store info so the frontend can update its state
+        # 3. Return the shop info so the frontend can update its state
         return Response({
-            "message": "Store created successfully",
+            "message": "Shop created successfully",
             "active_role": user.active_role,
-            "store_id": store.id,
-            "store_name": store.name
+            "shop_id": shop.id,
+            "shop_name": shop.name
         })
 
 
@@ -733,8 +733,8 @@ class MarkOrderDispatchedView(APIView):
 
     def post(self, request, order_id):
         try:
-            # 1. Ensure the user is the owner of the store that sold the item
-            order = Order.objects.get(id=order_id, store__owner=request.user)
+            # 1. Ensure the user is the owner of the shop that sold the item
+            order = Order.objects.get(id=order_id, shop__owner=request.user)
             
             if order.delivery_status != 'pending':
                 return Response({"error": f"Cannot dispatch order in '{order.delivery_status}' status."}, status=400)
