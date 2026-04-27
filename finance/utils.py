@@ -142,7 +142,7 @@ class MonnifyAPI:
             "currencyCode": "NGN",
             "contractCode": settings.MONNIFY_CONTRACT_CODE,
             "incomeSplitConfig": [{
-                "subAccountCode": order.store.monnify_sub_account_code,
+                "subAccountCode": order.shop.monnify_sub_account_code,
                 "splitAmount": vendor_share,
                 "feeBearer": True
             }],
@@ -432,7 +432,7 @@ class WalletManager:
 
         try:
             with transaction.atomic():
-                s_wallet = Wallet.objects.select_for_update().get(user=order.store.owner)
+                s_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
 
                 if s_wallet.pending_balance < amount:
                     return False, "Pending balance insufficient for this order."

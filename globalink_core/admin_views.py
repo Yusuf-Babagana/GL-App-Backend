@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from users.models import User
 from finance.models import Wallet, Transaction
-from market.models import Order, Store
+from market.models import Order, Shop
 
 # --- KYC & USER MANAGEMENT ---
 
@@ -46,5 +46,5 @@ class AdminSystemStatsView(APIView):
             "users": total_users,
             "money_in_escrow": total_escrow,
             "total_transactions": total_orders,
-            "active_stores": Store.objects.filter(is_active=True).count()
+            "active_shops": Shop.objects.filter(is_active=True).count()
         })

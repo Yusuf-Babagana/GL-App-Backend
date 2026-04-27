@@ -26,7 +26,7 @@ class WalletService:
         No escrow involved.
         """
         buyer_wallet = Wallet.objects.select_for_update().get(user=order.buyer)
-        seller_wallet = Wallet.objects.select_for_update().get(user=order.store.owner)
+        seller_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
 
         if buyer_wallet.balance < order.total_price:
             raise Exception("Insufficient wallet balance.")

@@ -33,8 +33,8 @@ class ConversationSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         other = obj.participants.exclude(id=user.id).first()
         if other:
-            if hasattr(other, 'store'):
-                return other.store.name
+            if hasattr(other, 'merchant_shop'):
+                return other.merchant_shop.name
             return other.full_name or other.email
         return "Unknown User"
 
