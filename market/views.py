@@ -126,6 +126,10 @@ class ShopStatusView(APIView):
                 "exists": False,
                 "is_active": False
             }, status=status.HTTP_200_OK)
+        except Exception as e:
+            # 🔥 Catch any other error (e.g. database connection, field errors)
+            print(f"❌ SHOP STATUS ERROR: {str(e)}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class SellerProductListView(generics.ListAPIView):
     """ Lists only products belonging to the logged-in seller """
