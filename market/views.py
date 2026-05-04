@@ -69,45 +69,39 @@ class MerchantOnboardingView(APIView):
 
     def post(self, request):
         try:
-            # 1. Validate that we have a user
-            if not request.user.is_authenticated:
-                return Response({"error": "User not logged in"}, status=401)
-
-            # 2. Extract data with defaults to prevent None errors
-            shop_name = request.data.get('shop_name')
-            shop_type = request.data.get('shop_type')
-            id_type = request.data.get('id_type')
+            # Safely extract data sent from the mobile app
+            data = request.data
             
-            if not all([shop_name, shop_type, id_type]):
-                return Response({"error": "Missing required fields: name, type, or id_type"}, status=400)
+            # update_or_create prevents "User already has a shop" IntegrityErrors
+            shop, created = Shop.objects.update_or_create(
+                owner=request.user,
+                defaults={
+                    'name': data.get('shop_name'),
+                    'shop_type': data.get('shop_type'),
+                    'id_type': data.get('id_type'),
+                    'address': data.get('shop_address', ''),
+                    'is_active': False  # Wait for admin review
+                }
+            )
 
-            # 3. Save to Database
-            with transaction.atomic():
-                shop, created = Shop.objects.update_or_create(
-                    owner=request.user,
-                    defaults={
-                        'name': shop_name,
-                        'shop_type': shop_type,
-                        'id_type': id_type,
-                        'address': request.data.get('shop_address', ''),
-                        'is_active': False
-                    }
-                )
-
-                if 'id_document' in request.FILES:
-                    shop.id_document = request.FILES['id_document']
+            # Handle file upload separately to ensure it saves correctly
+            if 'id_document' in request.FILES:
+                shop.id_document = request.FILES['id_document']
+                shop.save()
                 
-                if 'shop_logo' in request.FILES:
-                    shop.logo = request.FILES['shop_logo']
-                    
+            if 'shop_logo' in request.FILES:
+                shop.logo = request.FILES['shop_logo']
                 shop.save()
 
-            return Response({"status": "success", "message": "Saved!"}, status=status.HTTP_201_CREATED)
+            return Response({
+                "status": "success",
+                "message": "Shop data saved successfully"
+            }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            # 🔥 This will send the EXACT error to your frontend console
-            print(f"❌ DATABASE ERROR: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            # Send the exact error string back to the phone for debugging
+            print(f"❌ ONBOARDING ERROR: {str(e)}")
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class ShopStatusView(APIView):
     permission_classes = [permissions.IsAuthenticated]
