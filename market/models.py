@@ -37,6 +37,19 @@ class Shop(models.Model):
     is_active = models.BooleanField(default=False) 
     rejection_reason = models.TextField(blank=True, null=True)
 
+    ID_TYPE_CHOICES = [
+        ('national_id', 'National ID'),
+        ('drivers_license', 'Driver\'s License'),
+        ('passport', 'Passport'),
+    ]
+    id_type = models.CharField(
+        max_length=20, 
+        choices=ID_TYPE_CHOICES, 
+        null=True, 
+        blank=True
+    )
+    id_document = models.ImageField(upload_to='kyc_docs/', blank=True, null=True)
+
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_sales = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)

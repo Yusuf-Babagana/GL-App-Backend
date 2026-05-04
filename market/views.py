@@ -64,53 +64,44 @@ class ShopCreateView(generics.CreateAPIView):
         self.request.user.active_role = 'seller'
         self.request.user.save()
 
-class CreateMerchantShopView(APIView):
+class MerchantOnboardingView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        # DEBUG: See exactly what the phone is sending to your server logs
-        print(f"DEBUG: Received Data: {request.data}")
-        print(f"DEBUG: Received Files: {request.FILES}")
+        # 🔍 DEBUG: Check this in your server console
+        print(f"DEBUG DATA: {request.data}") 
 
         try:
             with transaction.atomic():
-                # We use update_or_create to prevent duplicate shops for one user
+                # We use update_or_create so the user can re-submit if rejected
                 shop, created = Shop.objects.update_or_create(
                     owner=request.user,
                     defaults={
                         'name': request.data.get('shop_name'),
                         'shop_type': request.data.get('shop_type'),
-                        'address': request.data.get('shop_address', ''),
-                        'state': request.data.get('state', 'Kano'),
-                        'is_registered': request.data.get('is_registered') == 'yes',
-                        'cac_number': request.data.get('cac_number'),
-                        'is_active': False  # 🔥 Stays False until Admin approves
+                        'id_type': request.data.get('id_type'),
+                        'address': request.data.get('shop_address'),
+                        'is_active': False  # Always wait for Admin approval
                     }
                 )
 
-                # 2. Update/Create Personal Info & KYC
-                profile, p_created = MerchantProfile.objects.get_or_create(user=request.user)
-                profile.business_phone = request.data.get('business_phone')
-                profile.id_type = request.data.get('id_type')
-                profile.id_number = request.data.get('id_number')
+                # Save the ID Image if provided
+                if 'id_document' in request.FILES:
+                    shop.id_document = request.FILES['id_document']
                 
-                # Handle Image Uploads (Logo & ID)
+                # Also handle logo if provided
                 if 'shop_logo' in request.FILES:
                     shop.logo = request.FILES['shop_logo']
-                if 'id_document' in request.FILES:
-                    profile.id_document_image = request.FILES['id_document']
 
                 shop.save()
-                profile.save()
 
                 return Response({
-                    "status": "success",
-                    "message": "Information saved to database",
-                    "shop_id": shop.id
+                    "status": "success", 
+                    "message": "Data saved. Awaiting review."
                 }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            print(f"ERROR: {str(e)}")
+            print(f"❌ DATABASE ERROR: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class ShopStatusView(APIView):
