@@ -23,7 +23,7 @@ urlpatterns = [
     # --- SELLER / SHOP ---
     path('store/create/', ShopCreateView.as_view(), name='shop-create'),
     path('store/status/', ShopStatusView.as_view(), name='shop-status'),
-    path('seller/onboarding/', MerchantOnboardingView.as_view(), name='seller-onboarding'),
+    path('store/onboarding/', MerchantOnboardingView.as_view(), name='merchant-onboarding'),
     path('seller/stats/', SellerDashboardStatsView.as_view(), name='seller-stats'),
     path('seller/products/', SellerProductListView.as_view(), name='seller-products'),
     path('seller/products/add/', ProductCreateView.as_view(), name='product-add'),
