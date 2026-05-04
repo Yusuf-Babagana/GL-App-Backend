@@ -112,13 +112,15 @@ class ShopStatusView(APIView):
             return Response({
                 "exists": True,
                 "is_active": shop.is_active, # Approved by Admin
-                "shop_name": shop.name
+                "shop_name": shop.name,
+                "owner_full_name": f"{request.user.first_name} {request.user.last_name}"
             })
         except Shop.DoesNotExist:
             # ✅ Fix: Return a 200 OK with "exists: False" instead of crashing
             return Response({
                 "exists": False,
-                "is_active": False
+                "is_active": False,
+                "owner_full_name": f"{request.user.first_name} {request.user.last_name}"
             }, status=status.HTTP_200_OK)
         except Exception as e:
             # 🔥 Catch any other error (e.g. database connection, field errors)
