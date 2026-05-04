@@ -7,7 +7,7 @@ admin.site.register(OrderItem)
 admin.site.register(Category)
 @admin.register(Shop)
 class ShopAdmin(admin.ModelAdmin):
-    list_display = ('name', 'owner', 'is_active', 'created_at')
+    list_display = ('name', 'owner', 'id_type', 'is_active', 'created_at')
     list_filter = ('is_active',) # Quickly filter by "Unapproved"
     search_fields = ('name', 'owner__email')
     
