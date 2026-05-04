@@ -379,26 +379,28 @@ class SellerOrderListView(generics.ListAPIView):
         # Then find orders linked to that shop
         return Order.objects.filter(shop__owner=self.request.user).order_by('-created_at')
 
-class SellerDashboardStatsView(APIView):
+class MerchantDashboardView(APIView):
     """
-    Returns simple stats for the dashboard.
+    Returns real-time stats for the merchant dashboard.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         try:
             shop = Shop.objects.get(owner=request.user)
-            products_count = Product.objects.filter(shop=shop).count()
-            # Count orders for this shop
-            orders_count = Order.objects.filter(shop=shop).count()
-            # Calculate Revenue (Sum of delivered orders)
-            revenue = Order.objects.filter(shop=shop, delivery_status='delivered').aggregate(total=models.Sum('total_price'))['total'] or 0
             
+            # Calculate real stats from the database
+            total_sales = Order.objects.filter(shop=shop).aggregate(Sum('total_price'))['total_price__sum'] or 0
+            total_orders = Order.objects.filter(shop=shop).count()
+            new_customers = Order.objects.filter(shop=shop).values('user').distinct().count()
+
             return Response({
-                "products": products_count,
-                "orders": orders_count,
-                "revenue": revenue,
-                "store_name": shop.name
+                "shop_name": shop.name,
+                "stats": {
+                    "total_sales": f"N{total_sales}",
+                    "total_orders": total_orders,
+                    "new_customers": new_customers
+                }
             })
         except Shop.DoesNotExist:
             return Response({"error": "No shop found"}, status=404)
