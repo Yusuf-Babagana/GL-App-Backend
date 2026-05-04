@@ -103,8 +103,8 @@ class MerchantOnboardingView(APIView):
                 profile.save()
 
                 return Response({
-                    "status": "success",
-                    "message": "Information submitted for review"
+                    "message": "Onboarding complete. Pending review.",
+                    "status": "pending"
                 }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
@@ -122,7 +122,7 @@ class ShopStatusView(APIView):
             return Response({
                 "exists": True,
                 "is_active": shop.is_active, # Approved by Admin
-                "name": shop.name
+                "shop_name": shop.name
             })
         except Shop.DoesNotExist:
             return Response({
