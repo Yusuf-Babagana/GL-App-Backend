@@ -113,6 +113,23 @@ class MerchantOnboardingView(APIView):
                 "message": str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
 
+class ShopStatusView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        try:
+            shop = Shop.objects.get(owner=request.user)
+            return Response({
+                "exists": True,
+                "is_active": shop.is_active, # Approved by Admin
+                "name": shop.name
+            })
+        except Shop.DoesNotExist:
+            return Response({
+                "exists": False,
+                "is_active": False
+            })
+
 class SellerProductListView(generics.ListAPIView):
     """ Lists only products belonging to the logged-in seller """
     serializer_class = ProductSerializer
