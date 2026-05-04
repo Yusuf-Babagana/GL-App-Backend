@@ -68,30 +68,27 @@ class MerchantOnboardingView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        data = request.data
-        user = request.user
-
         try:
             with transaction.atomic():
-                # 1. Create or Update the Shop
-                shop, created = Shop.objects.get_or_create(
-                    owner=user,
+                # We use update_or_create to prevent duplicate shops for one user
+                shop, created = Shop.objects.update_or_create(
+                    owner=request.user,
                     defaults={
-                        'name': data.get('shop_name'),
-                        'shop_type': data.get('shop_type'),
-                        'address': data.get('shop_address'),
-                        'state': data.get('state', 'Kano'),
-                        'is_registered': data.get('is_registered') == 'yes',
-                        'cac_number': data.get('cac_number'),
-                        'is_active': False  # 🔥 Pending Admin Review
+                        'name': request.data.get('shop_name'),
+                        'shop_type': request.data.get('shop_type'),
+                        'address': request.data.get('shop_address', ''),
+                        'state': request.data.get('state', 'Kano'),
+                        'is_registered': request.data.get('is_registered') == 'yes',
+                        'cac_number': request.data.get('cac_number'),
+                        'is_active': False  # 🔥 Stays False until Admin approves
                     }
                 )
 
                 # 2. Update/Create Personal Info & KYC
-                profile, p_created = MerchantProfile.objects.get_or_create(user=user)
-                profile.business_phone = data.get('business_phone')
-                profile.id_type = data.get('id_type')
-                profile.id_number = data.get('id_number')
+                profile, p_created = MerchantProfile.objects.get_or_create(user=request.user)
+                profile.business_phone = request.data.get('business_phone')
+                profile.id_type = request.data.get('id_type')
+                profile.id_number = request.data.get('id_number')
                 
                 # Handle Image Uploads (Logo & ID)
                 if 'shop_logo' in request.FILES:
@@ -103,15 +100,13 @@ class MerchantOnboardingView(APIView):
                 profile.save()
 
                 return Response({
-                    "message": "Onboarding complete. Pending review.",
-                    "status": "pending"
+                    "status": "success",
+                    "message": "Shop application submitted",
+                    "is_active": shop.is_active
                 }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            return Response({
-                "status": "error",
-                "message": str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class ShopStatusView(APIView):
     permission_classes = [permissions.IsAuthenticated]
