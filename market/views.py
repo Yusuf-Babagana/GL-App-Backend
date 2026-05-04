@@ -64,10 +64,14 @@ class ShopCreateView(generics.CreateAPIView):
         self.request.user.active_role = 'seller'
         self.request.user.save()
 
-class MerchantOnboardingView(APIView):
+class CreateMerchantShopView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        # DEBUG: See exactly what the phone is sending to your server logs
+        print(f"DEBUG: Received Data: {request.data}")
+        print(f"DEBUG: Received Files: {request.FILES}")
+
         try:
             with transaction.atomic():
                 # We use update_or_create to prevent duplicate shops for one user
@@ -101,11 +105,12 @@ class MerchantOnboardingView(APIView):
 
                 return Response({
                     "status": "success",
-                    "message": "Shop application submitted",
-                    "is_active": shop.is_active
+                    "message": "Information saved to database",
+                    "shop_id": shop.id
                 }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
+            print(f"ERROR: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class ShopStatusView(APIView):
