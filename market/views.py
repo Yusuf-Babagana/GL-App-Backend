@@ -125,10 +125,11 @@ class ShopStatusView(APIView):
                 "shop_name": shop.name
             })
         except Shop.DoesNotExist:
+            # ✅ Fix: Return a 200 OK with "exists: False" instead of crashing
             return Response({
                 "exists": False,
                 "is_active": False
-            })
+            }, status=status.HTTP_200_OK)
 
 class SellerProductListView(generics.ListAPIView):
     """ Lists only products belonging to the logged-in seller """
