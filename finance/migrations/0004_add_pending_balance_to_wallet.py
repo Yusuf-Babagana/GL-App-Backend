@@ -40,7 +40,7 @@ def remove_pending_balance(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('finance', '0001_initial'),
+        ('finance', '0003_alter_transaction_transaction_type_and_more'),
     ]
 
     operations = [
