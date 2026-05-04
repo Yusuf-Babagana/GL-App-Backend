@@ -27,6 +27,12 @@ class Shop(models.Model):
     description = models.TextField(blank=True)
     logo = models.ImageField(upload_to='shop_logos/', blank=True, null=True)
     
+    shop_type = models.CharField(max_length=100, blank=True, null=True)
+    address = models.TextField(blank=True, null=True)
+    state = models.CharField(max_length=100, default='Kano')
+    is_registered = models.BooleanField(default=False)
+    cac_number = models.CharField(max_length=100, blank=True, null=True)
+    
     # Crucial for scaling: Allow you to ban/approve merchants
     is_active = models.BooleanField(default=False) 
     rejection_reason = models.TextField(blank=True, null=True)
@@ -60,7 +66,15 @@ class Shop(models.Model):
     def __str__(self):
         return self.name
 
-
+class MerchantProfile(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='merchant_profile')
+    business_phone = models.CharField(max_length=20, blank=True, null=True)
+    id_type = models.CharField(max_length=50, blank=True, null=True)
+    id_number = models.CharField(max_length=100, blank=True, null=True)
+    id_document_image = models.ImageField(upload_to='kyc_docs/', blank=True, null=True)
+    
+    def __str__(self):
+        return f"MerchantProfile for {self.user.email}"
 
 class Product(models.Model):
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='products', null=True, blank=True)

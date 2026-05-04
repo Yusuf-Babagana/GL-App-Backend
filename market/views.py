@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 # Local Imports
-from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage
+from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile
 from .serializers import (
     CategorySerializer, ShopSerializer, ProductSerializer, 
     OrderSerializer, CartSerializer
@@ -63,6 +63,55 @@ class ShopCreateView(generics.CreateAPIView):
             self.request.user.roles.append('seller')
         self.request.user.active_role = 'seller'
         self.request.user.save()
+
+class MerchantOnboardingView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        data = request.data
+        user = request.user
+
+        try:
+            with transaction.atomic():
+                # 1. Create or Update the Shop
+                shop, created = Shop.objects.get_or_create(
+                    owner=user,
+                    defaults={
+                        'name': data.get('shop_name'),
+                        'shop_type': data.get('shop_type'),
+                        'address': data.get('shop_address'),
+                        'state': data.get('state', 'Kano'),
+                        'is_registered': data.get('is_registered') == 'yes',
+                        'cac_number': data.get('cac_number'),
+                        'is_active': False  # 🔥 Pending Admin Review
+                    }
+                )
+
+                # 2. Update/Create Personal Info & KYC
+                profile, p_created = MerchantProfile.objects.get_or_create(user=user)
+                profile.business_phone = data.get('business_phone')
+                profile.id_type = data.get('id_type')
+                profile.id_number = data.get('id_number')
+                
+                # Handle Image Uploads (Logo & ID)
+                if 'shop_logo' in request.FILES:
+                    shop.logo = request.FILES['shop_logo']
+                if 'id_document' in request.FILES:
+                    profile.id_document_image = request.FILES['id_document']
+
+                shop.save()
+                profile.save()
+
+                return Response({
+                    "status": "success",
+                    "message": "Information submitted for review"
+                }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
 
 class SellerProductListView(generics.ListAPIView):
     """ Lists only products belonging to the logged-in seller """

@@ -11,7 +11,7 @@ from .views import (
     StartChatView, SendMessageView, ConversationListView,
     ProductDeleteView, ProductUpdateView, SellerOrderDetailView,
     ShopListView, ShopDetailView, ProductVideoFeedView,
-    MarkOrderDispatchedView
+    MarkOrderDispatchedView, MerchantOnboardingView
 )
 
 urlpatterns = [
@@ -22,6 +22,7 @@ urlpatterns = [
     
     # --- SELLER / SHOP ---
     path('store/create/', ShopCreateView.as_view(), name='shop-create'),
+    path('seller/onboarding/', MerchantOnboardingView.as_view(), name='seller-onboarding'),
     path('seller/stats/', SellerDashboardStatsView.as_view(), name='seller-stats'),
     path('seller/products/', SellerProductListView.as_view(), name='seller-products'),
     path('seller/products/add/', ProductCreateView.as_view(), name='product-add'),
