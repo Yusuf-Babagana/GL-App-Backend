@@ -18,7 +18,7 @@ def fix_database():
             print(f"⚠️ Error creating MerchantProfile (might already exist): {e}")
 
         # 2. Add new fields to Shop table
-        fields_to_add = ['shop_type', 'address', 'state', 'is_registered', 'cac_number']
+        fields_to_add = ['shop_type', 'address', 'state', 'is_registered', 'cac_number', 'id_type', 'id_document']
         
         for field_name in fields_to_add:
             field = Shop._meta.get_field(field_name)
