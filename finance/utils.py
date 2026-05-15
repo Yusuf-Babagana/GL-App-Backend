@@ -105,7 +105,8 @@ class MonnifyAPI:
                 }, None
 
             # SELF-HEALING CASE: Account already exists on Monnify
-            if "already exists" in str(data.get('responseMessage')).lower():
+            response_msg = str(data.get('responseMessage', '')).lower()
+            if "already exists" in response_msg or "same reference" in response_msg:
                 # Manually fetch existing account details
                 fetch_url = MonnifyAPI._get_url(f"/api/v2/bank-transfer/reserved-accounts/{user.wallet.account_reference}")
                 fetch_resp = requests.get(fetch_url, headers={"Authorization": f"Bearer {token}"})

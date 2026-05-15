@@ -24,6 +24,7 @@ from .models import Conversation, Message
 import requests
 from django.db.models import Max
 from finance.services import WalletService
+from users.serializers import UserSerializer
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -103,29 +104,28 @@ class MerchantOnboardingView(APIView):
             print(f"❌ ONBOARDING ERROR: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-class ShopStatusView(APIView):
+class MerchantProfileView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         try:
             shop = Shop.objects.get(owner=request.user)
             return Response({
-                "exists": True,
-                "is_active": shop.is_active, # Approved by Admin
-                "shop_name": shop.name,
-                "owner_full_name": f"{request.user.first_name} {request.user.last_name}"
+                "status": "success",
+                "user": UserSerializer(request.user).data,
+                "merchant": {
+                    "shop_name": shop.name,
+                    "is_active": shop.is_active,
+                    "shop_type": shop.shop_type,
+                    "onboarding_complete": True
+                }
             })
         except Shop.DoesNotExist:
-            # ✅ Fix: Return a 200 OK with "exists: False" instead of crashing
             return Response({
-                "exists": False,
-                "is_active": False,
-                "owner_full_name": f"{request.user.first_name} {request.user.last_name}"
-            }, status=status.HTTP_200_OK)
-        except Exception as e:
-            # 🔥 Catch any other error (e.g. database connection, field errors)
-            print(f"❌ SHOP STATUS ERROR: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                "status": "not_found",
+                "user": UserSerializer(request.user).data,
+                "merchant": {"onboarding_complete": False}
+            })
 
 class SellerProductListView(generics.ListAPIView):
     """ Lists only products belonging to the logged-in seller """
