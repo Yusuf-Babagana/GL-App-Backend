@@ -3,7 +3,7 @@ from django.urls import path
 from .views import (
     WalletDetailView, 
     TransactionListView,
-    monnify_webhook, 
+    MonnifyWebhookView, 
     DataPurchaseView, 
     DataVariationsView,
     WithdrawalView,
@@ -15,7 +15,7 @@ from .views import (
 urlpatterns = [
     path('wallet/', WalletDetailView.as_view(), name='wallet-detail'),
     path('transactions/', TransactionListView.as_view(), name='transaction-list'),
-    path('monnify-webhook/', monnify_webhook, name='monnify-webhook'),
+    path('monnify-webhook/', MonnifyWebhookView.as_view(), name='monnify-webhook'),
     path('webhook/deposit/', clubkonnect_deposit_webhook, name='deposit_webhook'),
     path('banks/', BankListView.as_view(), name='bank-list'),
     path('verify-bank/', VerifyBankAccountView.as_view(), name='verify-bank'),
