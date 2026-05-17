@@ -5,6 +5,8 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth import get_user_model
 from .serializers import UserSerializer, RegistrationSerializer, KYCUploadSerializer, AdminKYCSerializer
 from django.shortcuts import get_object_or_404
+from django.contrib.auth import authenticate
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from rest_framework.parsers import MultiPartParser, FormParser
 from .serializers import KYCUploadSerializer
@@ -198,4 +200,35 @@ class UpdateBVNView(APIView):
             wallet.save()
             return Response({"message": "Success", "account": acc_data}, status=200)
         
+        
         return Response({"error": error_msg}, status=400)
+
+
+class CustomLoginView(APIView):
+    permission_classes = [permissions.AllowAny] # Allow public access to log in
+
+    def post(self, request):
+        email = request.data.get('email')
+        password = request.data.get('password')
+        
+        # Django's ModelBackend expects the identifier in the 'username' keyword argument
+        # even when USERNAME_FIELD is 'email'. We check both to be completely bulletproof.
+        user = authenticate(username=email, password=password)
+        if user is None:
+            user = authenticate(email=email, password=password)
+        
+        if user is not None:
+            refresh = RefreshToken.for_user(user)
+            
+            return Response({
+                "token": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": {
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "is_admin": user.is_staff or user.is_superuser # 🔥 Frontend routing flag
+                }
+            }, status=status.HTTP_200_OK)
+            
+        return Response({"error": "Invalid email or password credentials"}, status=status.HTTP_400_BAD_REQUEST)

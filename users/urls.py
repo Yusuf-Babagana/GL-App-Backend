@@ -1,11 +1,11 @@
 from django.urls import path
-from .views import AdminDashboardStatsView, RegisterView, AdminKYCListView, AdminKYCActionView, UserProfileView, AddRoleView, KYCSubmissionView, SetTransactionPINView, UpdateBVNView
+from .views import AdminDashboardStatsView, RegisterView, AdminKYCListView, AdminKYCActionView, UserProfileView, AddRoleView, KYCSubmissionView, SetTransactionPINView, UpdateBVNView, CustomLoginView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
     # Auth
     path('register/', RegisterView.as_view(), name='register'),
-    path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'), # Returns JWT Access/Refresh tokens
+    path('login/', CustomLoginView.as_view(), name='login'), # Custom login returning user metadata
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
     # Profile & Roles
