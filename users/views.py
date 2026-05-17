@@ -219,17 +219,20 @@ class CustomLoginView(APIView):
         
         if user is not None:
             refresh = RefreshToken.for_user(user)
+            token_string = str(refresh.access_token)
             
-            return Response({
-                "token": str(refresh.access_token),
+            payload = {
+                "token": token_string,  # 💥 EXACT MATCH FOR FRONTEND
                 "refresh": str(refresh),
                 "user": {
                     "email": user.email,
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "is_admin": user.is_staff or user.is_superuser,
-                    "role": getattr(user, 'active_role', 'buyer') # Uses custom model active_role (e.g. buyer, seller, admin)
+                    "role": getattr(user, 'active_role', getattr(user, 'role', 'buyer'))
                 }
-            }, status=status.HTTP_200_OK)
+            }
+            print(f"📡 DEBUG Server outgoing login payload: {payload}")
+            return Response(payload, status=status.HTTP_200_OK)
             
-        return Response({"error": "Invalid credentials match"}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({"error": "Invalid email or password credentials"}, status=status.HTTP_401_UNAUTHORIZED)
