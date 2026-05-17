@@ -2,6 +2,7 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from .models import Wallet
 from .utils import MonnifyAPI
 import threading
@@ -13,12 +14,12 @@ logger = logging.getLogger(__name__)
 @receiver(post_save, sender=User)
 def handle_user_wallet_and_monnify_account(sender, instance, created, **kwargs):
     """
-    1. Ensures every user has a wallet.
+    1. Ensures every user has a wallet (atomic, race-condition-safe).
     2. Automatically triggers Monnify account creation if BVN is present 
        but bank details are missing.
     """
-    # Always ensure a wallet exists for the user
-    wallet, _ = Wallet.objects.get_or_create(user=instance)
+    with transaction.atomic():
+        wallet, _ = Wallet.objects.select_for_update().get_or_create(user=instance)
 
     # Check logic:
     # We trigger Monnify ONLY if the user has a BVN (mandatory for Live)
