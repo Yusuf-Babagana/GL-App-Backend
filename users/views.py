@@ -221,6 +221,11 @@ class CustomLoginView(APIView):
             refresh = RefreshToken.for_user(user)
             token_string = str(refresh.access_token)
             
+            # Determine role safely with explicit overrides for admin/staff members
+            user_role = getattr(user, 'role', 'buyer')
+            if user.is_staff or user.is_superuser:
+                user_role = 'admin' # Force alignment over default model fallbacks
+            
             payload = {
                 "token": token_string,  # 💥 EXACT MATCH FOR FRONTEND
                 "refresh": str(refresh),
@@ -229,7 +234,7 @@ class CustomLoginView(APIView):
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "is_admin": user.is_staff or user.is_superuser,
-                    "role": getattr(user, 'active_role', getattr(user, 'role', 'buyer'))
+                    "role": user_role  # 💥 Guaranteed to return 'admin' for admins now
                 }
             }
             print(f"📡 DEBUG Server outgoing login payload: {payload}")

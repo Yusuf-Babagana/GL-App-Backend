@@ -103,6 +103,15 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.email} ({self.active_role})"
 
+    @property
+    def role(self):
+        # Dynamically link to active_role to keep them in perfect sync without DB duplicate fields
+        return self.active_role
+
+    @role.setter
+    def role(self, value):
+        self.active_role = value
+
     def set_transaction_pin(self, raw_pin):
         from django.contrib.auth.hashers import make_password
         self.transaction_pin = make_password(raw_pin)
