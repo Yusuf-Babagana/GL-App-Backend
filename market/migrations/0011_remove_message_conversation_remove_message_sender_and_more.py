@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('market', '0009_order_monnify_reference_and_more'),
+        ('market', '0010_merchantprofile_shop_remove_order_store_and_more'),
     ]
 
     operations = [
