@@ -868,3 +868,45 @@ class MarkOrderDispatchedView(APIView):
             return Response({"error": "Order not found or you are not the seller."}, status=404)
         except Exception as e:
             return Response({"error": str(e)}, status=400)
+
+
+class AdminUpdateUserRoleView(APIView):
+    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser] # Robust security restriction
+
+    def post(self, request, user_id):
+        target_role = request.data.get('role')
+        if target_role not in ['admin', 'seller', 'buyer']:
+            return Response({"status": "error", "message": "Invalid targeted identity scope parameters."}, status=400)
+
+        User = get_user_model()
+        try:
+            user = User.objects.get(pk=user_id)
+            if target_role == 'admin':
+                user.is_staff = True
+                user.is_superuser = True
+                user.active_role = 'admin'
+                if 'admin' not in user.roles:
+                    user.roles.append('admin')
+                if hasattr(user, 'role'):
+                    user.role = 'admin'
+            elif target_role == 'seller':
+                user.is_staff = False
+                user.is_superuser = False
+                user.active_role = 'seller'
+                if 'seller' not in user.roles:
+                    user.roles.append('seller')
+                if hasattr(user, 'role'):
+                    user.role = 'seller'
+            else:
+                user.is_staff = False
+                user.is_superuser = False
+                user.active_role = 'buyer'
+                if 'buyer' not in user.roles:
+                    user.roles.append('buyer')
+                if hasattr(user, 'role'):
+                    user.role = 'buyer'
+                
+            user.save()
+            return Response({"status": "success", "message": "User role permissions remapped completely."}, status=200)
+        except User.DoesNotExist:
+            return Response({"status": "error", "message": "Target account file reference missing."}, status=404)

@@ -12,7 +12,7 @@ from .views import (
     ProductDeleteView, ProductUpdateView, SellerOrderDetailView,
     ShopListView, ShopDetailView, ProductVideoFeedView,
     MarkOrderDispatchedView, MerchantOnboardingView, ShopStatusView,
-    AdminOverviewView, AdminApproveShopView
+    AdminOverviewView, AdminApproveShopView, AdminUpdateUserRoleView
 )
 
 urlpatterns = [
@@ -69,4 +69,5 @@ urlpatterns = [
     path('admin/stats/', AdminDashboardStatsView.as_view(), name='admin-stats'),
     path('admin/overview/', AdminOverviewView.as_view(), name='admin-overview'),
     path('admin/approve-shop/<str:shop_id>/', AdminApproveShopView.as_view(), name='admin-approve-shop'),
+    path('admin/update-user-role/<int:user_id>/', AdminUpdateUserRoleView.as_view(), name='admin-update-user-role'),
 ]
