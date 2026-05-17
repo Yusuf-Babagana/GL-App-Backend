@@ -577,57 +577,72 @@ class AdminOverviewView(APIView):
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
 
     def get(self, request):
-        User = get_user_model()
-        
-        # 1. Broad User Demographics (Filtering on 'active_role' since 'role' is a Python property)
-        total_users = User.objects.count()
-        sellers_count = User.objects.filter(active_role='seller').count()
-        buyers_count = User.objects.filter(active_role='buyer').count()
-        admins_count = User.objects.filter(is_staff=True).count()
+        try:
+            User = get_user_model()
+            
+            # 1. Broad User Demographics
+            total_users = User.objects.count()
+            admins_count = User.objects.filter(is_staff=True).count()
+            
+            # 🔥 Use 'active_role' instead of 'role' based on model metadata inspect
+            sellers_count = User.objects.filter(active_role__iexact='seller').count()
+            
+            # Fallback check: If active_role isn't written out yet, cross-verify with existing shops
+            if sellers_count == 0:
+                sellers_count = Shop.objects.values('owner').distinct().count()
+                
+            buyers_count = total_users - sellers_count - admins_count
+            if buyers_count < 0: 
+                buyers_count = 0
 
-        # 2. Marketplace Metrics
-        total_shops = Shop.objects.count()
-        pending_shops = Shop.objects.filter(is_active=False).select_related('owner')
-        total_products = Product.objects.count()
+            # 2. Marketplace Catalog Metrics
+            total_shops = Shop.objects.count()
+            total_products = Product.objects.count()
 
-        # 3. Financial Ledger Aggregation (From successful Monnify payment states)
-        revenue_data = Order.objects.filter(
-            payment_status__in=[Order.PaymentStatus.PAID, Order.PaymentStatus.RELEASED]
-        ).aggregate(Sum('total_price'))
-        total_revenue = revenue_data['total_price__sum'] or 0
+            # 3. Financial Ledger Aggregation (Safe fallback targeting 'payment_status' instead of missing 'is_paid')
+            paid_orders = Order.objects.filter(payment_status__iexact='paid')
+            if not paid_orders.exists():
+                paid_orders = Order.objects.filter(payment_status__iexact='released')
+                
+            revenue_data = paid_orders.aggregate(Sum('total_price'))
+            total_revenue = revenue_data['total_price__sum'] or 0
 
-        # Format unverified shops list
-        shops_data = [{
-            "id": str(shop.id),
-            "name": shop.name,
-            "shop_type": shop.shop_type,
-            "id_type": getattr(shop, 'id_type', ''),
-            "owner_email": shop.owner.email
-        } for shop in pending_shops]
+            # 4. Formulating List Objects Loops safely
+            pending_shops = Shop.objects.filter(is_active=False).select_related('owner')
+            shops_data = [{
+                "id": str(shop.id),
+                "name": shop.name,
+                "shop_type": shop.shop_type,
+                "id_type": getattr(shop, 'id_type', ''),
+                "owner_email": shop.owner.email
+            } for shop in pending_shops]
 
-        # Format system wide users list
-        users_data = [{
-            "id": user.pk,
-            "email": user.email,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "role": user.role or ('admin' if user.is_staff else 'buyer'),
-            "is_staff": user.is_staff
-        } for user in User.objects.all().order_by('-date_joined')]
+            users_data = [{
+                "id": user.pk,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": getattr(user, 'active_role', 'buyer') or 'buyer',
+                "is_staff": user.is_staff
+            } for user in User.objects.all().order_by('-date_joined')[:50]] # Limit 50 for mobile optimization
 
-        return Response({
-            "metrics": {
-                "total_users": total_users,
-                "sellers": sellers_count,
-                "buyers": buyers_count,
-                "admins": admins_count,
-                "total_shops": total_shops,
-                "total_products": total_products,
-                "total_revenue": f"₦{total_revenue:,}"
-            },
-            "pending_shops": shops_data,
-            "users": users_data
-        }, status=200)
+            return Response({
+                "metrics": {
+                    "total_users": total_users,
+                    "sellers": sellers_count,
+                    "buyers": buyers_count,
+                    "admins": admins_count,
+                    "total_shops": total_shops,
+                    "total_products": total_products,
+                    "total_revenue": f"₦{total_revenue:,}"
+                },
+                "pending_shops": shops_data,
+                "users": users_data
+            }, status=200)
+
+        except Exception as e:
+            # Return exact error debug details to mobile console stream instead of blank zeroing
+            return Response({"status": "error", "message": f"Crash details: {str(e)}"}, status=500)
 
 
 class AdminApproveShopView(APIView):

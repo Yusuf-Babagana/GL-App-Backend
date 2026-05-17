@@ -222,7 +222,7 @@ class CustomLoginView(APIView):
             token_string = str(refresh.access_token)
             
             # Determine role safely with explicit overrides for admin/staff members
-            user_role = getattr(user, 'role', 'buyer')
+            user_role = getattr(user, 'active_role', 'buyer') or 'buyer'
             if user.is_staff or user.is_superuser:
                 user_role = 'admin' # Force alignment over default model fallbacks
             
