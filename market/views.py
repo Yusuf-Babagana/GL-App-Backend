@@ -574,35 +574,60 @@ class AdminDashboardStatsView(APIView):
 
 
 class AdminOverviewView(APIView):
-    # Lock down access so only platform accounts with Admin/Staff access can call this view
     permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
 
     def get(self, request):
         User = get_user_model()
-        # 1. Fetch unverified shop objects
+        
+        # 1. Broad User Demographics (Filtering on 'active_role' since 'role' is a Python property)
+        total_users = User.objects.count()
+        sellers_count = User.objects.filter(active_role='seller').count()
+        buyers_count = User.objects.filter(active_role='buyer').count()
+        admins_count = User.objects.filter(is_staff=True).count()
+
+        # 2. Marketplace Metrics
+        total_shops = Shop.objects.count()
         pending_shops = Shop.objects.filter(is_active=False).select_related('owner')
+        total_products = Product.objects.count()
+
+        # 3. Financial Ledger Aggregation (From successful Monnify payment states)
+        revenue_data = Order.objects.filter(
+            payment_status__in=[Order.PaymentStatus.PAID, Order.PaymentStatus.RELEASED]
+        ).aggregate(Sum('total_price'))
+        total_revenue = revenue_data['total_price__sum'] or 0
+
+        # Format unverified shops list
         shops_data = [{
-            "id": str(shop.id) if hasattr(shop, 'id') else shop.pk,
+            "id": str(shop.id),
             "name": shop.name,
             "shop_type": shop.shop_type,
             "id_type": getattr(shop, 'id_type', ''),
             "owner_email": shop.owner.email
         } for shop in pending_shops]
 
-        # 2. Fetch system wide accounts profiles
-        users = User.objects.all().order_by('-date_joined')
+        # Format system wide users list
         users_data = [{
             "id": user.pk,
             "email": user.email,
             "first_name": user.first_name,
             "last_name": user.last_name,
+            "role": user.role or ('admin' if user.is_staff else 'buyer'),
             "is_staff": user.is_staff
-        } for user in users]
+        } for user in User.objects.all().order_by('-date_joined')]
 
         return Response({
+            "metrics": {
+                "total_users": total_users,
+                "sellers": sellers_count,
+                "buyers": buyers_count,
+                "admins": admins_count,
+                "total_shops": total_shops,
+                "total_products": total_products,
+                "total_revenue": f"₦{total_revenue:,}"
+            },
             "pending_shops": shops_data,
             "users": users_data
-        }, status=status.HTTP_200_OK)
+        }, status=200)
 
 
 class AdminApproveShopView(APIView):
