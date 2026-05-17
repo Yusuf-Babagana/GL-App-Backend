@@ -94,15 +94,30 @@ class MerchantOnboardingView(APIView):
                 shop.logo = request.FILES['shop_logo']
                 shop.save()
 
+            # 🌟 CORE ARCHITECTURAL RULE COMPLIANCE FIX:
+            # Change their platform system role identity profile state to 'seller' immediately
+            user_profile = request.user
+            user_profile.active_role = 'seller'
+            if not user_profile.roles:
+                user_profile.roles = []
+            if 'seller' not in user_profile.roles:
+                user_profile.roles.append('seller')
+            user_profile.save()
+
             return Response({
                 "status": "success",
-                "message": "Shop data saved successfully"
-            }, status=status.HTTP_201_CREATED)
+                "message": "Shop application registered. Awaiting admin activation.",
+                "user": {
+                    "email": user_profile.email,
+                    "is_admin": False,
+                    "role": "seller" # Sent out to refresh mobile client state cache configuration settings
+                }
+            }, status=201)
 
         except Exception as e:
             # Send the exact error string back to the phone for debugging
-            print(f"❌ ONBOARDING ERROR: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            print(f"ONBOARDING ERROR: {str(e)}")
+            return Response({"status": "error", "message": str(e)}, status=400)
 
 class ShopStatusView(APIView):
     permission_classes = [permissions.IsAuthenticated]
