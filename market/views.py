@@ -109,22 +109,28 @@ class ShopStatusView(APIView):
 
     def get(self, request):
         try:
-            # Look up the shop attached to the authenticated session user
             shop = Shop.objects.get(owner=request.user)
             
+            # Safely handle default values if fields are missing in the DB row
             return Response({
                 "exists": True,
-                "is_active": shop.is_active,
-                "shop_name": shop.name,
-                "shop_type": shop.shop_type
+                "is_active": getattr(shop, 'is_active', False),
+                "shop_name": getattr(shop, 'name', 'Unnamed Store') or 'Unnamed Store',
+                "shop_type": getattr(shop, 'shop_type', ''),
+                "total_sales": getattr(shop, 'total_sales', 0) or 0
             }, status=200)
             
         except Shop.DoesNotExist:
-            # ✅ Return a clean 200 JSON payload instead of crashing out with a 404 or 500
             return Response({
                 "exists": False,
                 "is_active": False,
-                "message": "No merchant profile linked to this user account."
+                "message": "No shop found."
+            }, status=200)
+        except Exception as e:
+            # 🔥 Catch internal bugs and return them as JSON instead of a raw 500 HTML crash
+            return Response({
+                "exists": False,
+                "error": f"Backend Exception: {str(e)}"
             }, status=200)
 
 class SellerProductListView(generics.ListAPIView):
