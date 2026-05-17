@@ -334,6 +334,7 @@ class CartSyncView(APIView):
                 ci.quantity,
             )
             row = {
+                'product_id': product.id,
                 'product': product,
                 'quantity': requested,
                 'synced_quantity': ci.quantity,
