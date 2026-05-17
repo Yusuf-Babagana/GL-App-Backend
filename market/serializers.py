@@ -151,6 +151,42 @@ class CartSerializer(serializers.ModelSerializer):
     def get_total_price(self, obj):
         return sum(item.product.price * item.quantity for item in obj.items.all())
 
+class CartSyncInputSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=0)
+
+
+class CartSyncItemSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField()
+    quantity = serializers.IntegerField()
+    name = serializers.CharField(source='product.name', read_only=True)
+    price = serializers.DecimalField(source='product.price', max_digits=10, decimal_places=2, read_only=True)
+    image = serializers.SerializerMethodField()
+    stock_available = serializers.IntegerField(source='product.stock', read_only=True)
+    stock_warning = serializers.SerializerMethodField()
+    synced_quantity = serializers.IntegerField(read_only=True)
+    subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
+    def get_image(self, obj):
+        first_image = obj.product.images.filter(is_primary=True).first()
+        return str(first_image.image) if first_image else None
+
+    def get_stock_warning(self, obj):
+        requested = obj.get('quantity', 0)
+        available = obj.product.stock
+        if available == 0:
+            return "Out of stock"
+        if requested > available:
+            return f"Only {available} item(s) available"
+        return None
+
+
+class CartSyncResponseSerializer(serializers.Serializer):
+    synced_items = CartSyncItemSerializer(many=True)
+    total_price = serializers.DecimalField(max_digits=12, decimal_places=2)
+    synced_at = serializers.DateTimeField()
+
+
 class OrderItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.name', read_only=True)
     # Add this to ensure the frontend can see the price

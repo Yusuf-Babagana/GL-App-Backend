@@ -1,14 +1,11 @@
-from django.urls import path, re_path
+from django.urls import path
 from .views import (
     CategoryListView, ProductListView, ProductDetailView,
     ShopCreateView, SellerProductListView, ProductCreateView,
-    CartAPIView, CreateOrderView, BuyerOrderListView,
+    CartAPIView, CartSyncView, CreateOrderView, BuyerOrderListView,
     BuyerOrderDetailView, ConfirmOrderReceiptView,
     SellerOrderListView, MerchantDashboardView,
-    SellerUpdateOrderStatusView, AvailableDeliveriesView,
-    RiderMyDeliveriesView, AcceptDeliveryView,
-    RiderUpdateStatusView, AdminDashboardStatsView,
-    StartChatView, SendMessageView, ConversationListView,
+    SellerUpdateOrderStatusView, AdminDashboardStatsView,
     ProductDeleteView, ProductUpdateView, SellerOrderDetailView,
     ShopListView, ShopDetailView, ProductVideoFeedView,
     MarkOrderDispatchedView, MerchantOnboardingView, ShopStatusView,
@@ -45,6 +42,7 @@ urlpatterns = [
     path('buyer/orders/<int:order_id>/confirm/', ConfirmOrderReceiptView.as_view(), name='buyer-confirm-receipt'),
     path('orders/<int:order_id>/confirm-receipt/', ConfirmOrderReceiptView.as_view(), name='confirm-receipt-alias'),
     path('cart/', CartAPIView.as_view(), name='cart'),
+    path('cart/sync/', CartSyncView.as_view(), name='cart-sync'),
 
     # --- PUBLIC ---
     path('categories/', CategoryListView.as_view(), name='category-list'),
@@ -53,17 +51,6 @@ urlpatterns = [
     path('stores/', ShopListView.as_view(), name='shop-list'),
     path('stores/<int:pk>/', ShopDetailView.as_view(), name='shop-detail'),
     path('video-ads/', ProductVideoFeedView.as_view(), name='video-ads-feed'),
-
-    # --- RIDER ---
-    path('rider/orders/available/', AvailableDeliveriesView.as_view(), name='rider-available'),
-    path('rider/orders/active/', RiderMyDeliveriesView.as_view(), name='rider-active'),
-    path('rider/orders/<int:pk>/accept/', AcceptDeliveryView.as_view(), name='rider-accept'),
-    path('rider/orders/<int:pk>/update/', RiderUpdateStatusView.as_view(), name='rider-update'),
-
-    # --- CHAT ---
-    path('conversations/', ConversationListView.as_view(), name='my-conversations'),
-    path('chat/start/<int:userId>/', StartChatView.as_view(), name='start-chat'),
-    path('chat/<int:conversationId>/send/', SendMessageView.as_view(), name='send-message'),
 
     # --- ADMIN ---
     path('admin/stats/', AdminDashboardStatsView.as_view(), name='admin-stats'),
