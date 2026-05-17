@@ -541,7 +541,7 @@ class AdminDashboardStatsView(APIView):
         # 1. User Stats
         User = get_user_model()
         total_users = User.objects.count()
-        total_sellers = Store.objects.count()
+        total_sellers = Shop.objects.count()
         
         # 2. Financial Stats
         total_wallet_balance = Wallet.objects.aggregate(Sum('balance'))['balance__sum'] or 0.00
@@ -571,6 +571,51 @@ class AdminDashboardStatsView(APIView):
                 "paid": paid_orders
             }
         })
+
+
+class AdminOverviewView(APIView):
+    # Lock down access so only platform accounts with Admin/Staff access can call this view
+    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
+
+    def get(self, request):
+        User = get_user_model()
+        # 1. Fetch unverified shop objects
+        pending_shops = Shop.objects.filter(is_active=False).select_related('owner')
+        shops_data = [{
+            "id": str(shop.id) if hasattr(shop, 'id') else shop.pk,
+            "name": shop.name,
+            "shop_type": shop.shop_type,
+            "id_type": getattr(shop, 'id_type', ''),
+            "owner_email": shop.owner.email
+        } for shop in pending_shops]
+
+        # 2. Fetch system wide accounts profiles
+        users = User.objects.all().order_by('-date_joined')
+        users_data = [{
+            "id": user.pk,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "is_staff": user.is_staff
+        } for user in users]
+
+        return Response({
+            "pending_shops": shops_data,
+            "users": users_data
+        }, status=status.HTTP_200_OK)
+
+
+class AdminApproveShopView(APIView):
+    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
+
+    def post(self, request, shop_id):
+        try:
+            shop = Shop.objects.get(pk=shop_id)
+            shop.is_active = True
+            shop.save()
+            return Response({"status": "success", "message": "Shop approved successfully"}, status=status.HTTP_200_OK)
+        except Shop.DoesNotExist:
+            return Response({"status": "error", "message": "Shop record not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 class StartChatView(APIView):
