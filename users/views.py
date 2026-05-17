@@ -13,10 +13,56 @@ from .serializers import KYCUploadSerializer
 
 User = get_user_model()
 
-class RegisterView(generics.CreateAPIView):
-    queryset = User.objects.all()
-    permission_classes = (permissions.AllowAny,)
-    serializer_class = RegistrationSerializer
+class CustomRegisterView(APIView):
+    permission_classes = [permissions.AllowAny] # Allow anyone to register an account
+
+    def post(self, request):
+        email = request.data.get('email')
+        password = request.data.get('password')
+        first_name = request.data.get('first_name', '')
+        last_name = request.data.get('last_name', '')
+
+        # 1. Structural Validation Checklist
+        if not email or not password:
+            return Response({"status": "error", "message": "Email and password are required fields."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if User.objects.filter(email=email).exists():
+            return Response({"status": "error", "message": "An account with this email address already exists."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # 2. Build the Model Row Entry
+            full_name = f"{first_name} {last_name}".strip() or "Globalink User"
+            user = User.objects.create_user(
+                email=email,
+                password=password,
+                first_name=first_name,
+                last_name=last_name,
+                full_name=full_name,
+                active_role='buyer',
+                roles=['buyer']
+            )
+
+            # 3. Generate instant login tokens so the user skips logging in right after registering
+            refresh = RefreshToken.for_user(user)
+            
+            # Send a uniform, predictable object dictionary
+            payload = {
+                "status": "success",
+                "token": str(refresh.access_token),
+                "user": {
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "is_admin": False,
+                    "role": "buyer"
+                }
+            }
+            print(f"📡 REGISTRATION SUCCESS OUTGOING: {payload}")
+            return Response(payload, status=status.HTTP_201_CREATED) # 🌟 Explicit 201 Created Status Code
+
+        except Exception as e:
+            print(f"❌ REGISTRATION INTERNAL CRASH: {str(e)}")
+            return Response({"status": "error", "message": f"Server processing failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
     """

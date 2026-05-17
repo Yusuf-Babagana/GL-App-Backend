@@ -1,10 +1,10 @@
 from django.urls import path
-from .views import AdminDashboardStatsView, RegisterView, AdminKYCListView, AdminKYCActionView, UserProfileView, AddRoleView, KYCSubmissionView, SetTransactionPINView, UpdateBVNView, CustomLoginView
+from .views import AdminDashboardStatsView, CustomRegisterView, AdminKYCListView, AdminKYCActionView, UserProfileView, AddRoleView, KYCSubmissionView, SetTransactionPINView, UpdateBVNView, CustomLoginView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
     # Auth
-    path('register/', RegisterView.as_view(), name='register'),
+    path('register/', CustomRegisterView.as_view(), name='register'),
     path('login/', CustomLoginView.as_view(), name='login'), # Custom login returning user metadata
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
