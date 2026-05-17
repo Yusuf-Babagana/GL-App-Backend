@@ -11,7 +11,8 @@ from .views import (
     StartChatView, SendMessageView, ConversationListView,
     ProductDeleteView, ProductUpdateView, SellerOrderDetailView,
     ShopListView, ShopDetailView, ProductVideoFeedView,
-    MarkOrderDispatchedView, MerchantOnboardingView, ShopStatusView
+    MarkOrderDispatchedView, MerchantOnboardingView, ShopStatusView,
+    AdminOverviewView, AdminApproveShopView
 )
 
 urlpatterns = [
@@ -66,4 +67,6 @@ urlpatterns = [
 
     # --- ADMIN ---
     path('admin/stats/', AdminDashboardStatsView.as_view(), name='admin-stats'),
+    path('admin/overview/', AdminOverviewView.as_view(), name='admin-overview'),
+    path('admin/approve-shop/<str:shop_id>/', AdminApproveShopView.as_view(), name='admin-approve-shop'),
 ]
