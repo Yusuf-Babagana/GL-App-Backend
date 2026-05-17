@@ -227,8 +227,9 @@ class CustomLoginView(APIView):
                     "email": user.email,
                     "first_name": user.first_name,
                     "last_name": user.last_name,
-                    "is_admin": user.is_staff or user.is_superuser # 🔥 Frontend routing flag
+                    "is_admin": user.is_staff or user.is_superuser,
+                    "role": getattr(user, 'active_role', 'buyer') # Uses custom model active_role (e.g. buyer, seller, admin)
                 }
             }, status=status.HTTP_200_OK)
             
-        return Response({"error": "Invalid email or password credentials"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"error": "Invalid credentials match"}, status=status.HTTP_401_UNAUTHORIZED)
