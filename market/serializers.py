@@ -168,12 +168,14 @@ class CartSyncItemSerializer(serializers.Serializer):
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
 
     def get_image(self, obj):
-        first_image = obj.product.images.filter(is_primary=True).first()
+        product = obj.get('product') if isinstance(obj, dict) else obj.product
+        first_image = product.images.filter(is_primary=True).first()
         return str(first_image.image) if first_image else None
 
     def get_stock_warning(self, obj):
-        requested = obj.get('quantity', 0)
-        available = obj.product.stock
+        requested = obj.get('quantity', 0) if isinstance(obj, dict) else obj.quantity
+        product = obj.get('product') if isinstance(obj, dict) else obj.product
+        available = product.stock
         if available == 0:
             return "Out of stock"
         if requested > available:
