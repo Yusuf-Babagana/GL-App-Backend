@@ -9,6 +9,8 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework import serializers 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.views.decorators.cache import cache_page
+from django.views.decorators.vary import vary_on_headers
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -199,12 +201,16 @@ class CategoryListView(generics.ListAPIView):
     serializer_class = CategorySerializer
     permission_classes = [permissions.AllowAny]
 
+@method_decorator(cache_page(300), name='dispatch')
+@method_decorator(vary_on_headers('Authorization'), name='dispatch')
 class ProductListView(generics.ListAPIView):
-    queryset = Product.objects.all()
+    queryset = Product.objects.select_related('shop', 'category').prefetch_related('images')
     serializer_class = ProductSerializer
     permission_classes = [AllowAny]
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description', 'category__name']
+    ordering_fields = ['price', '-price', 'created_at', '-created_at', 'name']
+    ordering = ['-created_at']
 
 class ProductDetailView(generics.RetrieveAPIView):
     queryset = Product.objects.all()
@@ -692,9 +698,11 @@ class SellerOrderDetailView(generics.RetrieveUpdateAPIView):
 
 
 class ShopListView(generics.ListAPIView):
-    queryset = Shop.objects.all()
+    queryset = Shop.objects.filter(is_active=True).select_related('owner')
     serializer_class = ShopSerializer
-    permission_classes = [AllowAny] # This allows visitors to browse the directory
+    permission_classes = [AllowAny]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['name', 'description', 'shop_type', 'state']
 
 
 
@@ -706,14 +714,14 @@ class ShopDetailView(generics.RetrieveAPIView):
 
 
 
+@method_decorator(cache_page(300), name='dispatch')
+@method_decorator(vary_on_headers('Authorization'), name='dispatch')
 class ProductVideoFeedView(generics.ListAPIView):
     serializer_class = ProductSerializer
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        # AUTOMATION: This query finds any product with a video, 
-        # local or Cloudinary, and puts the newest ones first.
-        return Product.objects.exclude(video="").exclude(video__isnull=True).order_by('-created_at')
+        return Product.objects.exclude(video="").exclude(video__isnull=True).select_related('shop', 'category').prefetch_related('images').order_by('-created_at')
 
 
 

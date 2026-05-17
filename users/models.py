@@ -66,7 +66,8 @@ class User(AbstractUser):
     active_role = models.CharField(
         max_length=20, 
         choices=Roles.choices, 
-        default=Roles.BUYER
+        default=Roles.BUYER,
+        db_index=True
     )
 
     # --- FINANCIAL KYC DATA (Added for Monnify Production) ---
