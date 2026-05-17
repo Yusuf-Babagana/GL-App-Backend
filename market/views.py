@@ -104,28 +104,28 @@ class MerchantOnboardingView(APIView):
             print(f"❌ ONBOARDING ERROR: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-class MerchantProfileView(APIView):
+class ShopStatusView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         try:
+            # Look up the shop attached to the authenticated session user
             shop = Shop.objects.get(owner=request.user)
+            
             return Response({
-                "status": "success",
-                "user": UserSerializer(request.user).data,
-                "merchant": {
-                    "shop_name": shop.name,
-                    "is_active": shop.is_active,
-                    "shop_type": shop.shop_type,
-                    "onboarding_complete": True
-                }
-            })
+                "exists": True,
+                "is_active": shop.is_active,
+                "shop_name": shop.name,
+                "shop_type": shop.shop_type
+            }, status=200)
+            
         except Shop.DoesNotExist:
+            # ✅ Return a clean 200 JSON payload instead of crashing out with a 404 or 500
             return Response({
-                "status": "not_found",
-                "user": UserSerializer(request.user).data,
-                "merchant": {"onboarding_complete": False}
-            })
+                "exists": False,
+                "is_active": False,
+                "message": "No merchant profile linked to this user account."
+            }, status=200)
 
 class SellerProductListView(generics.ListAPIView):
     """ Lists only products belonging to the logged-in seller """
