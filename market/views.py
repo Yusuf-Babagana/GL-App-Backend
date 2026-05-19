@@ -1020,3 +1020,21 @@ class MerchantAnalyticsView(APIView):
                 "top_products": top_products_data
             }
         }, status=status.HTTP_200_OK)
+
+
+class MyShopStatusView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        
+        # Look up any shop row belonging to this authenticated user account
+        shop = Shop.objects.filter(owner=user).first()
+        
+        if not shop:
+            return Response({"status": "none", "message": "No shop record exists on file."})
+            
+        if not shop.is_active:
+            return Response({"status": "pending", "message": "Application is pending administrator approval."})
+            
+        return Response({"status": "approved", "message": "Shop is fully active."})
