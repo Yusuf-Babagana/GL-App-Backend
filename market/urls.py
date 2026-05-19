@@ -9,7 +9,8 @@ from .views import (
     ProductDeleteView, ProductUpdateView, SellerOrderDetailView,
     ShopListView, ShopDetailView, ProductVideoFeedView,
     MarkOrderDispatchedView, MerchantOnboardingView, ShopStatusView,
-    AdminOverviewView, AdminApproveShopView, AdminUpdateUserRoleView
+    AdminOverviewView, AdminApproveShopView, AdminUpdateUserRoleView,
+    MerchantGlobalOnboardingView, AdminOverviewTelemetryView
 )
 
 urlpatterns = [
@@ -23,6 +24,7 @@ urlpatterns = [
     path('store/create/', ShopCreateView.as_view(), name='shop-create'),
     path('store/status/', ShopStatusView.as_view(), name='shop-status'),
     path('store/onboarding/', MerchantOnboardingView.as_view(), name='merchant-onboarding'),
+    path('store/global-onboard/', MerchantGlobalOnboardingView.as_view(), name='global-onboard'),
     path('seller/stats/', MerchantDashboardView.as_view(), name='seller-stats'),
     path('seller/products/', SellerProductListView.as_view(), name='seller-products'),
     path('seller/products/add/', ProductCreateView.as_view(), name='product-add'),
@@ -55,7 +57,7 @@ urlpatterns = [
 
     # --- ADMIN ---
     path('admin/stats/', AdminDashboardStatsView.as_view(), name='admin-stats'),
-    path('admin/overview/', AdminOverviewView.as_view(), name='admin-overview'),
+    path('admin/overview/', AdminOverviewTelemetryView.as_view(), name='admin-overview'),
     path('admin/approve-shop/<str:shop_id>/', AdminApproveShopView.as_view(), name='admin-approve-shop'),
     path('admin/update-user-role/<int:user_id>/', AdminUpdateUserRoleView.as_view(), name='admin-update-user-role'),
 ]
