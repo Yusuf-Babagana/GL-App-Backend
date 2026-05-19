@@ -552,7 +552,12 @@ class CreateOrderView(APIView):
                     qty = int(item['quantity'])
                     
                     if product.stock < qty:
-                        return Response({"status": "error", "message": f"Insufficient stock volume for {product.name}."}, status=400)
+                        return Response({
+                            "status": "out_of_stock",
+                            "product_id": product.id,
+                            "available_stock": product.stock,
+                            "message": f"Only {product.stock} units of {product.name} are available."
+                        }, status=400)
                     
                     total_calculated_price += (product.price * qty)
                     order_items_to_create.append((product, qty))
