@@ -368,50 +368,59 @@ class CreateOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        print(f"\n--- 🛒 DIRECT SETTLEMENT CHECKOUT: {request.user.email} ---")
+        cart_items = request.data.get('items', []) # Expects [{product_id, quantity}, ...]
+        if not cart_items:
+            return Response({"status": "error", "message": "Your cart compilation list is completely empty."}, status=400)
+
         try:
-            cart = Cart.objects.get(user=request.user)
-            if not cart.items.exists():
-                return Response({"error": "Cart is empty"}, status=400)
+            total_calculated_price = Decimal('0.00')
+            order_items_to_create = []
 
-            cart_total = Decimal(str(cart.total_price))
-            seller = cart.items.first().product.shop.owner
-
-            if seller == request.user:
-                return Response({"error": "You cannot buy from your own shop."}, status=400)
-
-            # 1. Direct Settlement to Seller's PENDING balance
-            success, message = WalletManager.settle_to_pending(
-                buyer=request.user,
-                amount=cart_total,
-                seller=seller
-            )
-
-            if not success:
-                return Response({"error": message}, status=400)
-
-            # 2. Create the Order (Marked as Released because buyer has already paid)
             with transaction.atomic():
-                order = Order.objects.create(
-                    buyer=request.user,
-                    shop=cart.items.first().product.shop,
-                    total_price=cart_total,
-                    shipping_address_json=request.data.get('shipping_address', {}),
-                    payment_status=Order.PaymentStatus.RELEASED, 
-                    delivery_status=Order.DeliveryStatus.PENDING,
-                )
-                
-                # Transfer items from Cart to OrderItems
-                items = [OrderItem(order=order, product=i.product, quantity=i.quantity, price_at_purchase=i.product.price) for i in cart.items.all()]
-                OrderItem.objects.bulk_create(items)
-                cart.items.all().delete()
-                
-            print(f"✅ SUCCESS: Order #{order.id} settled to Seller Pending.")
-            return Response({"message": "Order placed!", "order_id": order.id}, status=201)
+                # Loop through tracking array blocks to compute costs
+                for item in cart_items:
+                    product = Product.objects.select_for_update().get(id=item['product_id'])
+                    qty = int(item['quantity'])
+                    
+                    if product.stock < qty:
+                        return Response({"status": "error", "message": f"Insufficient stock volume for {product.name}."}, status=400)
+                    
+                    total_calculated_price += (product.price * qty)
+                    order_items_to_create.append((product, qty))
 
+                # Create the master order record sheet mapping instance
+                # Adapted to active database mapping definitions: buyer, total_price, delivery_status, payment_status
+                new_order = Order.objects.create(
+                    buyer=request.user,
+                    shop=order_items_to_create[0][0].shop if order_items_to_create else None,
+                    total_price=total_calculated_price,
+                    delivery_status=Order.DeliveryStatus.PENDING,
+                    payment_status=Order.PaymentStatus.PENDING,
+                    shipping_address_json=request.data.get('shipping_address', {})
+                )
+
+                # Build item splits ledger linkages
+                for product, qty in order_items_to_create:
+                    OrderItem.objects.create(
+                        order=new_order, 
+                        product=product, 
+                        quantity=qty, 
+                        price_at_purchase=product.price
+                    )
+                    product.stock -= qty # Decrement catalog stock capacity counters
+                    product.save()
+
+            return Response({
+                "status": "success",
+                "message": "Order reference written successfully.",
+                "order_id": new_order.id,
+                "amount_to_pay": total_calculated_price
+            }, status=201)
+
+        except Product.DoesNotExist:
+            return Response({"status": "error", "message": "One or more chosen item references do not match our database records."}, status=404)
         except Exception as e:
-            print(f"🔥 ERROR: {str(e)}")
-            return Response({"error": str(e)}, status=400)
+            return Response({"status": "error", "message": f"Server transaction failed: {str(e)}"}, status=500)
 
             
 class BuyerOrderListView(generics.ListAPIView):

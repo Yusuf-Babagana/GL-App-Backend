@@ -15,6 +15,7 @@ from .views import (
 urlpatterns = [
     # --- CART & CHECKOUT (The 404 Zone) ---
     # We add multiple paths to ensure the phone finds it regardless of the naming used
+    path('orders/', CreateOrderView.as_view(), name='create-order'),
     path('orders/create/', CreateOrderView.as_view(), name='checkout-alias'),
     path('checkout/', CreateOrderView.as_view(), name='checkout'),
     
