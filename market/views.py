@@ -115,21 +115,20 @@ class MerchantOnboardingView(APIView):
 
 class MerchantGlobalOnboardingView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser] # Enforce multi-part parser so binary images parse cleanly
 
     def post(self, request):
-        """
-        Receives the combined form submission payload packet via multi-part data stream.
-        """
         user = request.user
-        if Shop.objects.filter(owner=user).exists():
-            return Response({"status": "error", "message": "An active registration file already exists for this account profile."}, status=400)
-
         data = request.data
-        try:
-            # Parse parameters with direct fallback verification checks
-            is_registered_bool = str(data.get('registered', 'no')).lower() == 'yes'
 
+        # 🛡️ Prevent duplicate store entries for the same account profile
+        if Shop.objects.filter(owner=user).exists():
+            return Response({
+                "status": "error", 
+                "message": "An active registration file already exists for this account profile."
+            }, status=400)
+
+        try:
             # 🌟 CORE ARCHITECTURAL RULE COMPLIANCE:
             # Change their platform system role identity profile state to 'seller' immediately
             user.active_role = 'seller'
@@ -139,30 +138,42 @@ class MerchantGlobalOnboardingView(APIView):
                 user.roles.append('seller')
             user.save()
 
-            new_shop = Shop.objects.create(
+            # Create the record matching the exact multi-part keys shipped by Axios/FormData
+            shop = Shop.objects.create(
                 owner=user,
-                owner_full_name=data.get('owner_name'),     # Matches formData.append('owner_name')
-                owner_email=data.get('owner_email'),         # Matches formData.append('owner_email')
-                owner_phone=data.get('owner_phone'),         # Matches formData.append('owner_phone')
-                id_type=data.get('id_type'),                 # Matches formData.append('id_type')
-                id_number=data.get('id_number'),             # Matches formData.append('id_number')
+                # Step 1 Personal Info keys fallback map
+                owner_full_name=data.get('owner_name') or data.get('name'),
+                owner_email=data.get('owner_email') or data.get('email') or user.email,
+                owner_phone=data.get('owner_phone') or data.get('phone'),
+                id_type=data.get('id_type') or data.get('idType'),
+                id_number=data.get('id_number') or data.get('idNumber'),
                 id_image=request.FILES.get('id_image'),
                 id_document=request.FILES.get('id_image'),   # Backward compatibility fallback
-                
-                name=data.get('shop_name'),                  # Matches formData.append('shop_name')
-                shop_type=data.get('shop_type'),             # Matches formData.append('shop_type')
-                business_phone=data.get('business_phone'),   # Matches formData.append('business_phone')
-                address=data.get('shop_address'),            # Matches formData.append('shop_address')
-                state=data.get('state', 'Kano'),             # Matches formData.append('state')
+
+                # Step 2 Shop Info keys fallback map
+                name=data.get('shop_name') or data.get('shopName'),
+                shop_type=data.get('shop_type') or data.get('shopType'),
+                business_phone=data.get('business_phone') or data.get('businessPhone'),
+                address=data.get('shop_address') or data.get('shopAddress'),
+                state=data.get('state', 'Kano'),
                 logo=request.FILES.get('logo'),
-                
+
+                # Legal registry data
                 is_registered=str(data.get('registered', 'no')).lower() == 'yes',
                 cac_number=data.get('cac_number', ''),
-                is_active=False
+                is_active=False # Keep pending until approved!
             )
-            return Response({"status": "success", "message": "Shop onboarding file captured! Review pending."}, status=201)
+
+            return Response({
+                "status": "success", 
+                "message": "Application file received and locked for administrative verification."
+            }, status=201)
+
         except Exception as e:
-            return Response({"status": "error", "message": f"Server processing failed: {str(e)}"}, status=500)
+            return Response({
+                "status": "error", 
+                "message": f"Database parsing failed structural rules: {str(e)}"
+            }, status=400)
 
 
 class AdminOverviewTelemetryView(APIView):
