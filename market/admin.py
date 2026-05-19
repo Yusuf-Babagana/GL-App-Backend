@@ -41,7 +41,15 @@ class ShopAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         if not hasattr(obj, 'owner') or not obj.owner:
             obj.owner = request.user
+        
+        # 1. Fire the native database commit sequence
         super().save_model(request, obj, form, change)
+        
+        # 2. If the admin activates the shop, automatically flip the user's role string
+        if obj.is_active and obj.owner:
+            owner = obj.owner
+            owner.active_role = 'seller'
+            owner.save()
 
 # Safely register the remaining core e-commerce models with standard layout views
 @admin.register(Product)
