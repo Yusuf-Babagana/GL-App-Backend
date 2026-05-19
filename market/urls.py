@@ -11,7 +11,8 @@ from .views import (
     MarkOrderDispatchedView, MerchantOnboardingView, ShopStatusView,
     AdminOverviewView, AdminApproveShopView, AdminUpdateUserRoleView,
     MerchantGlobalOnboardingView, AdminOverviewTelemetryView,
-    AdminReviewShopView, MerchantAnalyticsView, MyShopStatusView
+    AdminReviewShopView, MerchantAnalyticsView, MyShopStatusView,
+    InternalWalletCheckoutView
 )
 
 urlpatterns = [
@@ -20,6 +21,7 @@ urlpatterns = [
     path('orders/', CreateOrderView.as_view(), name='create-order'),
     path('orders/create/', CreateOrderView.as_view(), name='checkout-alias'),
     path('checkout/', CreateOrderView.as_view(), name='checkout'),
+    path('checkout/wallet-pay/', InternalWalletCheckoutView.as_view(), name='internal-wallet-checkout'),
     
     # --- SELLER / SHOP ---
     path('store/create/', ShopCreateView.as_view(), name='shop-create'),

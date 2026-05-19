@@ -23,7 +23,7 @@ from .serializers import (
     OrderSerializer, CartSerializer, CartSyncInputSerializer,
     CartSyncItemSerializer, CartSyncResponseSerializer,
 )
-from finance.models import Wallet
+from finance.models import Wallet, Transaction
 from finance.services import WalletService
 
 
@@ -591,7 +591,78 @@ class CreateOrderView(APIView):
         except Exception as e:
             return Response({"status": "error", "message": f"Server transaction failed: {str(e)}"}, status=500)
 
-            
+
+class InternalWalletCheckoutView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        order_id = request.data.get('order_id')
+        if not order_id:
+            return Response({"error": "order_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            order = Order.objects.get(id=order_id, buyer=request.user)
+        except Order.DoesNotExist:
+            return Response({"error": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if order.payment_status == 'paid':
+            return Response({"error": "This order has already been paid."}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            buyer_wallet, _ = Wallet.objects.select_for_update().get_or_create(
+                user=request.user, defaults={'balance': Decimal('0.00')}
+            )
+
+            if buyer_wallet.balance < order.total_price:
+                return Response({
+                    "status": "low_balance",
+                    "message": f"Insufficient wallet funds. Required: ₦{order.total_price:,.0f}, Available: ₦{buyer_wallet.balance:,.0f}."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            buyer_wallet.balance -= order.total_price
+            buyer_wallet.save()
+
+            order_items = OrderItem.objects.filter(order=order).select_related('product__shop__owner')
+            merchant_shares = {}
+            for item in order_items:
+                owner = item.product.shop.owner
+                amount = item.quantity * item.price_at_purchase
+                merchant_shares[owner] = merchant_shares.get(owner, Decimal('0.00')) + amount
+
+            for owner, amount in merchant_shares.items():
+                seller_wallet, _ = Wallet.objects.select_for_update().get_or_create(
+                    user=owner, defaults={'balance': Decimal('0.00')}
+                )
+                seller_wallet.balance += amount
+                seller_wallet.save()
+
+                Transaction.objects.create(
+                    wallet=seller_wallet,
+                    amount=amount,
+                    transaction_type=Transaction.TransactionType.PAYMENT,
+                    status=Transaction.Status.SUCCESS,
+                    related_order_id=str(order.id),
+                    description=f"Sales earnings for Order #{order.id}"
+                )
+
+            Transaction.objects.create(
+                wallet=buyer_wallet,
+                amount=-order.total_price,
+                transaction_type=Transaction.TransactionType.PAYMENT,
+                status=Transaction.Status.SUCCESS,
+                related_order_id=str(order.id),
+                description=f"Payment for Order #{order.id}"
+            )
+
+            order.payment_status = 'paid'
+            order.save()
+
+        return Response({
+            "status": "success",
+            "message": "Payment successful. Order processed!"
+        }, status=status.HTTP_200_OK)
+
+
 class BuyerOrderListView(generics.ListAPIView):
     serializer_class = OrderSerializer
     permission_classes = [permissions.IsAuthenticated]
