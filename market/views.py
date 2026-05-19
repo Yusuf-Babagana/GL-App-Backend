@@ -252,50 +252,116 @@ class SellerProductListView(generics.ListAPIView):
     def get_queryset(self):
         return Product.objects.filter(shop__owner=self.request.user).order_by('-created_at')
 
-# Find the ProductCreateView and update the parser_classes
-@method_decorator(csrf_exempt, name='dispatch')
-class ProductCreateView(generics.CreateAPIView):
-    """ Allows a seller to add a new product via JSON or Multipart """
-    serializer_class = ProductSerializer
+class ProductCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    # ADDED JSONParser here to fix the 415 error
-    parser_classes = [JSONParser, MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
-    def post(self, request, *args, **kwargs):
-        print("Received Product Data:", request.data)
-        serializer = self.get_serializer(data=request.data)
-        if not serializer.is_valid():
-            print("Product Validation Errors:", serializer.errors)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+    def post(self, request):
+        shop = Shop.objects.filter(owner=request.user).first()
+        if not shop:
+            return Response({"error": "You must create a shop first."}, status=status.HTTP_403_FORBIDDEN)
+        if not shop.is_active:
+            return Response({"error": "Your shop is pending activation."}, status=status.HTTP_403_FORBIDDEN)
 
-    def perform_create(self, serializer):
+        errors = {}
+
+        name = request.data.get('name', '').strip()
+        if not name:
+            errors['name'] = 'This field is required.'
+
+        description = request.data.get('description', '').strip()
+        if not description:
+            errors['description'] = 'This field is required.'
+
+        price_raw = request.data.get('price')
+        if not price_raw:
+            errors['price'] = 'This field is required.'
+        else:
+            try:
+                price = Decimal(str(price_raw))
+                if price <= 0:
+                    errors['price'] = 'Price must be greater than zero.'
+            except Exception:
+                errors['price'] = 'Invalid decimal value for price.'
+
+        stock_raw = request.data.get('stock')
+        if stock_raw is not None and stock_raw != '':
+            try:
+                stock = int(str(stock_raw))
+                if stock < 0:
+                    errors['stock'] = 'Stock cannot be negative.'
+            except (ValueError, TypeError):
+                errors['stock'] = 'Invalid integer value for stock.'
+        else:
+            stock = 1
+
+        category_id = request.data.get('category')
+        category = None
+        if category_id:
+            try:
+                category = Category.objects.get(id=int(category_id))
+            except (ValueError, TypeError, Category.DoesNotExist):
+                errors['category'] = 'Invalid category identifier.'
+
+        if errors:
+            return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        image_value = ''
+        if 'image' in request.FILES:
+            uploaded = request.FILES['image']
+            from django.core.files.storage import default_storage
+            from django.utils import timezone
+            ts = int(timezone.now().timestamp())
+            path = default_storage.save(f'products/{ts}_{uploaded.name}', uploaded)
+            image_value = default_storage.url(path)
+        elif request.data.get('image'):
+            image_value = request.data.get('image')
+
+        video_value = request.data.get('video_url', '')
+
+        image_links = request.data.get('images', [])
+        if isinstance(image_links, str):
+            try:
+                import json
+                image_links = json.loads(image_links)
+            except (json.JSONDecodeError, ValueError):
+                image_links = []
+
         try:
-            # 1. Grab metadata from request
-            video_url = self.request.data.get('video_url')
-            image_links = self.request.data.get('images', [])
-            
-            # 2. Get the user's shop
-            shop = Shop.objects.get(owner=self.request.user)
-            
-            # 3. Save the product (Automation: ensure is_ad is True)
-            if video_url:
-                product = serializer.save(shop=shop, video=video_url, is_ad=True)
-            else:
-                product = serializer.save(shop=shop, is_ad=True)
+            product = Product.objects.create(
+                shop=shop,
+                name=name,
+                description=description,
+                price=price,
+                stock=stock,
+                category=category,
+                image=image_value,
+                video=video_value if video_value else '',
+                is_ad=True,
+            )
 
-            # 4. Automatic "Image Creation": Save the list of links to the database
             if isinstance(image_links, list):
                 for i, link in enumerate(image_links):
-                    ProductImage.objects.create(
-                        product=product,
-                        image=link,
-                        is_primary=(i == 0) # Set first as primary
-                    )
-        except Shop.DoesNotExist:
-            raise serializers.ValidationError("You must create a shop first.")
+                    if link:
+                        ProductImage.objects.create(
+                            product=product,
+                            image=link,
+                            is_primary=(i == 0 and not image_value)
+                        )
+
+            return Response({
+                "message": "Product created successfully",
+                "product": {
+                    "id": product.id,
+                    "name": product.name,
+                    "price": str(product.price),
+                    "stock": product.stock,
+                    "image": product.image,
+                }
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({"error": f"Failed to create product: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # --- PUBLIC BROWSING ---
 
