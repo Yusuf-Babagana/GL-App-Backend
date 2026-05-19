@@ -759,6 +759,34 @@ class AdminApproveShopView(APIView):
             return Response({"status": "error", "message": "Shop record not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
+class AdminReviewShopView(APIView):
+    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
+
+    def post(self, request, shop_id):
+        """
+        Processes administrative approval or rejection flags for UUID shop models.
+        """
+        shop = get_object_or_404(Shop, id=shop_id)
+        action = request.data.get('action') 
+
+        if action == 'approve':
+            shop.is_active = True
+            shop.save()
+
+            # Elevate user permission role
+            owner = shop.owner
+            owner.active_role = 'seller'
+            owner.save()
+
+            return Response({"status": "success", "message": f"'{shop.name}' has been successfully activated. Owner role elevated to Seller."}, status=200)
+
+        elif action == 'reject':
+            shop.delete() # Purge row registry sheet cleanly so they can fix mistakes
+            return Response({"status": "success", "message": "Shop application record rejected and cleared safely."}, status=200)
+
+        return Response({"status": "error", "message": "Invalid control modifier parameter."}, status=400)
+
+
 # Chat views moved to chat/views.py
 
 class ProductDeleteView(generics.DestroyAPIView):
