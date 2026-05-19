@@ -141,24 +141,24 @@ class MerchantGlobalOnboardingView(APIView):
 
             new_shop = Shop.objects.create(
                 owner=user,
-                owner_full_name=data.get('owner_name'),
-                owner_email=data.get('owner_email'),
-                owner_phone=data.get('owner_phone'),
-                id_type=data.get('id_type'),
-                id_number=data.get('id_number'),
-                id_image=request.FILES.get('id_image'), # Capture incoming binary image file streams
-                id_document=request.FILES.get('id_image'), # Set backward compatible field as well
+                owner_full_name=data.get('owner_name'),     # Matches formData.append('owner_name')
+                owner_email=data.get('owner_email'),         # Matches formData.append('owner_email')
+                owner_phone=data.get('owner_phone'),         # Matches formData.append('owner_phone')
+                id_type=data.get('id_type'),                 # Matches formData.append('id_type')
+                id_number=data.get('id_number'),             # Matches formData.append('id_number')
+                id_image=request.FILES.get('id_image'),
+                id_document=request.FILES.get('id_image'),   # Backward compatibility fallback
                 
-                name=data.get('shop_name'),
-                shop_type=data.get('shop_type'),
-                business_phone=data.get('business_phone'),
-                address=data.get('shop_address'),
-                state=data.get('state', 'Kano'),
+                name=data.get('shop_name'),                  # Matches formData.append('shop_name')
+                shop_type=data.get('shop_type'),             # Matches formData.append('shop_type')
+                business_phone=data.get('business_phone'),   # Matches formData.append('business_phone')
+                address=data.get('shop_address'),            # Matches formData.append('shop_address')
+                state=data.get('state', 'Kano'),             # Matches formData.append('state')
                 logo=request.FILES.get('logo'),
                 
-                is_registered=is_registered_bool,
-                cac_number=data.get('cac_number', '') if is_registered_bool else '',
-                is_active=False # Kept locked by default code rule layers
+                is_registered=str(data.get('registered', 'no')).lower() == 'yes',
+                cac_number=data.get('cac_number', ''),
+                is_active=False
             )
             return Response({"status": "success", "message": "Shop onboarding file captured! Review pending."}, status=201)
         except Exception as e:
