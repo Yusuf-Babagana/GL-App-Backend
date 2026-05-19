@@ -91,8 +91,12 @@ class Shop(models.Model):
     def __str__(self):
         # Safely extract email fallback strings to prevent deep-lookup lookup attribute crashes
         owner_email = "No Owner Bound"
-        if self.owner:
-            owner_email = getattr(self.owner, 'email', str(self.owner))
+        try:
+            owner = self.owner
+            if owner:
+                owner_email = getattr(owner, 'email', str(owner))
+        except Exception:
+            pass
             
         return f"{self.name or 'Unnamed Shop'} — ({owner_email})"
 
