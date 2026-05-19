@@ -1,4 +1,5 @@
 from decimal import Decimal
+from collections import defaultdict
 from django.shortcuts import get_object_or_404
 from django.db import transaction, models
 from django.db.models import Q, Sum
@@ -972,63 +973,88 @@ class MerchantAnalyticsView(APIView):
 
     def get(self, request):
         user = request.user
-        
-        # 🛡️ Look up by user profile relation directly
         shop = Shop.objects.filter(owner=user).first()
-        
+
         if not shop:
             return Response({
-                "status": "not_found", 
-                "message": "No store instance exists on file for this account record."
-            }, status=status.HTTP_404_NOT_FOUND)
+                "status": "none",
+                "message": "No store instance exists on file for this account record.",
+                "shop_name": None,
+                "stats": {
+                    "total_sales": "₦0",
+                    "total_orders": "0",
+                    "products_sold": "0",
+                    "new_customers": "0",
+                    "top_products": []
+                }
+            }, status=status.HTTP_200_OK)
 
         if not shop.is_active:
             return Response({
                 "status": "pending",
-                "message": "Your registration file is currently awaiting administrator activation."
-            }, status=status.HTTP_403_FORBIDDEN)
+                "message": "Your registration file is currently awaiting administrator activation.",
+                "shop_name": shop.name,
+                "stats": {
+                    "total_sales": "₦0",
+                    "total_orders": "0",
+                    "products_sold": "0",
+                    "new_customers": "0",
+                    "top_products": []
+                }
+            }, status=status.HTTP_200_OK)
 
-        # 📊 Aggregate analytics data for active stores safely
-        # Adapted to correct Order fields: payment_status in ['paid', 'released']
-        paid_items = OrderItem.objects.filter(
-            product__shop=shop, 
-            order__payment_status__in=['paid', 'released', 'PAID', 'RELEASED']
-        )
+        # Fetch all paid order items for this shop in one query
+        paid_items = list(OrderItem.objects.filter(
+            product__shop=shop,
+            order__payment_status='paid'
+        ).select_related('product', 'order'))
+
+        # 1. Total Sales Revenue
         total_revenue = sum(item.quantity * item.product.price for item in paid_items)
+        if total_revenue >= 100_000:
+            formatted_sales = f"₦{int(total_revenue / 1000)}k"
+        else:
+            formatted_sales = f"₦{total_revenue:,.0f}"
 
-        unique_orders_count = paid_items.values('order').distinct().count()
-        total_products_sold = sum(item.quantity for item in paid_items)
-        
-        # Adapted to correct Order field: buyer instead of user
-        unique_customers_count = paid_items.values('order__buyer').distinct().count()
+        # 2. Total Orders Count
+        unique_order_ids = {item.order_id for item in paid_items}
+        total_orders_count = len(unique_order_ids)
 
-        # Compile Top Products Array securely
-        products = Product.objects.filter(shop=shop)
-        top_products_data = []
-        for prod in products:
-            sales_volume = sum(item.quantity for item in paid_items.filter(product=prod))
-            top_products_data.append({
+        # 3. Products Sold Volume
+        products_sold_volume = sum(item.quantity for item in paid_items)
+
+        # 4. Unique Customers
+        unique_customer_ids = {item.order.buyer_id for item in paid_items}
+        unique_customers_count = len(unique_customer_ids)
+
+        # 5. Top Products (computed in-memory to avoid N+1 queries)
+        product_sales_map = defaultdict(int)
+        for item in paid_items:
+            product_sales_map[item.product_id] += item.quantity
+
+        top_products = []
+        for prod in Product.objects.filter(shop=shop):
+            sales_count = product_sales_map.get(prod.id, 0)
+            denominator = sales_count + prod.stock
+            percentage = int((sales_count / denominator) * 100) if denominator > 0 else 0
+            top_products.append({
                 "name": prod.name,
-                "sales_count": sales_volume,
+                "sales_count": sales_count,
                 "stock": prod.stock,
-                "percentage": int((sales_volume / (sales_volume + prod.stock)) * 100) if (sales_volume + prod.stock) > 0 else 0
+                "percentage": percentage,
             })
-        top_products_data = sorted(top_products_data, key=lambda x: x['sales_count'], reverse=True)[:3]
 
-        formatted_sales_string = f"₦{total_revenue:,}"
-        if total_revenue >= 1000:
-            formatted_sales_string = f"₦{int(total_revenue / 1000)}k"
+        top_products = sorted(top_products, key=lambda x: x['sales_count'], reverse=True)[:3]
 
-        # Return a unified, clear HTTP 200 payload packet structure
         return Response({
             "status": "approved",
             "shop_name": shop.name,
             "stats": {
-                "total_sales": formatted_sales_string,
-                "total_orders": str(unique_orders_count),
-                "products_sold": str(total_products_sold),
+                "total_sales": formatted_sales,
+                "total_orders": str(total_orders_count),
+                "products_sold": str(products_sold_volume),
                 "new_customers": str(unique_customers_count),
-                "top_products": top_products_data
+                "top_products": top_products,
             }
         }, status=status.HTTP_200_OK)
 
