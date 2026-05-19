@@ -95,22 +95,11 @@ WSGI_APPLICATION = 'globalink_core.wsgi.application'
 
 # 7. Database
 DATABASES = {
-    'default': env.db('DATABASE_URL', default=f"sqlite:///{BASE_DIR}/db.sqlite3")
-}
-
-# Legacy support for manual DB variables
-if not env('DATABASE_URL', default=None):
-    DATABASES['default'] = {
-        'ENGINE': env('DB_ENGINE', default='django.db.backends.mysql'),
-        'NAME': env('DB_NAME', default='globalink_db'),
-        'USER': env('DB_USER', default='root'),
-        'PASSWORD': env('DB_PASSWORD', default=''),
-        'HOST': env('DB_HOST', default='127.0.0.1'),
-        'PORT': env('DB_PORT', default='3306'),
-        'OPTIONS': {
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'" if 'mysql' in env('DB_ENGINE', default='mysql') else "",
-        }
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
+}
 
 # 8. Password Validation
 AUTH_PASSWORD_VALIDATORS = [
