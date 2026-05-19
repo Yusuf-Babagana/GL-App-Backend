@@ -89,7 +89,12 @@ class Shop(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.name} ({self.owner.email})"
+        # Safely extract email fallback strings to prevent deep-lookup lookup attribute crashes
+        owner_email = "No Owner Bound"
+        if self.owner:
+            owner_email = getattr(self.owner, 'email', str(self.owner))
+            
+        return f"{self.name or 'Unnamed Shop'} — ({owner_email})"
 
 class MerchantProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='merchant_profile')
