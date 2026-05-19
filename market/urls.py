@@ -11,7 +11,7 @@ from .views import (
     MarkOrderDispatchedView, MerchantOnboardingView, ShopStatusView,
     AdminOverviewView, AdminApproveShopView, AdminUpdateUserRoleView,
     MerchantGlobalOnboardingView, AdminOverviewTelemetryView,
-    AdminReviewShopView, MerchantAnalyticsView
+    AdminReviewShopView, MerchantAnalyticsView, MyShopStatusView
 )
 
 urlpatterns = [
@@ -24,6 +24,7 @@ urlpatterns = [
     # --- SELLER / SHOP ---
     path('store/create/', ShopCreateView.as_view(), name='shop-create'),
     path('store/status/', ShopStatusView.as_view(), name='shop-status'),
+    path('shop/my-status/', MyShopStatusView.as_view(), name='my-shop-status'),
     path('store/onboarding/', MerchantOnboardingView.as_view(), name='merchant-onboarding'),
     path('store/global-onboard/', MerchantGlobalOnboardingView.as_view(), name='global-onboard'),
     path('seller/stats/', MerchantDashboardView.as_view(), name='seller-stats'),
