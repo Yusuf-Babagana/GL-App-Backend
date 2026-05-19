@@ -13,6 +13,9 @@ class ShopAdmin(admin.ModelAdmin):
     # Enables global keyword lookup matching across critical indexing fields
     search_fields = ('name', 'owner_full_name', 'owner_email', 'cac_number')
     
+    # ✅ ADD THIS LINE to prevent the dropdown renderer from crashing over user string errors:
+    raw_id_fields = ('owner',)
+    
     # Groups form inputs cleanly inside the individual edit workspace page
     fieldsets = (
         ('Platform Status Control', {
