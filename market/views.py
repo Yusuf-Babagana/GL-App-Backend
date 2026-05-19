@@ -954,3 +954,69 @@ class AdminUpdateUserRoleView(APIView):
             return Response({"status": "success", "message": "User role permissions remapped completely."}, status=200)
         except User.DoesNotExist:
             return Response({"status": "error", "message": "Target account file reference missing."}, status=404)
+
+
+class MerchantAnalyticsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        
+        # 🛡️ Look up by user profile relation directly
+        shop = Shop.objects.filter(owner=user).first()
+        
+        if not shop:
+            return Response({
+                "status": "not_found", 
+                "message": "No store instance exists on file for this account record."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        if not shop.is_active:
+            return Response({
+                "status": "pending",
+                "message": "Your registration file is currently awaiting administrator activation."
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # 📊 Aggregate analytics data for active stores safely
+        # Adapted to correct Order fields: payment_status in ['paid', 'released']
+        paid_items = OrderItem.objects.filter(
+            product__shop=shop, 
+            order__payment_status__in=['paid', 'released', 'PAID', 'RELEASED']
+        )
+        total_revenue = sum(item.quantity * item.product.price for item in paid_items)
+
+        unique_orders_count = paid_items.values('order').distinct().count()
+        total_products_sold = sum(item.quantity for item in paid_items)
+        
+        # Adapted to correct Order field: buyer instead of user
+        unique_customers_count = paid_items.values('order__buyer').distinct().count()
+
+        # Compile Top Products Array securely
+        products = Product.objects.filter(shop=shop)
+        top_products_data = []
+        for prod in products:
+            sales_volume = sum(item.quantity for item in paid_items.filter(product=prod))
+            top_products_data.append({
+                "name": prod.name,
+                "sales_count": sales_volume,
+                "stock": prod.stock,
+                "percentage": int((sales_volume / (sales_volume + prod.stock)) * 100) if (sales_volume + prod.stock) > 0 else 0
+            })
+        top_products_data = sorted(top_products_data, key=lambda x: x['sales_count'], reverse=True)[:3]
+
+        formatted_sales_string = f"₦{total_revenue:,}"
+        if total_revenue >= 1000:
+            formatted_sales_string = f"₦{int(total_revenue / 1000)}k"
+
+        # Return a unified, clear HTTP 200 payload packet structure
+        return Response({
+            "status": "approved",
+            "shop_name": shop.name,
+            "stats": {
+                "total_sales": formatted_sales_string,
+                "total_orders": str(unique_orders_count),
+                "products_sold": str(total_products_sold),
+                "new_customers": str(unique_customers_count),
+                "top_products": top_products_data
+            }
+        }, status=status.HTTP_200_OK)
