@@ -112,6 +112,96 @@ class MerchantOnboardingView(APIView):
             print(f"ONBOARDING ERROR: {str(e)}")
             return Response({"status": "error", "message": str(e)}, status=400)
 
+
+class MerchantGlobalOnboardingView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        """
+        Receives the combined form submission payload packet via multi-part data stream.
+        """
+        user = request.user
+        if Shop.objects.filter(owner=user).exists():
+            return Response({"status": "error", "message": "An active registration file already exists for this account profile."}, status=400)
+
+        data = request.data
+        try:
+            # Parse parameters with direct fallback verification checks
+            is_registered_bool = str(data.get('registered', 'no')).lower() == 'yes'
+
+            # 🌟 CORE ARCHITECTURAL RULE COMPLIANCE:
+            # Change their platform system role identity profile state to 'seller' immediately
+            user.active_role = 'seller'
+            if not user.roles:
+                user.roles = []
+            if 'seller' not in user.roles:
+                user.roles.append('seller')
+            user.save()
+
+            new_shop = Shop.objects.create(
+                owner=user,
+                owner_full_name=data.get('owner_name'),
+                owner_email=data.get('owner_email'),
+                owner_phone=data.get('owner_phone'),
+                id_type=data.get('id_type'),
+                id_number=data.get('id_number'),
+                id_image=request.FILES.get('id_image'), # Capture incoming binary image file streams
+                id_document=request.FILES.get('id_image'), # Set backward compatible field as well
+                
+                name=data.get('shop_name'),
+                shop_type=data.get('shop_type'),
+                business_phone=data.get('business_phone'),
+                address=data.get('shop_address'),
+                state=data.get('state', 'Kano'),
+                logo=request.FILES.get('logo'),
+                
+                is_registered=is_registered_bool,
+                cac_number=data.get('cac_number', '') if is_registered_bool else '',
+                is_active=False # Kept locked by default code rule layers
+            )
+            return Response({"status": "success", "message": "Shop onboarding file captured! Review pending."}, status=201)
+        except Exception as e:
+            return Response({"status": "error", "message": f"Server processing failed: {str(e)}"}, status=500)
+
+
+class AdminOverviewTelemetryView(APIView):
+    permission_classes = [permissions.IsAuthenticated, permissions.IsAdminUser]
+
+    def get(self, request):
+        """
+        Populates your administration grid tracking summary lists dynamically.
+        """
+        total_users = User.objects.count()
+        pending_shops = Shop.objects.filter(is_active=False).select_related('owner')
+        
+        shops_payload = [{
+            "id": str(shop.id), # UUID converted to string safely
+            "name": shop.name,
+            "shop_type": shop.shop_type,
+            "owner_email": shop.owner.email,
+            "owner_name": shop.owner_full_name or shop.owner.get_full_name() or '',
+            "id_type": shop.id_type,
+            "id_number": shop.id_number
+        } for shop in pending_shops]
+
+        users_payload = [{
+            "id": u.pk,
+            "email": u.email,
+            "first_name": u.first_name,
+            "last_name": u.last_name,
+            "role": getattr(u, 'active_role', 'buyer') or 'buyer'
+        } for u in User.objects.all()]
+
+        return Response({
+            "pending_shops": shops_payload,
+            "users": users_payload,
+            "metrics": {
+                "total_users": total_users,
+                "pending_count": len(shops_payload)
+            }
+        }, status=200)
+
+
 class ShopStatusView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 

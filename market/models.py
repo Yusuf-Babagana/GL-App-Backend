@@ -16,45 +16,58 @@ class Category(models.Model):
         return self.name
 
 class Shop(models.Model):
-    # Standard engineering practice: One shop per user, approval control
+    SHOP_TYPE_CHOICES = (
+        ('retailer', 'Retailer'),
+        ('wholesaler', 'Wholesaler'),
+        ('manufacturer', 'Manufacturer'),
+        ('service_provider', 'Service Provider'),
+    )
+    
+    ID_TYPE_CHOICES = (
+        ('national_id', 'National ID'),
+        ('drivers_license', "Driver's License"),
+        ('passport', 'Passport'),
+    )
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.OneToOneField(
         settings.AUTH_USER_MODEL, 
         on_delete=models.CASCADE, 
         related_name='merchant_shop'
     )
-    name = models.CharField(max_length=200, unique=True)
+    
+    # Personal Info Context (Step 1)
+    owner_full_name = models.CharField(max_length=255, null=True, blank=True)
+    owner_email = models.EmailField(null=True, blank=True)
+    owner_phone = models.CharField(max_length=30, null=True, blank=True)
+    id_type = models.CharField(max_length=30, choices=ID_TYPE_CHOICES, null=True, blank=True)
+    id_number = models.CharField(max_length=100, null=True, blank=True)
+    id_image = models.ImageField(upload_to='kyc_docs/ids/', null=True, blank=True)
+    id_document = models.ImageField(upload_to='kyc_docs/', blank=True, null=True) # Backward compatibility
+    
+    # Shop Info Context (Step 2)
+    name = models.CharField(max_length=255, unique=True)
     description = models.TextField(blank=True)
-    logo = models.ImageField(upload_to='shop_logos/', blank=True, null=True)
-    
-    shop_type = models.CharField(max_length=100, blank=True, null=True)
+    shop_type = models.CharField(max_length=30, choices=SHOP_TYPE_CHOICES, null=True, blank=True)
+    business_phone = models.CharField(max_length=30, null=True, blank=True)
     address = models.TextField(blank=True, null=True)
+    country = models.CharField(max_length=100, default='Nigeria')
     state = models.CharField(max_length=100, default='Kano')
-    is_registered = models.BooleanField(default=False)
-    cac_number = models.CharField(max_length=100, blank=True, null=True)
+    logo = models.ImageField(upload_to='kyc_docs/logos/', null=True, blank=True)
     
+    # Business Registration Metadata Context
+    is_registered = models.BooleanField(default=False)
+    cac_number = models.CharField(max_length=100, null=True, blank=True)
+    
+    # Security Approval Access Flags
     is_active = models.BooleanField(default=False, db_index=True)
     rejection_reason = models.TextField(blank=True, null=True)
-
-    ID_TYPE_CHOICES = [
-        ('national_id', 'National ID'),
-        ('drivers_license', 'Driver\'s License'),
-        ('passport', 'Passport'),
-    ]
-    id_type = models.CharField(
-        max_length=20, 
-        choices=ID_TYPE_CHOICES, 
-        null=True, 
-        blank=True
-    )
-    id_document = models.ImageField(upload_to='kyc_docs/', blank=True, null=True)
+    date_applied = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_sales = models.IntegerField(default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    # Add this to store the Vendor's payout destination
     monnify_sub_account_code = models.CharField(max_length=100, null=True, blank=True)
 
     def save(self, *args, **kwargs):
@@ -76,7 +89,7 @@ class Shop(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.owner.email})"
 
 class MerchantProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='merchant_profile')
