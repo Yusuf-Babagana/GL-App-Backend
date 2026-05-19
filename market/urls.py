@@ -21,7 +21,7 @@ urlpatterns = [
     path('orders/', CreateOrderView.as_view(), name='create-order'),
     path('orders/create/', CreateOrderView.as_view(), name='checkout-alias'),
     path('checkout/', CreateOrderView.as_view(), name='checkout'),
-    path('checkout/wallet-pay/', InternalWalletCheckoutView.as_view(), name='internal-wallet-checkout'),
+    path('orders/wallet-pay/', InternalWalletCheckoutView.as_view(), name='wallet-pay'),
     
     # --- SELLER / SHOP ---
     path('store/create/', ShopCreateView.as_view(), name='shop-create'),
