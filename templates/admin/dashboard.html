@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GLAPP — Admin Operations Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body { background: #f4f6f9; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    .sidebar { background: #1e293b; min-height: 100vh; width: 250px; position: fixed; top: 0; left: 0; z-index: 100; }
+    .sidebar .brand { padding: 1.5rem 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .sidebar .brand h4 { color: #fff; font-weight: 700; letter-spacing: -0.5px; margin: 0; }
+    .sidebar .nav-link { color: rgba(255,255,255,0.65); padding: 0.75rem 1.25rem; font-size: 0.9rem; border-radius: 0.5rem; margin: 0.15rem 0.75rem; transition: all 0.15s; }
+    .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background: rgba(255,255,255,0.08); }
+    .sidebar .nav-link i { margin-right: 0.65rem; font-size: 1.1rem; }
+    .main-content { margin-left: 250px; padding: 2rem; }
+    .stat-card { border-radius: 1rem; border: none; transition: transform 0.15s; }
+    .stat-card:hover { transform: translateY(-2px); }
+    .stat-card .icon-shape { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+    .toast-container { position: fixed; top: 1.5rem; right: 1.5rem; z-index: 9999; }
+    .ticket-row { transition: opacity 0.3s, background-color 0.3s; }
+    .ticket-row.resolved { opacity: 0.5; pointer-events: none; }
+    .btn-action { min-width: 110px; }
+    .table th { font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; }
+  </style>
+</head>
+<body>
+
+<div class="d-flex">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="brand"><h4>GLAPP ADMIN</h4></div>
+    <nav class="mt-3">
+      <a href="#" class="nav-link active"><i class="bi bi-speedometer2"></i>Dashboard</a>
+      <a href="#" class="nav-link"><i class="bi bi-cash-stack"></i>Payout Queue</a>
+      <a href="#" class="nav-link"><i class="bi bi-box-seam"></i>Inventory Monitor</a>
+      <a href="#" class="nav-link"><i class="bi bi-people"></i>User Audits</a>
+      <hr style="border-color:rgba(255,255,255,0.08)">
+      <a href="/admin/" class="nav-link"><i class="bi bi-gear"></i>Django Admin</a>
+      <a href="/admin/logout/" class="nav-link"><i class="bi bi-box-arrow-left"></i>Logout</a>
+    </nav>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main-content w-100">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h3 class="fw-bold mb-0">Operational Dashboard</h3>
+      <span class="text-muted small">{% now "l, F j, Y" %}</span>
+    </div>
+
+    <!-- METRICS ROW -->
+    <div class="row g-4 mb-4">
+      <div class="col-md-4">
+        <div class="card stat-card shadow-sm border-0">
+          <div class="card-body d-flex align-items-center gap-3">
+            <div class="icon-shape bg-warning bg-opacity-15 text-warning"><i class="bi bi-clock-history"></i></div>
+            <div>
+              <p class="text-muted small mb-0">Pending Payouts</p>
+              <h4 class="fw-bold mb-0">₦{{ total_pending_amount|floatformat:2 }}</h4>
+              <small class="text-muted">{{ pending_tickets|length }} ticket{{ pending_tickets|length|pluralize }}</small>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card stat-card shadow-sm border-0">
+          <div class="card-body d-flex align-items-center gap-3">
+            <div class="icon-shape bg-info bg-opacity-15 text-info"><i class="bi bi-lock"></i></div>
+            <div>
+              <p class="text-muted small mb-0">Locked Escrow</p>
+              <h4 class="fw-bold mb-0">₦{{ total_locked_escrow|floatformat:2 }}</h4>
+              <small class="text-muted">Across all merchants</small>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card stat-card shadow-sm border-0">
+          <div class="card-body d-flex align-items-center gap-3">
+            <div class="icon-shape bg-success bg-opacity-15 text-success"><i class="bi bi-people"></i></div>
+            <div>
+              <p class="text-muted small mb-0">Registered Users</p>
+              <h4 class="fw-bold mb-0">{{ total_users_count }}</h4>
+              <small class="text-muted">Total accounts</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAYOUT TABLE -->
+    <div class="card shadow-sm border-0 rounded-4">
+      <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center pt-4 px-4">
+        <h5 class="fw-bold mb-0"><i class="bi bi-send me-2"></i>Payout Execution Queue</h5>
+        <a href="/api/finance/withdraw/csv/" class="btn btn-primary btn-sm">
+          <i class="bi bi-download me-1"></i>Download Monnify Batch CSV File
+        </a>
+      </div>
+      <div class="card-body p-4">
+        {% if pending_tickets %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>User</th>
+                <th>Bank</th>
+                <th>Account</th>
+                <th>Verified Name</th>
+                <th>Amount</th>
+                <th>Date</th>
+                <th class="text-end">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for ticket in pending_tickets %}
+              <tr class="ticket-row" data-id="{{ ticket.pk }}">
+                <td><span class="fw-semibold small">{{ ticket.user.email }}</span></td>
+                <td>{{ ticket.bank_name|default:ticket.bank_code }}</td>
+                <td class="font-monospace">{{ ticket.account_number }}</td>
+                <td>{{ ticket.account_name|default:'—' }}</td>
+                <td class="fw-bold">₦{{ ticket.amount|floatformat:2 }}</td>
+                <td class="small text-muted">{{ ticket.created_at|date:"M d, H:i" }}</td>
+                <td class="text-end">
+                  <button class="btn btn-success btn-sm btn-approve btn-action me-1" data-id="{{ ticket.pk }}">
+                    <i class="bi bi-check-circle me-1"></i>Approve Payout
+                  </button>
+                  <button class="btn btn-danger btn-sm btn-reject btn-action" data-id="{{ ticket.pk }}">
+                    <i class="bi bi-x-circle me-1"></i>Reject / Refund
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="bi bi-inbox" style="font-size:2.5rem;display:block;margin-bottom:0.75rem;"></i>
+          No pending withdrawal tickets.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container">
+  <div id="liveToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="d-flex">
+      <div class="toast-body" id="toastMessage">Ticket Status Successfully Resolved!</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function() {
+  const csrfToken = '{{ csrf_token }}';
+  const toastEl = document.getElementById('liveToast');
+  const toastMsg = document.getElementById('toastMessage');
+  const toast = new bootstrap.Toast(toastEl, { delay: 3500 });
+
+  function showToast(message, type) {
+    toastEl.className = 'toast align-items-center border-0 text-bg-' + (type || 'success');
+    toastMsg.textContent = message;
+    toast.show();
+  }
+
+  function handleAction(ticketId, action) {
+    const formData = new URLSearchParams();
+    formData.append('action', action);
+    formData.append('csrfmiddlewaretoken', csrfToken);
+
+    fetch('/api/finance/withdraw/' + ticketId + '/update-status/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': csrfToken },
+      body: formData.toString()
+    })
+    .then(function(r) { return r.text(); })
+    .then(function(responseText) {
+      if (responseText === 'approved' || responseText === 'rejected') {
+        var row = document.querySelector('.ticket-row[data-id="' + ticketId + '"]');
+        if (row) row.classList.add('resolved');
+        showToast('Ticket Status Successfully Resolved!', 'success');
+      } else {
+        showToast('Error: ' + responseText, 'danger');
+      }
+    })
+    .catch(function() {
+      showToast('Network error. Please try again.', 'danger');
+    });
+  }
+
+  document.querySelectorAll('.btn-approve').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      handleAction(this.getAttribute('data-id'), 'approve');
+    });
+  });
+
+  document.querySelectorAll('.btn-reject').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      handleAction(this.getAttribute('data-id'), 'reject');
+    });
+  });
+})();
+</script>
+</body>
+</html>

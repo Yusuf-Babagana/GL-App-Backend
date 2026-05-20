@@ -2,16 +2,24 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from .views import AdminDashboardView, MonnifyBatchCsvExportView, WithdrawalTicketUpdateStatusView
 
 urlpatterns = [
+    path('', AdminDashboardView.as_view(), name='admin-dashboard'),
     path('admin/', admin.site.urls),
-    
+
     path('api/logistics/', include('logistics.urls')),
     path('api/chat/', include('chat.urls')),
-    path('api/users/', include('users.urls')), 
+    path('api/users/', include('users.urls')),
     path('api/finance/', include('finance.urls')),
-    path('api/market/', include('market.urls')), # Has came, Coming soon
-    # path('api/jobs/', include('jobs.urls')),     # Coming soon
+    path('api/market/', include('market.urls')),
+
+    path('api/finance/withdraw/csv/', MonnifyBatchCsvExportView.as_view(), name='monnify-csv'),
+    path(
+        'api/finance/withdraw/<int:ticket_id>/update-status/',
+        WithdrawalTicketUpdateStatusView.as_view(),
+        name='ticket-update-status',
+    ),
 ]
 
 # Enable media handling in development (for Images/Videos)
