@@ -338,14 +338,14 @@ class WithdrawalView(APIView):
     def post(self, request):
         amount = request.data.get('amount')
         bank_code = request.data.get('bank_code')
-        bank_name = request.data.get('bank_name')
+        bank_name = request.data.get('bank_name', '')
         account_number = request.data.get('account_number')
-        account_name = request.data.get('account_name')
+        account_name = request.data.get('account_name', '')
         pin = request.data.get('pin')
 
-        if not all([amount, bank_code, bank_name, account_number, account_name, pin]):
+        if not all([amount, bank_code, account_number, pin]):
             return Response(
-                {"error": "Missing required fields: amount, bank_code, bank_name, account_number, account_name, pin"},
+                {"error": "Missing required fields: amount, bank_code, account_number, pin"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
