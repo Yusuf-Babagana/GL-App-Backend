@@ -73,6 +73,18 @@ class ShopCreateView(generics.CreateAPIView):
         self.request.user.active_role = 'seller'
         self.request.user.save()
 
+
+class ShopUpdateView(generics.UpdateAPIView):
+    """ Allows a merchant to update their own shop details (logo, name, etc.) """
+    serializer_class = ShopSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        return get_object_or_404(Shop, owner=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save()
+
 class MerchantOnboardingView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 

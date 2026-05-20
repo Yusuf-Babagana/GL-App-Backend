@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
     CategoryListView, ProductListView, ProductDetailView,
-    ShopCreateView, SellerProductListView, ProductCreateView,
+    ShopCreateView, ShopUpdateView, SellerProductListView, ProductCreateView,
     CartAPIView, CartSyncView, CreateOrderView, BuyerOrderListView,
     BuyerOrderDetailView, BuyerConfirmReceiptView,
     SellerOrderListView, MerchantDashboardView,
@@ -28,6 +28,7 @@ urlpatterns = [
     path('store/status/', ShopStatusView.as_view(), name='shop-status'),
     path('shop/my-status/', MyShopStatusView.as_view(), name='my-shop-status'),
     path('store/onboarding/', MerchantOnboardingView.as_view(), name='merchant-onboarding'),
+    path('store/update/', ShopUpdateView.as_view(), name='shop-update'),
     path('store/global-onboard/', MerchantGlobalOnboardingView.as_view(), name='global-onboard'),
     path('seller/stats/', MerchantDashboardView.as_view(), name='seller-stats'),
     path('merchant/analytics/', MerchantAnalyticsView.as_view(), name='merchant-analytics'),
