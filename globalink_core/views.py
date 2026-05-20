@@ -2,7 +2,7 @@ import csv
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
@@ -11,6 +11,7 @@ from django.views import View
 from django.db.models import Sum
 from django.contrib.auth import get_user_model
 from finance.models import Wallet, WithdrawalTicket
+from market.models import Shop
 
 User = get_user_model()
 
@@ -39,11 +40,46 @@ class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
 
         total_users_count = User.objects.count()
 
+        pending_shops = Shop.objects.filter(
+            is_active=False
+        ).select_related('owner').order_by('-created_at')
+
+        recent_registrations = User.objects.all().order_by('-date_joined')[:10]
+
         context['pending_tickets'] = pending_tickets
         context['total_pending_amount'] = total_pending_amount
         context['total_locked_escrow'] = total_locked_escrow
         context['total_users_count'] = total_users_count
+        context['pending_shops'] = pending_shops
+        context['recent_registrations'] = recent_registrations
         return context
+
+
+class AdminShopVerificationView(LoginRequiredMixin, UserPassesTestMixin, View):
+    login_url = 'admin_login'
+
+    def test_func(self):
+        return self.request.user.is_staff or self.request.user.is_superuser
+
+    def post(self, request, shop_id):
+        shop = get_object_or_404(Shop, pk=shop_id)
+        action = request.POST.get('action') or request.GET.get('action')
+
+        if action == 'approve':
+            with transaction.atomic():
+                shop.is_active = True
+                shop.save()
+                owner = shop.owner
+                owner.active_role = 'seller'
+                owner.save()
+            return JsonResponse({'status': 'success', 'message': f"'{shop.name}' approved and owner elevated to Seller."})
+
+        elif action == 'reject':
+            with transaction.atomic():
+                shop.delete()
+            return JsonResponse({'status': 'success', 'message': 'Shop application rejected and removed.'})
+
+        return JsonResponse({'status': 'error', 'message': 'Invalid action.'}, status=400)
 
 
 class MonnifyBatchCsvExportView(LoginRequiredMixin, UserPassesTestMixin, View):

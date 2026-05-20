@@ -3,7 +3,7 @@ from django.urls import path, include
 from django.contrib.auth import views as auth_views
 from django.conf import settings
 from django.conf.urls.static import static
-from .views import AdminDashboardView, MonnifyBatchCsvExportView, WithdrawalTicketUpdateStatusView
+from .views import AdminDashboardView, MonnifyBatchCsvExportView, WithdrawalTicketUpdateStatusView, AdminShopVerificationView
 
 urlpatterns = [
     path('', AdminDashboardView.as_view(), name='admin-dashboard'),
@@ -36,6 +36,11 @@ urlpatterns = [
         'api/finance/withdraw/<int:ticket_id>/update-status/',
         WithdrawalTicketUpdateStatusView.as_view(),
         name='ticket-update-status',
+    ),
+    path(
+        'api/merchant/verify-shop/<str:shop_id>/',
+        AdminShopVerificationView.as_view(),
+        name='verify-shop',
     ),
 ]
 
