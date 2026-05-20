@@ -7,6 +7,9 @@ class TransactionSerializer(serializers.ModelSerializer):
         fields = ['id', 'amount', 'transaction_type', 'status', 'description', 'reference', 'created_at']
 
 class WalletSerializer(serializers.ModelSerializer):
+    balance = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    available_balance = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    locked_balance = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     user_has_bvn = serializers.SerializerMethodField()
     user_has_pin = serializers.SerializerMethodField()
     funding_accounts = serializers.SerializerMethodField()
