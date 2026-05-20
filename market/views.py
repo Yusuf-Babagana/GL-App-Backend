@@ -1,6 +1,10 @@
+import base64
+import uuid as uuid_lib
+import logging
 from decimal import Decimal
 from collections import defaultdict
 from django.shortcuts import get_object_or_404
+from django.conf import settings
 from django.db import transaction, models
 from django.db.models import Q, Sum
 from rest_framework import generics, permissions, status, filters
@@ -16,6 +20,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated, AllowAny
+import requests
+
+logger = logging.getLogger(__name__)
 # Local Imports
 from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile
 from .serializers import (
@@ -1223,3 +1230,116 @@ class MyShopStatusView(APIView):
             return Response({"status": "pending", "message": "Application is pending administrator approval."})
             
         return Response({"status": "approved", "message": "Shop is fully active."})
+
+
+class MerchantWithdrawalView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _monnify_auth_token(self):
+        url = settings.MONNIFY_BASE_URL.rstrip('/') + '/api/v1/auth/login'
+        auth_str = f"{settings.MONNIFY_API_KEY}:{settings.MONNIFY_SECRET_KEY}"
+        encoded = base64.b64encode(auth_str.encode()).decode()
+        try:
+            resp = requests.post(
+                url,
+                headers={"Authorization": f"Basic {encoded}", "Content-Type": "application/json"},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return resp.json()['responseBody']['accessToken']
+        except Exception as e:
+            logger.error(f"Monnify auth failure: {e}")
+        return None
+
+    def post(self, request):
+        amount = request.data.get('amount')
+        bank_code = request.data.get('bank_code')
+        account_number = request.data.get('account_number')
+        pin = request.data.get('transaction_pin')
+
+        if not all([amount, bank_code, account_number, pin]):
+            return Response(
+                {"error": "Missing required fields: amount, bank_code, account_number, transaction_pin"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not request.user.transaction_pin:
+            return Response({"error": "No transaction PIN set. Set one in your profile first."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not request.user.check_transaction_pin(pin):
+            return Response({"error": "Invalid transaction PIN."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            amount_dec = Decimal(str(amount))
+        except Exception:
+            return Response({"error": "Invalid amount format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if amount_dec <= 0:
+            return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=request.user)
+
+            if wallet.available_balance < amount_dec:
+                return Response(
+                    {"error": "Insufficient available balance. Locked funds cannot be withdrawn."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            token = self._monnify_auth_token()
+            if not token:
+                return Response(
+                    {"error": "Could not authenticate with payment processor. Try again."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            reference = f"WTH-{uuid_lib.uuid4().hex[:12]}-{int(timezone.now().timestamp())}"
+
+            disbursement_url = settings.MONNIFY_BASE_URL.rstrip('/') + '/api/v2/disbursements/single'
+            payload = {
+                "amount": float(amount_dec),
+                "reference": reference,
+                "narration": "GLAPP Storefront Payout Fulfillment",
+                "destinationBankCode": bank_code,
+                "destinationAccountNumber": account_number,
+                "currency": "NGN",
+                "sourceAccountNumber": settings.MONNIFY_WALLET_ACCOUNT_NUMBER,
+            }
+
+            try:
+                disburse_resp = requests.post(
+                    disbursement_url,
+                    json=payload,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=30,
+                )
+                result = disburse_resp.json()
+            except requests.RequestException as e:
+                raise ValueError(f"Connection to payment processor failed: {e}")
+
+            if result.get("requestSuccessful") and disburse_resp.status_code in (200, 201):
+                wallet.available_balance -= amount_dec
+                wallet.save()
+
+                Transaction.objects.create(
+                    wallet=wallet,
+                    amount=-amount_dec,
+                    transaction_type=Transaction.TransactionType.WITHDRAWAL,
+                    status=Transaction.Status.SUCCESS,
+                    reference=reference,
+                    description=f"Withdrawal to {account_number}",
+                )
+
+                return Response(
+                    {
+                        "message": "Withdrawal processed successfully.",
+                        "reference": reference,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+            else:
+                error_msg = result.get("responseMessage", "Payment processor rejected the request")
+                raise ValueError(error_msg)
