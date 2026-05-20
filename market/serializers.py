@@ -11,7 +11,6 @@ class ShopSerializer(serializers.ModelSerializer):
     product_count = serializers.SerializerMethodField()
     owner_name = serializers.ReadOnlyField(source='owner.full_name')
     owner_id = serializers.ReadOnlyField(source='owner.id')
-    products = serializers.SerializerMethodField()
 
     class Meta:
         model = Shop
@@ -24,17 +23,12 @@ class ShopSerializer(serializers.ModelSerializer):
             'owner_id',
             'owner_name', 
             'product_count',
-            'products',
             'created_at',
             'rejection_reason'
         ]
 
     def get_product_count(self, obj):
         return obj.products.count()
-
-    def get_products(self, obj):
-        from .serializers import ProductSerializer
-        return ProductSerializer(obj.products.all(), many=True, context=self.context).data
 
 class ProductImageSerializer(serializers.ModelSerializer):
     class Meta:
