@@ -106,7 +106,7 @@ class BankAccount(models.Model):
 
 
 
-class WithdrawalRequest(models.Model):
+class WithdrawalTicket(models.Model):
     """
     Admin-payout-queue entry. Funds are pre-deducted from the user's
     available_balance at creation time. An admin processes the batch
@@ -118,7 +118,7 @@ class WithdrawalRequest(models.Model):
         SUCCESSFUL = 'SUCCESSFUL', 'Successful'
         REJECTED = 'REJECTED', 'Rejected'
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='withdrawal_requests')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='withdrawal_tickets')
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     bank_code = models.CharField(max_length=3)
     bank_name = models.CharField(max_length=255)
