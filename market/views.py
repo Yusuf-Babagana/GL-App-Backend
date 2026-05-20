@@ -93,13 +93,13 @@ class MerchantOnboardingView(APIView):
                 }
             )
 
-            # Handle file upload separately to ensure it saves correctly
-            if 'id_document' in request.FILES:
-                shop.id_document = request.FILES['id_document']
+            # Handle Cloudinary URL strings instead of file uploads
+            if 'id_document' in request.data and request.data['id_document']:
+                shop.id_document = request.data['id_document']
                 shop.save()
-                
-            if 'shop_logo' in request.FILES:
-                shop.logo = request.FILES['shop_logo']
+
+            if 'shop_logo' in request.data and request.data['shop_logo']:
+                shop.logo = request.data['shop_logo']
                 shop.save()
 
             # 🌟 CORE ARCHITECTURAL RULE COMPLIANCE FIX:
