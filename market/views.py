@@ -1277,6 +1277,50 @@ class MerchantWithdrawalView(APIView):
         if amount_dec <= 0:
             return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
 
+        token = self._monnify_auth_token()
+        if not token:
+            return Response(
+                {"error": "Could not authenticate with payment processor. Try again."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        reference = f"WTH-{uuid_lib.uuid4().hex[:12]}-{int(timezone.now().timestamp())}"
+        disbursement_url = settings.MONNIFY_BASE_URL.rstrip('/') + '/api/v2/disbursements/single'
+        payload = {
+            "amount": float(amount_dec),
+            "reference": reference,
+            "narration": "GLAPP Storefront Payout Fulfillment",
+            "destinationBankCode": bank_code,
+            "destinationAccountNumber": account_number,
+            "currency": "NGN",
+            "sourceAccountNumber": settings.MONNIFY_WALLET_ACCOUNT_NUMBER,
+        }
+
+        try:
+            disburse_resp = requests.post(
+                disbursement_url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=30,
+            )
+            result = disburse_resp.json()
+        except requests.RequestException as e:
+            logger.error(f"Monnify disbursement connection failure: {e}")
+            return Response(
+                {"error": "Could not reach payment processor. Try again."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not (result.get("requestSuccessful") and disburse_resp.status_code in (200, 201)):
+            error_msg = result.get("responseMessage", "Payment processor rejected the request")
+            return Response(
+                {"error": f"Verification error: {error_msg}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         with transaction.atomic():
             wallet = Wallet.objects.select_for_update().get(user=request.user)
 
@@ -1286,60 +1330,22 @@ class MerchantWithdrawalView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            token = self._monnify_auth_token()
-            if not token:
-                return Response(
-                    {"error": "Could not authenticate with payment processor. Try again."},
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
+            wallet.available_balance -= amount_dec
+            wallet.save()
 
-            reference = f"WTH-{uuid_lib.uuid4().hex[:12]}-{int(timezone.now().timestamp())}"
+            Transaction.objects.create(
+                wallet=wallet,
+                amount=-amount_dec,
+                transaction_type=Transaction.TransactionType.WITHDRAWAL,
+                status=Transaction.Status.SUCCESS,
+                reference=reference,
+                description=f"Withdrawal to {account_number}",
+            )
 
-            disbursement_url = settings.MONNIFY_BASE_URL.rstrip('/') + '/api/v2/disbursements/single'
-            payload = {
-                "amount": float(amount_dec),
+        return Response(
+            {
+                "message": "Withdrawal processed successfully.",
                 "reference": reference,
-                "narration": "GLAPP Storefront Payout Fulfillment",
-                "destinationBankCode": bank_code,
-                "destinationAccountNumber": account_number,
-                "currency": "NGN",
-                "sourceAccountNumber": settings.MONNIFY_WALLET_ACCOUNT_NUMBER,
-            }
-
-            try:
-                disburse_resp = requests.post(
-                    disbursement_url,
-                    json=payload,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json",
-                    },
-                    timeout=30,
-                )
-                result = disburse_resp.json()
-            except requests.RequestException as e:
-                raise ValueError(f"Connection to payment processor failed: {e}")
-
-            if result.get("requestSuccessful") and disburse_resp.status_code in (200, 201):
-                wallet.available_balance -= amount_dec
-                wallet.save()
-
-                Transaction.objects.create(
-                    wallet=wallet,
-                    amount=-amount_dec,
-                    transaction_type=Transaction.TransactionType.WITHDRAWAL,
-                    status=Transaction.Status.SUCCESS,
-                    reference=reference,
-                    description=f"Withdrawal to {account_number}",
-                )
-
-                return Response(
-                    {
-                        "message": "Withdrawal processed successfully.",
-                        "reference": reference,
-                    },
-                    status=status.HTTP_200_OK,
-                )
-            else:
-                error_msg = result.get("responseMessage", "Payment processor rejected the request")
-                raise ValueError(error_msg)
+            },
+            status=status.HTTP_200_OK,
+        )

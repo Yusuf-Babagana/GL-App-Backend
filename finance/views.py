@@ -14,10 +14,10 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework import permissions, status, generics
 from django.db import transaction
-from .models import Wallet, Transaction, BankAccount
+from .models import Wallet, Transaction, BankAccount, WithdrawalRequest
 from market.models import Order
 from .serializers import WalletSerializer, TransactionSerializer
-from .services import WalletService, WithdrawalService # Our new services
+
 from users.permissions import IsVerifiedUser
 from .utils import MonnifyAPI
 
@@ -338,43 +338,64 @@ class WithdrawalView(APIView):
     def post(self, request):
         amount = request.data.get('amount')
         bank_code = request.data.get('bank_code')
+        bank_name = request.data.get('bank_name')
         account_number = request.data.get('account_number')
+        account_name = request.data.get('account_name')
         pin = request.data.get('pin')
 
-        if not all([amount, bank_code, account_number, pin]):
-            return Response({"error": "Missing required fields (amount, bank_code, account_number, pin)"}, status=400)
-
-        # Security: Check PIN
-        if not request.user.transaction_pin:
-            return Response({"error": "No PIN set. Visit profile to set one."}, status=400)
-
-        if not request.user.check_transaction_pin(pin):
-            return Response({"error": "Invalid Transaction PIN"}, status=400)
-
-        try:
-            success, result = WithdrawalService.initiate_payout(
-                user=request.user,
-                amount=amount,
-                bank_code=bank_code,
-                account_number=account_number
+        if not all([amount, bank_code, bank_name, account_number, account_name, pin]):
+            return Response(
+                {"error": "Missing required fields: amount, bank_code, bank_name, account_number, account_name, pin"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-            if success:
-                return Response({"message": result.get("message", "Success")}, status=200)
-            
-            # Error Formatting Strategy for the Frontend
-            error_msg = result.get("error", "Transaction rejected by provider")
-            error_code = result.get("code", "UNKNOWN")
-            
-            logger.error(f"Monnify Payout Blocked: {error_code} - {error_msg}")
-            return Response({
-                "error": error_msg,
-                "code": error_code
-            }, status=400)
+        if not request.user.transaction_pin:
+            return Response({"error": "No PIN set. Visit profile to set one."}, status=status.HTTP_400_BAD_REQUEST)
 
-        except Exception as e:
-            logger.error(f"WITHDRAWAL FAILURE: {str(e)}")
-            return Response({"error": "Internal Error Handling Withdrawal", "details": str(e)}, status=500)
+        if not request.user.check_transaction_pin(pin):
+            return Response({"error": "Invalid Transaction PIN"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            amount_dec = Decimal(str(amount))
+        except Exception:
+            return Response({"error": "Invalid amount format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if amount_dec <= 0:
+            return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=request.user)
+
+            if wallet.available_balance < amount_dec:
+                return Response(
+                    {"error": "Insufficient available balance."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            wallet.available_balance -= amount_dec
+            wallet.save()
+
+            Transaction.objects.create(
+                wallet=wallet,
+                amount=-amount_dec,
+                transaction_type=Transaction.TransactionType.WITHDRAWAL,
+                status=Transaction.Status.PENDING,
+                description=f"Withdrawal request for {account_name} - {account_number} ({bank_name})",
+            )
+
+            WithdrawalRequest.objects.create(
+                user=request.user,
+                amount=amount_dec,
+                bank_code=bank_code,
+                bank_name=bank_name,
+                account_number=account_number,
+                account_name=account_name,
+            )
+
+        return Response(
+            {"status": "success", "message": "Withdrawal request submitted for processing."},
+            status=status.HTTP_200_OK,
+        )
 
 class DepositNotificationView(APIView):
     permission_classes = [permissions.IsAuthenticated]
