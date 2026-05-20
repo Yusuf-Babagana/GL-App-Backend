@@ -62,7 +62,7 @@ class PurchaseDataView(APIView):
             else:
                 # 3. AUTO-REFUND if Nellobyte fails
                 # Logic: Add money back to balance and record the failure
-                user.wallet.balance += float(amount) # Type safety
+                user.wallet.available_balance += float(amount) # Type safety
                 user.wallet.save()
                 return Response({
                     "error": "Provider Error",
@@ -71,7 +71,7 @@ class PurchaseDataView(APIView):
 
         except Exception as e:
             # 4. SAFETY REFUND if network crashes
-            user.wallet.balance += float(amount)
+            user.wallet.available_balance += float(amount)
             user.wallet.save()
             return Response({"error": f"Connection failed: {str(e)}"}, status=502)
 

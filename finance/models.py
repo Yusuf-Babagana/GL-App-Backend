@@ -16,10 +16,10 @@ class Wallet(models.Model):
     currency = models.CharField(max_length=3, default='NGN')
     
     # Funds that can be withdrawn or used immediately
-    balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    available_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
 
     # Funds earned by Seller but locked until Buyer confirms receipt (or 7-day auto-release)
-    pending_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    locked_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
 
     # Legacy: Funds locked in ongoing orders/jobs (Escrow) — kept for backward compatibility
     escrow_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
@@ -44,8 +44,12 @@ class Wallet(models.Model):
         return f"{name}'s Wallet ({self.currency})"
 
     @property
+    def balance(self):
+        return self.available_balance + self.locked_balance
+
+    @property
     def total_assets(self):
-        return self.balance + self.pending_balance + self.escrow_balance
+        return self.available_balance + self.locked_balance + self.escrow_balance
 
 class Transaction(models.Model):
     """

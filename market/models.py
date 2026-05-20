@@ -167,6 +167,7 @@ class Order(models.Model):
     class PaymentStatus(models.TextChoices):
         PENDING = 'pending', _('Pending')
         PAID = 'paid', _('Paid (Settled)')
+        CONFIRMED = 'confirmed', _('Confirmed by Buyer')
         ESCROW_HELD = 'escrow_held', _('Held in Escrow')  # Legacy
         RELEASED = 'released', _('Released to Seller')     # Legacy
         REFUNDED = 'refunded', _('Refunded')
