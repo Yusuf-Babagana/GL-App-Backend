@@ -12,7 +12,7 @@ from .views import (
     AdminOverviewView, AdminApproveShopView, AdminUpdateUserRoleView,
     MerchantGlobalOnboardingView, AdminOverviewTelemetryView,
     AdminReviewShopView, MerchantAnalyticsView, MyShopStatusView,
-    InternalWalletCheckoutView
+    InternalWalletCheckoutView, MerchantWithdrawalView
 )
 
 urlpatterns = [
@@ -67,4 +67,7 @@ urlpatterns = [
     path('admin/approve-shop/<str:shop_id>/', AdminApproveShopView.as_view(), name='admin-approve-shop'),
     path('admin/review-shop/<uuid:shop_id>/', AdminReviewShopView.as_view(), name='admin-review-shop'),
     path('admin/update-user-role/<int:user_id>/', AdminUpdateUserRoleView.as_view(), name='admin-update-user-role'),
+
+    # --- WITHDRAWAL ---
+    path('merchant/withdraw/', MerchantWithdrawalView.as_view(), name='merchant-withdraw'),
 ]
