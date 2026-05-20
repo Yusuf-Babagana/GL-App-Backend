@@ -23,6 +23,9 @@
     .ticket-row.resolved { opacity: 0.5; pointer-events: none; }
     .btn-action { min-width: 110px; }
     .table th { font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; }
+    .nav-tabs .nav-link { font-weight: 500; color: #475569; }
+    .nav-tabs .nav-link.active { font-weight: 600; color: #0d6efd; }
+    .badge-role { font-size: 0.7rem; }
   </style>
 </head>
 <body>
@@ -33,9 +36,9 @@
     <div class="brand"><h4>GLAPP ADMIN</h4></div>
     <nav class="mt-3">
       <a href="#" class="nav-link active"><i class="bi bi-speedometer2"></i>Dashboard</a>
-      <a href="#" class="nav-link"><i class="bi bi-cash-stack"></i>Payout Queue</a>
-      <a href="#" class="nav-link"><i class="bi bi-box-seam"></i>Inventory Monitor</a>
-      <a href="#" class="nav-link"><i class="bi bi-people"></i>User Audits</a>
+      <a href="#tab-payouts" class="nav-link" data-bs-toggle="tab"><i class="bi bi-cash-stack"></i>Payout Queue</a>
+      <a href="#tab-shops" class="nav-link" data-bs-toggle="tab"><i class="bi bi-shop"></i>Store Onboarding</a>
+      <a href="#tab-users" class="nav-link" data-bs-toggle="tab"><i class="bi bi-people"></i>User Audits</a>
       <hr style="border-color:rgba(255,255,255,0.08)">
       <a href="/admin/" class="nav-link"><i class="bi bi-gear"></i>Django Admin</a>
       <form method="post" action="{% url 'admin_logout' %}" class="d-inline m-0 p-0 w-100">
@@ -49,7 +52,6 @@
 
   <!-- MAIN CONTENT -->
   <div class="main-content w-100">
-
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h3 class="fw-bold mb-0">Operational Dashboard</h3>
       <div class="d-flex align-items-center gap-3">
@@ -71,7 +73,7 @@
             <div class="icon-shape bg-warning bg-opacity-15 text-warning"><i class="bi bi-clock-history"></i></div>
             <div>
               <p class="text-muted small mb-0">Pending Payouts</p>
-              <h4 class="fw-bold mb-0">₦{{ total_pending_amount|floatformat:2 }}</h4>
+              <h4 class="fw-bold mb-0">&#8358;{{ total_pending_amount|floatformat:2 }}</h4>
               <small class="text-muted">{{ pending_tickets|length }} ticket{{ pending_tickets|length|pluralize }}</small>
             </div>
           </div>
@@ -83,7 +85,7 @@
             <div class="icon-shape bg-info bg-opacity-15 text-info"><i class="bi bi-lock"></i></div>
             <div>
               <p class="text-muted small mb-0">Locked Escrow</p>
-              <h4 class="fw-bold mb-0">₦{{ total_locked_escrow|floatformat:2 }}</h4>
+              <h4 class="fw-bold mb-0">&#8358;{{ total_locked_escrow|floatformat:2 }}</h4>
               <small class="text-muted">Across all merchants</small>
             </div>
           </div>
@@ -103,67 +105,194 @@
       </div>
     </div>
 
-    <!-- PAYOUT TABLE -->
-    <div class="card shadow-sm border-0 rounded-4">
-      <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center pt-4 px-4">
-        <h5 class="fw-bold mb-0"><i class="bi bi-send me-2"></i>Payout Execution Queue</h5>
-        <a href="/api/finance/withdraw/csv/" class="btn btn-primary btn-sm">
-          <i class="bi bi-download me-1"></i>Download Monnify Batch CSV File
-        </a>
-      </div>
-      <div class="card-body p-4">
-        {% if pending_tickets %}
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th>User</th>
-                <th>Bank</th>
-                <th>Account</th>
-                <th>Verified Name</th>
-                <th>Amount</th>
-                <th>Date</th>
-                <th class="text-end">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for ticket in pending_tickets %}
-              <tr class="ticket-row" data-id="{{ ticket.pk }}">
-                <td><span class="fw-semibold small">{{ ticket.user.email }}</span></td>
-                <td>{{ ticket.bank_name|default:ticket.bank_code }}</td>
-                <td class="font-monospace">{{ ticket.account_number }}</td>
-                <td>{{ ticket.account_name|default:'—' }}</td>
-                <td class="fw-bold">₦{{ ticket.amount|floatformat:2 }}</td>
-                <td class="small text-muted">{{ ticket.created_at|date:"M d, H:i" }}</td>
-                <td class="text-end">
-                  <button class="btn btn-success btn-sm btn-approve btn-action me-1" data-id="{{ ticket.pk }}">
-                    <i class="bi bi-check-circle me-1"></i>Approve Payout
-                  </button>
-                  <button class="btn btn-danger btn-sm btn-reject btn-action" data-id="{{ ticket.pk }}">
-                    <i class="bi bi-x-circle me-1"></i>Reject / Refund
-                  </button>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+    <!-- TABS -->
+    <ul class="nav nav-tabs mb-4" id="dashboardTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="payouts-tab" data-bs-toggle="tab" data-bs-target="#tab-payouts" type="button" role="tab">
+          <i class="bi bi-cash-stack me-1"></i>Payout Queue Hub
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="shops-tab" data-bs-toggle="tab" data-bs-target="#tab-shops" type="button" role="tab">
+          <i class="bi bi-shop me-1"></i>Store Onboarding Gates
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#tab-users" type="button" role="tab">
+          <i class="bi bi-people me-1"></i>Platform Users Log
+        </button>
+      </li>
+    </ul>
+
+    <div class="tab-content">
+
+      <!-- TAB 1: PAYOUT QUEUE HUB -->
+      <div class="tab-pane fade show active" id="tab-payouts" role="tabpanel">
+        <div class="card shadow-sm border-0 rounded-4">
+          <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center pt-4 px-4">
+            <h5 class="fw-bold mb-0"><i class="bi bi-send me-2"></i>Payout Execution Queue</h5>
+            <a href="/api/finance/withdraw/csv/" class="btn btn-primary btn-sm">
+              <i class="bi bi-download me-1"></i>Download Monnify Batch CSV
+            </a>
+          </div>
+          <div class="card-body p-4">
+            {% if pending_tickets %}
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>User</th>
+                    <th>Bank</th>
+                    <th>Account</th>
+                    <th>Verified Name</th>
+                    <th>Amount</th>
+                    <th>Date</th>
+                    <th class="text-end">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for ticket in pending_tickets %}
+                  <tr class="ticket-row" data-id="{{ ticket.pk }}">
+                    <td><span class="fw-semibold small">{{ ticket.user.email }}</span></td>
+                    <td>{{ ticket.bank_name|default:ticket.bank_code }}</td>
+                    <td class="font-monospace">{{ ticket.account_number }}</td>
+                    <td>{{ ticket.account_name|default:'&mdash;' }}</td>
+                    <td class="fw-bold">&#8358;{{ ticket.amount|floatformat:2 }}</td>
+                    <td class="small text-muted">{{ ticket.created_at|date:"M d, H:i" }}</td>
+                    <td class="text-end">
+                      <button class="btn btn-success btn-sm btn-approve btn-action me-1" data-id="{{ ticket.pk }}">
+                        <i class="bi bi-check-circle me-1"></i>Approve Payout
+                      </button>
+                      <button class="btn btn-danger btn-sm btn-reject btn-action" data-id="{{ ticket.pk }}">
+                        <i class="bi bi-x-circle me-1"></i>Reject / Refund
+                      </button>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5 text-muted">
+              <i class="bi bi-inbox" style="font-size:2.5rem;display:block;margin-bottom:0.75rem;"></i>
+              No pending withdrawal tickets.
+            </div>
+            {% endif %}
+          </div>
         </div>
-        {% else %}
-        <div class="text-center py-5 text-muted">
-          <i class="bi bi-inbox" style="font-size:2.5rem;display:block;margin-bottom:0.75rem;"></i>
-          No pending withdrawal tickets.
-        </div>
-        {% endif %}
       </div>
-    </div>
-  </div>
+
+      <!-- TAB 2: STORE ONBOARDING GATES -->
+      <div class="tab-pane fade" id="tab-shops" role="tabpanel">
+        <div class="card shadow-sm border-0 rounded-4">
+          <div class="card-header bg-white border-0 pt-4 px-4">
+            <h5 class="fw-bold mb-0"><i class="bi bi-shop me-2"></i>Pending Shop Applications</h5>
+          </div>
+          <div class="card-body p-4">
+            {% if pending_shops %}
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Shop Name</th>
+                    <th>Owner</th>
+                    <th>Category</th>
+                    <th>Address</th>
+                    <th>Date Applied</th>
+                    <th class="text-end">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for shop in pending_shops %}
+                  <tr class="shop-row" data-id="{{ shop.pk }}">
+                    <td class="fw-semibold">{{ shop.name }}</td>
+                    <td class="small">{{ shop.owner.email }}</td>
+                    <td><span class="badge bg-secondary badge-role">{{ shop.shop_type|default:'Unspecified' }}</span></td>
+                    <td class="small text-muted">{{ shop.address|truncatewords:8|default:'&mdash;' }}</td>
+                    <td class="small text-muted">{{ shop.created_at|date:"M d, Y" }}</td>
+                    <td class="text-end">
+                      <button class="btn btn-success btn-sm btn-shop-approve btn-action me-1" data-id="{{ shop.pk }}">
+                        <i class="bi bi-check-circle me-1"></i>Approve &amp; Verify
+                      </button>
+                      <button class="btn btn-danger btn-sm btn-shop-reject btn-action" data-id="{{ shop.pk }}">
+                        <i class="bi bi-x-circle me-1"></i>Deny Profile
+                      </button>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5 text-muted">
+              <i class="bi bi-shop" style="font-size:2.5rem;display:block;margin-bottom:0.75rem;"></i>
+              All shops have been reviewed. No pending applications.
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: PLATFORM USERS LOG -->
+      <div class="tab-pane fade" id="tab-users" role="tabpanel">
+        <div class="card shadow-sm border-0 rounded-4">
+          <div class="card-header bg-white border-0 pt-4 px-4">
+            <h5 class="fw-bold mb-0"><i class="bi bi-people me-2"></i>Newest Registered Users</h5>
+          </div>
+          <div class="card-body p-4">
+            {% if recent_registrations %}
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Joined</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for u in recent_registrations %}
+                  <tr>
+                    <td class="fw-semibold">{{ u.full_name|default:'&mdash;' }}</td>
+                    <td class="small">{{ u.email }}</td>
+                    <td class="small">{{ u.phone_number|default:'&mdash;' }}</td>
+                    <td><span class="badge bg-info badge-role">{{ u.active_role|title }}</span></td>
+                    <td>
+                      {% if u.is_active %}
+                      <span class="badge bg-success badge-role">Active</span>
+                      {% else %}
+                      <span class="badge bg-secondary badge-role">Inactive</span>
+                      {% endif %}
+                    </td>
+                    <td class="small text-muted">{{ u.date_joined|date:"M d, Y" }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5 text-muted">
+              <i class="bi bi-people" style="font-size:2.5rem;display:block;margin-bottom:0.75rem;"></i>
+              No user registrations found.
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /tab-content -->
+
+  </div><!-- /main-content -->
 </div>
 
 <!-- TOAST CONTAINER -->
 <div class="toast-container">
   <div id="liveToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
     <div class="d-flex">
-      <div class="toast-body" id="toastMessage">Ticket Status Successfully Resolved!</div>
+      <div class="toast-body" id="toastMessage">Operation completed successfully!</div>
       <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
     </div>
   </div>
@@ -172,10 +301,10 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 (function() {
-  const csrfToken = '{{ csrf_token }}';
-  const toastEl = document.getElementById('liveToast');
-  const toastMsg = document.getElementById('toastMessage');
-  const toast = new bootstrap.Toast(toastEl, { delay: 3500 });
+  var csrfToken = '{{ csrf_token }}';
+  var toastEl = document.getElementById('liveToast');
+  var toastMsg = document.getElementById('toastMessage');
+  var toast = new bootstrap.Toast(toastEl, { delay: 3500 });
 
   function showToast(message, type) {
     toastEl.className = 'toast align-items-center border-0 text-bg-' + (type || 'success');
@@ -183,8 +312,9 @@
     toast.show();
   }
 
-  function handleAction(ticketId, action) {
-    const formData = new URLSearchParams();
+  /* --- Payout ticket actions --- */
+  function handleTicketAction(ticketId, action) {
+    var formData = new URLSearchParams();
     formData.append('action', action);
     formData.append('csrfmiddlewaretoken', csrfToken);
 
@@ -198,7 +328,7 @@
       if (responseText === 'approved' || responseText === 'rejected') {
         var row = document.querySelector('.ticket-row[data-id="' + ticketId + '"]');
         if (row) row.classList.add('resolved');
-        showToast('Ticket Status Successfully Resolved!', 'success');
+        showToast('Ticket status resolved successfully!', 'success');
       } else {
         showToast('Error: ' + responseText, 'danger');
       }
@@ -211,14 +341,54 @@
   document.querySelectorAll('.btn-approve').forEach(function(btn) {
     btn.addEventListener('click', function(e) {
       e.preventDefault();
-      handleAction(this.getAttribute('data-id'), 'approve');
+      handleTicketAction(this.getAttribute('data-id'), 'approve');
     });
   });
 
   document.querySelectorAll('.btn-reject').forEach(function(btn) {
     btn.addEventListener('click', function(e) {
       e.preventDefault();
-      handleAction(this.getAttribute('data-id'), 'reject');
+      handleTicketAction(this.getAttribute('data-id'), 'reject');
+    });
+  });
+
+  /* --- Shop verification actions --- */
+  function handleShopAction(shopId, action) {
+    var formData = new URLSearchParams();
+    formData.append('action', action);
+    formData.append('csrfmiddlewaretoken', csrfToken);
+
+    fetch('/api/merchant/verify-shop/' + shopId + '/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': csrfToken },
+      body: formData.toString()
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === 'success') {
+        var row = document.querySelector('.shop-row[data-id="' + shopId + '"]');
+        if (row) row.style.display = 'none';
+        showToast(data.message, 'success');
+      } else {
+        showToast('Error: ' + (data.message || 'Unknown error'), 'danger');
+      }
+    })
+    .catch(function() {
+      showToast('Network error. Please try again.', 'danger');
+    });
+  }
+
+  document.querySelectorAll('.btn-shop-approve').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      handleShopAction(this.getAttribute('data-id'), 'approve');
+    });
+  });
+
+  document.querySelectorAll('.btn-shop-reject').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      handleShopAction(this.getAttribute('data-id'), 'reject');
     });
   });
 })();
