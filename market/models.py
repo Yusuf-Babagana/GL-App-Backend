@@ -53,7 +53,7 @@ class Shop(models.Model):
     address = models.TextField(blank=True, null=True)
     country = models.CharField(max_length=100, default='Nigeria')
     state = models.CharField(max_length=100, default='Kano')
-    logo = models.ImageField(upload_to='kyc_docs/logos/', null=True, blank=True)
+    logo = models.URLField(max_length=500, blank=True, null=True)
     
     # Business Registration Metadata Context
     is_registered = models.BooleanField(default=False)
@@ -128,7 +128,7 @@ class Product(models.Model):
     stock = models.IntegerField(default=1)
     
     image = models.CharField(max_length=500, blank=True, null=True)
-    video = models.FileField(upload_to='product_videos/', blank=True, null=True) 
+    video = models.URLField(max_length=500, blank=True, null=True) 
     is_ad = models.BooleanField(default=False)
     average_rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_reviews = models.IntegerField(default=0)
