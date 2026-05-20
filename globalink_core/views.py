@@ -5,7 +5,7 @@ from decimal import Decimal
 from django.http import HttpResponse
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.contrib.auth.mixins import UserPassesTestMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.views.generic.base import TemplateView
 from django.views import View
 from django.db.models import Sum
@@ -15,14 +15,12 @@ from finance.models import Wallet, WithdrawalTicket
 User = get_user_model()
 
 
-class AdminDashboardView(UserPassesTestMixin, TemplateView):
+class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
     template_name = 'admin/dashboard.html'
+    login_url = 'admin_login'
 
     def test_func(self):
         return self.request.user.is_staff or self.request.user.is_superuser
-
-    def get_login_url(self):
-        return '/admin/login/'
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -48,13 +46,11 @@ class AdminDashboardView(UserPassesTestMixin, TemplateView):
         return context
 
 
-class MonnifyBatchCsvExportView(UserPassesTestMixin, View):
+class MonnifyBatchCsvExportView(LoginRequiredMixin, UserPassesTestMixin, View):
+    login_url = 'admin_login'
 
     def test_func(self):
         return self.request.user.is_staff or self.request.user.is_superuser
-
-    def get_login_url(self):
-        return '/admin/login/'
 
     def get(self, request):
         pending = WithdrawalTicket.objects.filter(
@@ -91,13 +87,11 @@ class MonnifyBatchCsvExportView(UserPassesTestMixin, View):
         return response
 
 
-class WithdrawalTicketUpdateStatusView(UserPassesTestMixin, View):
+class WithdrawalTicketUpdateStatusView(LoginRequiredMixin, UserPassesTestMixin, View):
+    login_url = 'admin_login'
 
     def test_func(self):
         return self.request.user.is_staff or self.request.user.is_superuser
-
-    def get_login_url(self):
-        return '/admin/login/'
 
     def post(self, request, ticket_id):
         ticket = get_object_or_404(WithdrawalTicket, pk=ticket_id)
