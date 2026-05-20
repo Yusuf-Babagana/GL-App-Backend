@@ -778,7 +778,7 @@ class MerchantDashboardView(APIView):
             # Calculate real stats from the database
             total_sales = Order.objects.filter(shop=shop).aggregate(Sum('total_price'))['total_price__sum'] or 0
             total_orders = Order.objects.filter(shop=shop).count()
-            new_customers = Order.objects.filter(shop=shop).values('user').distinct().count()
+            new_customers = Order.objects.filter(shop=shop).values('buyer').distinct().count()
 
             return Response({
                 "shop_name": shop.name,
