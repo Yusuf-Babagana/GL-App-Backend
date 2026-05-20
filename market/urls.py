@@ -3,7 +3,7 @@ from .views import (
     CategoryListView, ProductListView, ProductDetailView,
     ShopCreateView, SellerProductListView, ProductCreateView,
     CartAPIView, CartSyncView, CreateOrderView, BuyerOrderListView,
-    BuyerOrderDetailView, ConfirmOrderReceiptView,
+    BuyerOrderDetailView, BuyerConfirmReceiptView,
     SellerOrderListView, MerchantDashboardView,
     SellerUpdateOrderStatusView, AdminDashboardStatsView,
     ProductDeleteView, ProductUpdateView, SellerOrderDetailView,
@@ -48,8 +48,8 @@ urlpatterns = [
     # --- BUYER ---
     path('buyer/orders/', BuyerOrderListView.as_view(), name='buyer-orders'),
     path('buyer/orders/<int:pk>/', BuyerOrderDetailView.as_view(), name='buyer-order-detail'),
-    path('buyer/orders/<int:order_id>/confirm/', ConfirmOrderReceiptView.as_view(), name='buyer-confirm-receipt'),
-    path('orders/<int:order_id>/confirm-receipt/', ConfirmOrderReceiptView.as_view(), name='confirm-receipt-alias'),
+    path('buyer/orders/<int:order_id>/confirm/', BuyerConfirmReceiptView.as_view(), name='buyer-confirm-receipt'),
+    path('orders/<int:order_id>/confirm-receipt/', BuyerConfirmReceiptView.as_view(), name='confirm-receipt-alias'),
     path('cart/', CartAPIView.as_view(), name='cart'),
     path('cart/sync/', CartSyncView.as_view(), name='cart-sync'),
 

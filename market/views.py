@@ -24,7 +24,6 @@ from .serializers import (
     CartSyncItemSerializer, CartSyncResponseSerializer,
 )
 from finance.models import Wallet, Transaction
-from finance.services import WalletService
 
 
 # --- SELLER / STORE VIEWS ---
@@ -527,11 +526,6 @@ class CartSyncView(APIView):
         return Response(response_data, status=status.HTTP_200_OK)
 
 
-# --- 2. UPDATE THE CLASS LIKE THIS ---
-# At the top with your other imports
-from finance.utils import WalletManager
-from finance.services import WalletService
-
 @method_decorator(csrf_exempt, name='dispatch')
 class CreateOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -610,21 +604,21 @@ class InternalWalletCheckoutView(APIView):
         except Order.DoesNotExist:
             return Response({"error": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        if order.payment_status == 'paid':
+        if order.payment_status == Order.PaymentStatus.PAID:
             return Response({"error": "This order has already been paid."}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
             buyer_wallet, _ = Wallet.objects.select_for_update().get_or_create(
-                user=request.user, defaults={'balance': Decimal('0.00')}
+                user=request.user, defaults={'available_balance': Decimal('0.00')}
             )
 
-            if buyer_wallet.balance < order.total_price:
+            if buyer_wallet.available_balance < order.total_price:
                 return Response({
                     "status": "low_balance",
-                    "message": f"Insufficient wallet funds. Required: ₦{order.total_price:,.0f}, Available: ₦{buyer_wallet.balance:,.0f}."
+                    "message": f"Insufficient wallet funds. Required: ₦{order.total_price:,.0f}, Available: ₦{buyer_wallet.available_balance:,.0f}."
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            buyer_wallet.balance -= order.total_price
+            buyer_wallet.available_balance -= order.total_price
             buyer_wallet.save()
 
             order_items = OrderItem.objects.filter(order=order).select_related('product__shop__owner')
@@ -636,9 +630,9 @@ class InternalWalletCheckoutView(APIView):
 
             for owner, amount in merchant_shares.items():
                 seller_wallet, _ = Wallet.objects.select_for_update().get_or_create(
-                    user=owner, defaults={'balance': Decimal('0.00')}
+                    user=owner, defaults={'available_balance': Decimal('0.00')}
                 )
-                seller_wallet.balance += amount
+                seller_wallet.locked_balance += amount
                 seller_wallet.save()
 
                 Transaction.objects.create(
@@ -647,7 +641,7 @@ class InternalWalletCheckoutView(APIView):
                     transaction_type=Transaction.TransactionType.PAYMENT,
                     status=Transaction.Status.SUCCESS,
                     related_order_id=str(order.id),
-                    description=f"Sales earnings for Order #{order.id}"
+                    description=f"Sales earnings (locked) for Order #{order.id}"
                 )
 
             Transaction.objects.create(
@@ -659,12 +653,12 @@ class InternalWalletCheckoutView(APIView):
                 description=f"Payment for Order #{order.id}"
             )
 
-            order.payment_status = 'paid'
+            order.payment_status = Order.PaymentStatus.PAID
             order.save()
 
         return Response({
             "status": "success",
-            "message": "Payment successful. Order processed!"
+            "message": "Payment successful. Funds locked until buyer confirms receipt."
         }, status=status.HTTP_200_OK)
 
 
@@ -682,40 +676,52 @@ class BuyerOrderDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         return Order.objects.filter(buyer=self.request.user)
 
-class ConfirmOrderReceiptView(APIView):
+class BuyerConfirmReceiptView(APIView):
     """
     Buyer confirms they received the item.
-    This triggers the release of funds from Seller's pending_balance → available balance.
+    Atomically releases funds from Seller's locked_balance → available_balance.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, order_id):
-        print(f"--- 🏁 CONFIRMING RECEIPT FOR ORDER #{order_id} ---")
         try:
             with transaction.atomic():
                 order = Order.objects.select_for_update().get(id=order_id, buyer=request.user)
 
-                if order.delivery_status == Order.DeliveryStatus.DELIVERED:
-                    return Response({"error": "This order is already marked as delivered."}, status=400)
+                if order.payment_status != Order.PaymentStatus.PAID:
+                    return Response({"error": "Order has not been paid yet."}, status=400)
 
-                # Release funds: Seller pending_balance → available balance
-                success, message = WalletManager.finalize_settlement(order)
-                if not success:
-                    print(f"❌ ERROR: Could not release funds: {message}")
-                    return Response({"error": message}, status=400)
+                if order.payment_status == Order.PaymentStatus.CONFIRMED:
+                    return Response({"error": "This order has already been confirmed."}, status=400)
 
-                # Update statuses
-                order.delivery_status = Order.DeliveryStatus.DELIVERED
-                order.payment_status = Order.PaymentStatus.RELEASED
+                seller_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
+
+                if seller_wallet.locked_balance < order.total_price:
+                    return Response({"error": "Insufficient locked balance for this order."}, status=400)
+
+                seller_wallet.locked_balance -= order.total_price
+                seller_wallet.available_balance += order.total_price
+                seller_wallet.save()
+
+                Transaction.objects.create(
+                    wallet=seller_wallet,
+                    amount=order.total_price,
+                    transaction_type=Transaction.TransactionType.ESCROW_RELEASE,
+                    status=Transaction.Status.SUCCESS,
+                    related_order_id=str(order.id),
+                    description=f"Funds released for Order #{order.id}"
+                )
+
+                order.payment_status = Order.PaymentStatus.CONFIRMED
                 order.save()
 
-                print(f"✅ SUCCESS: Funds released to {order.shop.owner.email}. Order #{order.id} complete.")
-                return Response({"message": "Receipt confirmed! The seller has been paid. 🎉"})
+                return Response({"message": "Receipt confirmed! Funds released to seller."}, status=200)
 
         except Order.DoesNotExist:
             return Response({"error": "Order not found."}, status=404)
+        except Wallet.DoesNotExist:
+            return Response({"error": "Seller wallet not found."}, status=400)
         except Exception as e:
-            print(f"🔥 CRITICAL ERROR: {str(e)}")
             return Response({"error": str(e)}, status=400)
 
 
@@ -799,7 +805,7 @@ class AdminDashboardStatsView(APIView):
         total_sellers = Shop.objects.count()
         
         # 2. Financial Stats
-        total_wallet_balance = Wallet.objects.aggregate(Sum('balance'))['balance__sum'] or 0.00
+        total_wallet_balance = Wallet.objects.aggregate(Sum('available_balance'))['available_balance__sum'] or 0.00
         
         # 3. Order Stats
         total_orders = Order.objects.count()

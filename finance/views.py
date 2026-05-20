@@ -131,7 +131,7 @@ class MonnifyWebhookView(APIView):
                         wallet = Wallet.objects.select_for_update().get(account_reference=account_ref)
                         
                         if not Transaction.objects.filter(reference=payment_ref).exists():
-                            wallet.balance += settlement_amt
+                            wallet.available_balance += settlement_amt
                             wallet.save()
                             
                             Transaction.objects.create(
@@ -166,7 +166,7 @@ class MonnifyWebhookView(APIView):
                 with transaction.atomic():
                     ledger = Transaction.objects.select_for_update().get(reference=ref)
                     if ledger.status != Transaction.Status.FAILED:
-                        ledger.wallet.balance += abs(ledger.amount)
+                        ledger.wallet.available_balance += abs(ledger.amount)
                         ledger.wallet.save()
                         ledger.status = Transaction.Status.FAILED
                         ledger.description += " (Failed: Refunded)"
@@ -208,11 +208,11 @@ class DataPurchaseView(APIView):
         try:
             with transaction.atomic():
                 wallet = Wallet.objects.select_for_update().get(user=request.user)
-                if wallet.balance < amount:
-                    logger.error(f"Data Purchase 400: Insufficient Balance. Need {amount}, have {wallet.balance}")
+                if wallet.available_balance < amount:
+                    logger.error(f"Data Purchase 400: Insufficient Balance. Need {amount}, have {wallet.available_balance}")
                     return Response({"error": "Insufficient wallet balance."}, status=400)
 
-                wallet.balance -= amount
+                wallet.available_balance -= amount
                 wallet.save()
 
                 ledger = Transaction.objects.create(
@@ -241,12 +241,12 @@ class DataPurchaseView(APIView):
                 return Response({
                     "message": "Data purchase successful!",
                     "order_id": resp.get('orderid'),
-                    "new_balance": float(wallet.balance)
+                    "new_balance": float(wallet.available_balance)
                 }, status=200)
             else:
                 with transaction.atomic():
                     w = Wallet.objects.select_for_update().get(user=request.user)
-                    w.balance += amount
+                    w.available_balance += amount
                     w.save()
                     
                     ledger.status = Transaction.Status.FAILED
@@ -421,7 +421,7 @@ def clubkonnect_deposit_webhook(request):
             wallet, _ = Wallet.objects.get_or_create(user=user)
             
             # 3. Credit the wallet
-            wallet.balance += Decimal(str(amount))
+            wallet.available_balance += Decimal(str(amount))
             wallet.save()
             
             # 4. Record the transaction

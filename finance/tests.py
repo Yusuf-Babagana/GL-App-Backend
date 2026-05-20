@@ -19,7 +19,7 @@ class DataPurchaseTests(TestCase):
             full_name="Test User"
         )
         self.wallet = Wallet.objects.get(user=self.user)
-        self.wallet.balance = Decimal('1000.00')
+        self.wallet.available_balance = Decimal('1000.00')
         self.wallet.save()
         self.client.login(email="test@example.com", password="password123")
 
@@ -44,7 +44,7 @@ class DataPurchaseTests(TestCase):
         
         self.assertEqual(response.status_code, 200)
         self.wallet.refresh_from_db()
-        self.assertEqual(self.wallet.balance, Decimal('500.00'))
+        self.assertEqual(self.wallet.available_balance, Decimal('500.00'))
         
         # Verify transaction
         transaction = Transaction.objects.get(wallet=self.wallet)
@@ -71,7 +71,7 @@ class DataPurchaseTests(TestCase):
         
         self.assertEqual(response.status_code, 400)
         self.wallet.refresh_from_db()
-        self.assertEqual(self.wallet.balance, Decimal('1000.00')) # Refunded
+        self.assertEqual(self.wallet.available_balance, Decimal('1000.00')) # Refunded
         
         # Verify transaction status
         transaction = Transaction.objects.get(wallet=self.wallet)
@@ -95,7 +95,7 @@ class DataPurchaseTests(TestCase):
         
         self.assertEqual(response.status_code, 202)
         self.wallet.refresh_from_db()
-        self.assertEqual(self.wallet.balance, Decimal('500.00')) # Not refunded yet
+        self.assertEqual(self.wallet.available_balance, Decimal('500.00')) # Not refunded yet
         
         # Verify transaction status
         transaction = Transaction.objects.get(wallet=self.wallet)

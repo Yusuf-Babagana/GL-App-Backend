@@ -286,7 +286,7 @@ class WalletManager:
             with transaction.atomic():
                 wallet = Wallet.objects.select_for_update().get(user=user)
 
-                if wallet.balance < amount:
+                if wallet.available_balance < amount:
                     return False, "Insufficient wallet balance."
 
                 ledger = Transaction.objects.create(
@@ -299,10 +299,10 @@ class WalletManager:
                 )
 
                 if transaction_type == Transaction.TransactionType.ESCROW_LOCK:
-                    wallet.balance -= amount
+                    wallet.available_balance -= amount
                     wallet.escrow_balance += amount
                 else:
-                    wallet.balance -= amount
+                    wallet.available_balance -= amount
                 
                 wallet.save()
                 ledger.status = Transaction.Status.SUCCESS
@@ -328,15 +328,15 @@ class WalletManager:
                 buyer_wallet = Wallet.objects.select_for_update().get(user=buyer)
                 seller_wallet = Wallet.objects.select_for_update().get(user=seller)
 
-                if buyer_wallet.balance < amount:
+                if buyer_wallet.available_balance < amount:
                     return False, "Insufficient wallet balance."
 
                 # 1. Deduct from Buyer
-                buyer_wallet.balance -= amount
+                buyer_wallet.available_balance -= amount
                 buyer_wallet.save()
 
                 # 2. Credit Seller (Instant Settlement)
-                seller_wallet.balance += amount
+                seller_wallet.available_balance += amount
                 seller_wallet.save()
 
                 # 3. Audit Trail: Buyer debit
@@ -371,7 +371,7 @@ class WalletManager:
         """
         Deferred Settlement (Step 1 of 2):
         - Deducts from Buyer's available balance
-        - Credits Seller's pending_balance (locked until buyer confirms receipt)
+        - Credits Seller's locked_balance (inaccessible until buyer confirms receipt)
         """
         amount = Decimal(str(amount))
         # Create a display ID for logs if the real ID isn't ready yet
@@ -382,15 +382,15 @@ class WalletManager:
                 b_wallet = Wallet.objects.select_for_update().get(user=buyer)
                 s_wallet = Wallet.objects.select_for_update().get(user=seller)
 
-                if b_wallet.balance < amount:
+                if b_wallet.available_balance < amount:
                     return False, "Insufficient wallet balance."
 
                 # 1. Deduct from Buyer
-                b_wallet.balance -= amount
+                b_wallet.available_balance -= amount
                 b_wallet.save()
 
                 # 2. Lock in Seller's "Waiting Room"
-                s_wallet.pending_balance += amount
+                s_wallet.locked_balance += amount
                 s_wallet.save()
 
                 # 3. Audit Trail: Buyer debit
@@ -427,7 +427,7 @@ class WalletManager:
         """
         Deferred Settlement (Step 2 of 2):
         Called when Buyer confirms receipt OR 7-day auto-release triggers.
-        Moves funds from Seller's pending_balance → available balance.
+        Moves funds from Seller's locked_balance → available_balance.
         """
         amount = Decimal(str(order.total_price))
 
@@ -435,12 +435,12 @@ class WalletManager:
             with transaction.atomic():
                 s_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
 
-                if s_wallet.pending_balance < amount:
+                if s_wallet.locked_balance < amount:
                     return False, "Pending balance insufficient for this order."
 
                 # Move from Pending → Available
-                s_wallet.pending_balance -= amount
-                s_wallet.balance += amount
+                s_wallet.locked_balance -= amount
+                s_wallet.available_balance += amount
                 s_wallet.save()
 
                 # Audit Trail: Seller's funds unlocked

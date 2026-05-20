@@ -14,9 +14,9 @@ class WalletSerializer(serializers.ModelSerializer):
     class Meta:
         model = Wallet
         fields = [
-            'balance', 'account_number', 'bank_name', 
+            'balance', 'available_balance', 'locked_balance',
+            'account_number', 'bank_name',
             'account_reference', 'user_has_bvn', 'user_has_pin', 'funding_accounts'
-            # 'pending_balance' — add back after running: python manage.py migrate finance
         ]
 
     def get_user_has_bvn(self, obj):

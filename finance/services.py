@@ -28,7 +28,7 @@ class WalletService:
         buyer_wallet = Wallet.objects.select_for_update().get(user=order.buyer)
         seller_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
 
-        if buyer_wallet.balance < order.total_price:
+        if buyer_wallet.available_balance < order.total_price:
             raise Exception("Insufficient wallet balance.")
 
         # 1. Calculate Splits
@@ -41,7 +41,7 @@ class WalletService:
             rider_wallet = Wallet.objects.select_for_update().get(user=order.rider)
             
             # Credit Rider
-            rider_wallet.balance += rider_share
+            rider_wallet.available_balance += rider_share
             rider_wallet.save()
             
             Transaction.objects.create(
@@ -53,10 +53,10 @@ class WalletService:
         seller_share = order.total_price - commission - rider_share
 
         # 2. Atomic Movement
-        buyer_wallet.balance -= order.total_price
+        buyer_wallet.available_balance -= order.total_price
         buyer_wallet.save()
 
-        seller_wallet.balance += seller_share
+        seller_wallet.available_balance += seller_share
         seller_wallet.save()
 
         # 3. Finalize Order Status
@@ -84,7 +84,7 @@ class WalletService:
         """
         buyer_wallet = Wallet.objects.select_for_update().get(user=order.buyer)
         
-        buyer_wallet.balance += order.total_price
+        buyer_wallet.available_balance += order.total_price
         buyer_wallet.save()
 
         order.payment_status = 'refunded'
@@ -110,11 +110,11 @@ class WithdrawalService:
             with transaction.atomic():
                 wallet = Wallet.objects.select_for_update().get(user=user)
 
-                if wallet.balance < amount:
-                    return False, "Insufficient balance."
+                if wallet.available_balance < amount:
+                    return False, "Insufficient available balance. Locked funds from unconfirmed orders cannot be withdrawn yet."
 
                 # 1. Deduct immediately (Pre-debit)
-                wallet.balance -= amount
+                wallet.available_balance -= amount
                 wallet.save()
 
                 # 2. Call Monnify Disbursement API
