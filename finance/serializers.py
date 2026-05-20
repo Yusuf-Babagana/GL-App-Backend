@@ -48,5 +48,5 @@ class BankAccountSerializer(serializers.ModelSerializer):
 class WithdrawalRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = WithdrawalRequest
-        fields = ['amount', 'bank_account', 'status', 'created_at']
+        fields = ['id', 'amount', 'bank_code', 'bank_name', 'account_number', 'account_name', 'status', 'created_at']
         read_only_fields = ['status']

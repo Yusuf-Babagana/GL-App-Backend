@@ -108,16 +108,28 @@ class BankAccount(models.Model):
 
 class WithdrawalRequest(models.Model):
     """
-    Requests from users to move money from Wallet -> Bank Account.
+    Admin-payout-queue entry. Funds are pre-deducted from the user's
+    available_balance at creation time. An admin processes the batch
+    offline and flips the status to SUCCESSFUL or REJECTED.
     """
-    wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE)
-    bank_account = models.ForeignKey(BankAccount, on_delete=models.CASCADE)
+
+    class StatusChoices(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        SUCCESSFUL = 'SUCCESSFUL', 'Successful'
+        REJECTED = 'REJECTED', 'Rejected'
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='withdrawal_requests')
     amount = models.DecimalField(max_digits=12, decimal_places=2)
+    bank_code = models.CharField(max_length=3)
+    bank_name = models.CharField(max_length=255)
+    account_number = models.CharField(max_length=10)
+    account_name = models.CharField(max_length=255)
     status = models.CharField(
-        max_length=20, 
-        choices=[('pending', 'Pending'), ('approved', 'Approved'), ('rejected', 'Rejected')],
-        default='pending'
+        max_length=20,
+        choices=StatusChoices.choices,
+        default=StatusChoices.PENDING,
     )
-    admin_note = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    processed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"#{self.pk} {self.user.email} ₦{self.amount} [{self.status}]"
