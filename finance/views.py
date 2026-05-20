@@ -14,9 +14,12 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework import permissions, status, generics
 from django.db import transaction
-from .models import Wallet, Transaction, BankAccount, WithdrawalTicket
+from .models import Wallet, Transaction, BankAccount, WithdrawalTicket, PlatformRevenue, MONNIFY_DEPOSIT_RATE, MONNIFY_DEPOSIT_CAP
 from market.models import Order
 from .serializers import WalletSerializer, TransactionSerializer
+
+MONNIFY_DEPOSIT_RATE = MONNIFY_DEPOSIT_RATE
+MONNIFY_DEPOSIT_CAP  = MONNIFY_DEPOSIT_CAP
 
 from users.permissions import IsVerifiedUser
 from .utils import MonnifyAPI
@@ -131,18 +134,24 @@ class MonnifyWebhookView(APIView):
                         wallet = Wallet.objects.select_for_update().get(account_reference=account_ref)
                         
                         if not Transaction.objects.filter(reference=payment_ref).exists():
-                            wallet.available_balance += settlement_amt
+                            processing_fee = min(
+                                settlement_amt * MONNIFY_DEPOSIT_RATE,
+                                MONNIFY_DEPOSIT_CAP
+                            )
+                            net_credit = settlement_amt - processing_fee
+
+                            wallet.available_balance += net_credit
                             wallet.save()
                             
                             Transaction.objects.create(
                                 wallet=wallet,
-                                amount=settlement_amt,
+                                amount=net_credit,
                                 transaction_type=Transaction.TransactionType.DEPOSIT,
                                 status=Transaction.Status.SUCCESS,
                                 reference=payment_ref,
-                                description=f"Bank Deposit (Fee: ₦{fee})" 
+                                description=f"Bank Deposit (Fee: ₦{processing_fee})" 
                             )
-                    logger.info(f"✅ Wallet {wallet.id} credited with ₦{settlement_amt} (Settlement)")
+                    logger.info(f"✅ Wallet {wallet.id} credited with ₦{net_credit} (net of ₦{processing_fee} processing fee)")
                     return Response({"status": "success"}, status=200)
                 except Wallet.DoesNotExist:
                     logger.error(f"❌ Webhook Error: Wallet with reference {account_ref} not found.")

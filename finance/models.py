@@ -1,7 +1,17 @@
-from django.db import models
+from decimal import Decimal
+from django.db import models, transaction
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 import uuid
+
+# ---------------------------------------------------------------------------
+# Financial Constants
+# ---------------------------------------------------------------------------
+MONNIFY_DEPOSIT_RATE = Decimal('0.01')
+MONNIFY_DEPOSIT_CAP  = Decimal('300.00')
+
+GLAPP_COMMISSION_RATE = Decimal('0.05')
+GLAPP_COMMISSION_CAP  = Decimal('2500.00')
 
 class Wallet(models.Model):
     """
@@ -133,3 +143,30 @@ class WithdrawalTicket(models.Model):
 
     def __str__(self):
         return f"#{self.pk} {self.user.email} ₦{self.amount} [{self.status}]"
+
+
+class PlatformRevenue(models.Model):
+    """
+    Single-row ledger tracking cumulative platform commission income.
+    """
+    total_commission = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0.00'))
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Platform revenues"
+
+    def __str__(self):
+        return f"Platform Revenue: ₦{self.total_commission}"
+
+    @classmethod
+    def get_singleton(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    @classmethod
+    def add_commission(cls, amount):
+        with transaction.atomic():
+            row = cls.objects.select_for_update().get_or_create(pk=1)[0]
+            row.total_commission += amount
+            row.save()
+        return row.total_commission

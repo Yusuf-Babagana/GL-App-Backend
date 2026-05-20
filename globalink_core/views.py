@@ -10,7 +10,7 @@ from django.views.generic.base import TemplateView
 from django.views import View
 from django.db.models import Sum
 from django.contrib.auth import get_user_model
-from finance.models import Wallet, WithdrawalTicket
+from finance.models import Wallet, WithdrawalTicket, PlatformRevenue
 from market.models import Shop
 
 User = get_user_model()
@@ -46,12 +46,15 @@ class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
 
         recent_registrations = User.objects.all().order_by('-date_joined')[:10]
 
+        platform_revenue = PlatformRevenue.get_singleton()
+
         context['pending_tickets'] = pending_tickets
         context['total_pending_amount'] = total_pending_amount
         context['total_locked_escrow'] = total_locked_escrow
         context['total_users_count'] = total_users_count
         context['pending_shops'] = pending_shops
         context['recent_registrations'] = recent_registrations
+        context['total_commission'] = platform_revenue.total_commission
         return context
 
 
