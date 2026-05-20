@@ -58,7 +58,7 @@ urlpatterns = [
     path('products/', ProductListView.as_view(), name='product-list'),
     path('products/<int:pk>/', ProductDetailView.as_view(), name='product-detail'),
     path('stores/', ShopListView.as_view(), name='shop-list'),
-    path('stores/<int:pk>/', ShopDetailView.as_view(), name='shop-detail'),
+    path('stores/<uuid:pk>/', ShopDetailView.as_view(), name='shop-detail'),
     path('video-ads/', ProductVideoFeedView.as_view(), name='video-ads-feed'),
 
     # --- ADMIN ---
