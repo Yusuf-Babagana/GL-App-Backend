@@ -46,12 +46,11 @@ class WalletDetailView(APIView):
             # 2. Safety Net for Virtual Account
             if not wallet.account_number:
                 try:
-                    acc_data = MonnifyAPI.create_virtual_account(request.user)
+                    acc_data, acc_error = MonnifyAPI.create_virtual_account(request.user)
                     if acc_data:
                         wallet.account_number = acc_data.get('account_number')
                         wallet.bank_name = acc_data.get('bank_name')
                         wallet.bank_code = acc_data.get('bank_code')
-                        # VERY IMPORTANT: Monnify Webhook needs this reference to find the wallet
                         wallet.account_reference = acc_data.get('account_reference')
                         wallet.save()
                 except Exception as e:
