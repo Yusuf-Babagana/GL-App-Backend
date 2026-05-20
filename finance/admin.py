@@ -3,21 +3,21 @@ import uuid
 from datetime import datetime
 from django.http import HttpResponse
 from django.contrib import admin
-from .models import Wallet, Transaction, WithdrawalRequest
+from .models import Wallet, Transaction, WithdrawalTicket
 
 
-@admin.register(WithdrawalRequest)
-class WithdrawalRequestAdmin(admin.ModelAdmin):
+@admin.register(WithdrawalTicket)
+class WithdrawalTicketAdmin(admin.ModelAdmin):
     list_display = ['pk', 'user', 'amount', 'bank_name', 'account_number', 'status', 'created_at']
     list_filter = ['status', 'created_at']
     search_fields = ['user__email', 'account_number', 'bank_name']
     actions = ['export_to_monnify_csv']
 
-    @admin.action(description='Export selected PENDING requests as Monnify Bulk CSV')
+    @admin.action(description='Export selected PENDING tickets as Monnify Bulk CSV')
     def export_to_monnify_csv(self, request, queryset):
-        pending = queryset.filter(status=WithdrawalRequest.StatusChoices.PENDING)
+        pending = queryset.filter(status=WithdrawalTicket.StatusChoices.PENDING)
         if not pending.exists():
-            self.message_user(request, 'No PENDING requests selected.')
+            self.message_user(request, 'No PENDING tickets selected.')
             return
 
         response = HttpResponse(content_type='text/csv')
@@ -26,15 +26,19 @@ class WithdrawalRequestAdmin(admin.ModelAdmin):
         )
 
         writer = csv.writer(response)
-        writer.writerow(['Amount', 'Bank Code', 'Account Number', 'Narration', 'Reference'])
+        writer.writerow([
+            'Amount', 'DestinationBankCode', 'DestinationAccountNumber',
+            'DestinationAccountName', 'Narration', 'Reference',
+        ])
 
-        for wreq in pending:
-            reference = f"GLB-{wreq.pk}-{uuid.uuid4().hex[:8]}"
+        for ticket in pending:
+            reference = f"GLB-{ticket.pk}-{uuid.uuid4().hex[:8]}"
             writer.writerow([
-                float(wreq.amount),
-                wreq.bank_code,
-                wreq.account_number,
-                f"GLAPP Payout #{wreq.pk}",
+                float(ticket.amount),
+                ticket.bank_code,
+                ticket.account_number,
+                ticket.account_name,
+                f"GLAPP Payout #{ticket.pk}",
                 reference,
             ])
 

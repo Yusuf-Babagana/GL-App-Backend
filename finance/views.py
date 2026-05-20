@@ -14,7 +14,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework import permissions, status, generics
 from django.db import transaction
-from .models import Wallet, Transaction, BankAccount, WithdrawalRequest
+from .models import Wallet, Transaction, BankAccount, WithdrawalTicket
 from market.models import Order
 from .serializers import WalletSerializer, TransactionSerializer
 
@@ -383,7 +383,7 @@ class WithdrawalView(APIView):
                 description=f"Withdrawal request for {account_name} - {account_number} ({bank_name})",
             )
 
-            WithdrawalRequest.objects.create(
+            WithdrawalTicket.objects.create(
                 user=request.user,
                 amount=amount_dec,
                 bank_code=bank_code,
@@ -393,8 +393,8 @@ class WithdrawalView(APIView):
             )
 
         return Response(
-            {"status": "success", "message": "Withdrawal request submitted for processing."},
-            status=status.HTTP_200_OK,
+            {"status": "success", "message": "Withdrawal request logged successfully."},
+            status=status.HTTP_201_CREATED,
         )
 
 class DepositNotificationView(APIView):
