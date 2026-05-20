@@ -8,11 +8,10 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'slug', 'icon']
 
 class ShopSerializer(serializers.ModelSerializer):
-    # Dynamic field to show how many products the shop has
     product_count = serializers.SerializerMethodField()
     owner_name = serializers.ReadOnlyField(source='owner.full_name')
-
     owner_id = serializers.ReadOnlyField(source='owner.id')
+    products = serializers.SerializerMethodField()
 
     class Meta:
         model = Shop
@@ -25,13 +24,17 @@ class ShopSerializer(serializers.ModelSerializer):
             'owner_id',
             'owner_name', 
             'product_count',
+            'products',
             'created_at',
             'rejection_reason'
         ]
 
     def get_product_count(self, obj):
-        # Accessing the related products through the reverse relation
         return obj.products.count()
+
+    def get_products(self, obj):
+        from .serializers import ProductSerializer
+        return ProductSerializer(obj.products.all(), many=True, context=self.context).data
 
 class ProductImageSerializer(serializers.ModelSerializer):
     class Meta:
