@@ -23,6 +23,14 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 import requests
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Financial Constants
+# ---------------------------------------------------------------------------
+GLAPP_COMMISSION_RATE = Decimal('0.05')
+GLAPP_COMMISSION_CAP  = Decimal('2500.00')
+# ---------------------------------------------------------------------------
+
 # Local Imports
 from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile
 from .serializers import (
@@ -30,7 +38,7 @@ from .serializers import (
     OrderSerializer, CartSerializer, CartSyncInputSerializer,
     CartSyncItemSerializer, CartSyncResponseSerializer,
 )
-from finance.models import Wallet, Transaction
+from finance.models import Wallet, Transaction, PlatformRevenue
 
 
 # --- SELLER / STORE VIEWS ---
@@ -686,7 +694,9 @@ class BuyerOrderDetailView(generics.RetrieveAPIView):
 class BuyerConfirmReceiptView(APIView):
     """
     Buyer confirms they received the item.
-    Atomically releases funds from Seller's locked_balance → available_balance.
+    Atomically releases funds from Seller's locked_balance:
+      - Platform commission is deducted and logged.
+      - Net proceeds are moved to the seller's available_balance.
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -706,23 +716,34 @@ class BuyerConfirmReceiptView(APIView):
                 if seller_wallet.locked_balance < order.total_price:
                     return Response({"error": "Insufficient locked balance for this order."}, status=400)
 
-                seller_wallet.locked_balance -= order.total_price
-                seller_wallet.available_balance += order.total_price
+                order_total = order.total_price
+
+                commission = min(order_total * GLAPP_COMMISSION_RATE, GLAPP_COMMISSION_CAP)
+                net_payout = order_total - commission
+
+                seller_wallet.locked_balance -= order_total
+                seller_wallet.available_balance += net_payout
                 seller_wallet.save()
+
+                PlatformRevenue.add_commission(commission)
 
                 Transaction.objects.create(
                     wallet=seller_wallet,
-                    amount=order.total_price,
+                    amount=net_payout,
                     transaction_type=Transaction.TransactionType.ESCROW_RELEASE,
                     status=Transaction.Status.SUCCESS,
                     related_order_id=str(order.id),
-                    description=f"Funds released for Order #{order.id}"
+                    description=f"Funds released for Order #{order.id} (Commission: ₦{commission})"
                 )
 
                 order.payment_status = Order.PaymentStatus.CONFIRMED
                 order.save()
 
-                return Response({"message": "Receipt confirmed! Funds released to seller."}, status=200)
+                return Response({
+                    "message": "Receipt confirmed! Funds released to seller.",
+                    "net_payout": str(net_payout),
+                    "commission": str(commission)
+                }, status=200)
 
         except Order.DoesNotExist:
             return Response({"error": "Order not found."}, status=404)
