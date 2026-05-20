@@ -75,15 +75,14 @@ class ShopCreateView(generics.CreateAPIView):
 
 
 class ShopUpdateView(generics.UpdateAPIView):
-    """ Allows a merchant to update their own shop details (logo, name, etc.) """
     serializer_class = ShopSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_object(self):
         return get_object_or_404(Shop, owner=self.request.user)
 
-    def perform_update(self, serializer):
-        serializer.save()
+    def post(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
 
 class MerchantOnboardingView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -1010,8 +1009,10 @@ class ProductUpdateView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Isolation: Vendors can only access and update products from their own shop
         return Product.objects.filter(shop__owner=self.request.user)
+
+    def post(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
 
 
 class SellerOrderDetailView(generics.RetrieveUpdateAPIView):
