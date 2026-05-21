@@ -23,10 +23,14 @@ class CustomRegisterView(APIView):
         last_name = request.data.get('last_name', '')
 
         # 1. Structural Validation Checklist
+        print(f"📥 REGISTRATION INCOMING: email={email!r}, password={'***' if password else None}, first_name={first_name!r}, last_name={last_name!r}")
+
         if not email or not password:
+            print(f"❌ REGISTRATION FAIL: missing fields — email={email!r}, password={'***' if password else None}")
             return Response({"status": "error", "message": "Email and password are required fields."}, status=status.HTTP_400_BAD_REQUEST)
 
         if User.objects.filter(email=email).exists():
+            print(f"❌ REGISTRATION FAIL: duplicate email={email!r}")
             return Response({"status": "error", "message": "An account with this email address already exists."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
@@ -256,13 +260,19 @@ class CustomLoginView(APIView):
     def post(self, request):
         email = request.data.get('email')
         password = request.data.get('password')
-        
+
+        print(f"📥 LOGIN INCOMING: email={email!r}, password={'***' if password else None}")
+
         # Django's ModelBackend expects the identifier in the 'username' keyword argument
         # even when USERNAME_FIELD is 'email'. We check both to be completely bulletproof.
         user = authenticate(username=email, password=password)
         if user is None:
             user = authenticate(email=email, password=password)
-        
+
+        if user is None:
+            reason = "inactive" if User.objects.filter(email=email, is_active=False).exists() else "invalid credentials or nonexistent email"
+            print(f"❌ LOGIN FAIL: {reason} — email={email!r}")
+
         if user is not None:
             refresh = RefreshToken.for_user(user)
             token_string = str(refresh.access_token)
