@@ -31,10 +31,10 @@ class Message(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
         related_name='received_messages', null=True, blank=True
     )
-    text = models.TextField()
-    attachment = models.URLField(max_length=500, blank=True, null=True)
+    text = models.TextField(blank=True, default='')
+    image_url = models.URLField(max_length=500, blank=True, null=True)
     is_read = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         ordering = ['created_at']
