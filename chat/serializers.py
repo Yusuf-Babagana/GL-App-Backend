@@ -2,7 +2,6 @@ from rest_framework import serializers
 from .models import Conversation, Message
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-from django.db.models import Max, Count, Q, OuterRef, Subquery
 
 User = get_user_model()
 
@@ -16,13 +15,13 @@ class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
         fields = [
-            'id', 'conversation', 'text', 'attachment',
+            'id', 'conversation', 'text', 'image_url',
             'sender', 'sender_id', 'sender_name', 'sender_image',
             'recipient', 'is_read', 'is_me', 'created_at',
         ]
         read_only_fields = [
             'id', 'sender', 'sender_id', 'sender_name', 'sender_image',
-            'recipient', 'is_read', 'is_me', 'created_at',
+            'recipient', 'is_read', 'is_me', 'created_at', 'conversation',
         ]
 
     def get_sender_name(self, obj):
@@ -41,6 +40,25 @@ class MessageSerializer(serializers.ModelSerializer):
         if request:
             return obj.sender == request.user
         return False
+
+
+class MessageCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Message
+        fields = [
+            'id', 'conversation', 'sender', 'recipient',
+            'text', 'image_url', 'is_read', 'created_at',
+        ]
+        read_only_fields = [
+            'id', 'sender', 'recipient', 'is_read', 'created_at',
+        ]
+
+    def validate(self, attrs):
+        if not attrs.get('text') and not attrs.get('image_url'):
+            raise serializers.ValidationError(
+                'text or image_url is required'
+            )
+        return attrs
 
 
 class ConversationListSerializer(serializers.ModelSerializer):
@@ -77,7 +95,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
     def get_other_user_name(self, obj):
         other = self._get_other_participant(obj)
         if other is None:
-            return "Unknown User"
+            return 'Unknown User'
         if hasattr(other, 'merchant_shop') and other.merchant_shop:
             return other.merchant_shop.name
         return other.full_name or other.email
@@ -98,25 +116,25 @@ class ConversationListSerializer(serializers.ModelSerializer):
     def get_other_user_status(self, obj):
         other = self._get_other_participant(obj)
         if other is None:
-            return "Offline"
+            return 'Offline'
         if other.is_online:
-            return "Active now"
+            return 'Active now'
         if other.last_seen:
             delta = timezone.now() - other.last_seen
             if delta.total_seconds() < 300:
-                return "Active now"
+                return 'Active now'
             if delta.total_seconds() < 86400:
                 minutes = int(delta.total_seconds() // 60)
-                return f"Active {minutes}m ago"
+                return f'Active {minutes}m ago'
             return f"Last seen {other.last_seen.strftime('%d %b')}"
-        return "Offline"
+        return 'Offline'
 
     def get_last_message(self, obj):
         try:
             return obj.last_message_text
         except AttributeError:
             last = obj.messages.order_by('-created_at').first()
-            return last.text if last else "New Conversation"
+            return last.text if last else 'New Conversation'
 
     def get_last_message_time(self, obj):
         try:
@@ -130,7 +148,9 @@ class ConversationListSerializer(serializers.ModelSerializer):
         try:
             return obj.unread_count_value
         except AttributeError:
-            return obj.messages.filter(is_read=False).exclude(sender=user).count()
+            return obj.messages.filter(
+                is_read=False
+            ).exclude(sender=user).count()
 
 
 class ConversationDetailSerializer(serializers.ModelSerializer):
@@ -160,7 +180,7 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
     def get_other_user_name(self, obj):
         other = self._get_other_participant(obj)
         if other is None:
-            return "Unknown User"
+            return 'Unknown User'
         if hasattr(other, 'merchant_shop') and other.merchant_shop:
             return other.merchant_shop.name
         return other.full_name or other.email
@@ -179,7 +199,7 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
         return None
 
     def get_messages(self, obj):
-        messages = obj.messages.select_related('sender', 'recipient').all()
+        qs = obj.messages.select_related('sender').all()
         return MessageSerializer(
-            messages, many=True, context=self.context
+            qs, many=True, context=self.context
         ).data
