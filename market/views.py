@@ -353,26 +353,28 @@ class ProductCreateView(APIView):
                 image_links = []
 
         try:
-            product = Product.objects.create(
-                shop=shop,
-                name=name,
-                description=description,
-                price=price,
-                stock=stock,
-                category=category,
-                image=image_value,
-                video=video_value if video_value else '',
-                is_ad=True,
-            )
+            with transaction.atomic():
+                product = Product.objects.create(
+                    shop=shop,
+                    name=name,
+                    description=description,
+                    price=price,
+                    stock=stock,
+                    category=category,
+                    image=image_value,
+                    video=video_value if video_value else '',
+                    is_ad=request.data.get('is_ad', False),
+                    currency=request.data.get('currency', 'NGN'),
+                )
 
-            if isinstance(image_links, list):
-                for i, link in enumerate(image_links):
-                    if link:
-                        ProductImage.objects.create(
-                            product=product,
-                            image=link,
-                            is_primary=(i == 0 and not image_value)
-                        )
+                if isinstance(image_links, list):
+                    for i, link in enumerate(image_links):
+                        if link:
+                            ProductImage.objects.create(
+                                product=product,
+                                image=link,
+                                is_primary=(i == 0 and not image_value)
+                            )
 
             return Response({
                 "message": "Product created successfully",
@@ -386,7 +388,8 @@ class ProductCreateView(APIView):
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            return Response({"error": f"Failed to create product: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.exception("Product creation failed")
+            return Response({"error": "Failed to create product. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # --- PUBLIC BROWSING ---
 
