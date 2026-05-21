@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Third Party
+    'channels',
     'rest_framework',
     'rest_framework.authtoken',
     'dj_rest_auth',
@@ -92,6 +93,13 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'globalink_core.wsgi.application'
+ASGI_APPLICATION = 'globalink_core.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}
 
 # 7. Database
 DATABASES = {
