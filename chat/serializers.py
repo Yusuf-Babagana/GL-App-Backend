@@ -2,66 +2,184 @@ from rest_framework import serializers
 from .models import Conversation, Message
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.db.models import Max, Count, Q, OuterRef, Subquery
 
 User = get_user_model()
 
+
 class MessageSerializer(serializers.ModelSerializer):
+    sender_id = serializers.IntegerField(source='sender.id', read_only=True)
+    sender_name = serializers.SerializerMethodField()
+    sender_image = serializers.SerializerMethodField()
     is_me = serializers.SerializerMethodField()
-    # Adding sender_id explicitly helps the frontend logic
-    sender_id = serializers.ReadOnlyField(source='sender.id')
 
     class Meta:
         model = Message
-        # Include sender_id for the frontend 'isMe' check
-        fields = ['id', 'text', 'sender', 'sender_id', 'is_me', 'created_at']
+        fields = [
+            'id', 'conversation', 'text', 'attachment',
+            'sender', 'sender_id', 'sender_name', 'sender_image',
+            'recipient', 'is_read', 'is_me', 'created_at',
+        ]
+        read_only_fields = [
+            'id', 'sender', 'sender_id', 'sender_name', 'sender_image',
+            'recipient', 'is_read', 'is_me', 'created_at',
+        ]
+
+    def get_sender_name(self, obj):
+        return obj.sender.full_name or obj.sender.email
+
+    def get_sender_image(self, obj):
+        if obj.sender.profile_image:
+            try:
+                return obj.sender.profile_image.url
+            except Exception:
+                pass
+        return None
 
     def get_is_me(self, obj):
-        return obj.sender == self.context['request'].user
+        request = self.context.get('request')
+        if request:
+            return obj.sender == request.user
+        return False
 
-class ConversationSerializer(serializers.ModelSerializer):
+
+class ConversationListSerializer(serializers.ModelSerializer):
     other_user_name = serializers.SerializerMethodField()
-    other_user_id = serializers.SerializerMethodField() # Added for navigation
+    other_user_id = serializers.SerializerMethodField()
+    other_user_image = serializers.SerializerMethodField()
+    other_user_status = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
-    unread_count = serializers.SerializerMethodField() # Added for badges
-    other_user_status = serializers.SerializerMethodField() # Added for online status
+    last_message_time = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+    product_context_id = serializers.IntegerField(
+        source='product_context_id', read_only=True
+    )
 
     class Meta:
         model = Conversation
-        fields = ['id', 'other_user_name', 'other_user_id', 'other_user_status', 'last_message', 'unread_count', 'updated_at']
+        fields = [
+            'id', 'other_user_name', 'other_user_id', 'other_user_image',
+            'other_user_status', 'last_message', 'last_message_time',
+            'unread_count', 'product_context_id', 'updated_at',
+        ]
+
+    def _get_other_participant(self, obj):
+        user = self.context['request'].user
+        try:
+            return obj.other_participant
+        except AttributeError:
+            for p in obj.participants.all():
+                if p.id != user.id:
+                    obj.other_participant = p
+                    return p
+        return None
 
     def get_other_user_name(self, obj):
-        user = self.context['request'].user
-        other = obj.participants.exclude(id=user.id).first()
-        if other:
-            if hasattr(other, 'merchant_shop'):
-                return other.merchant_shop.name
-            return other.full_name or other.email
-        return "Unknown User"
+        other = self._get_other_participant(obj)
+        if other is None:
+            return "Unknown User"
+        if hasattr(other, 'merchant_shop') and other.merchant_shop:
+            return other.merchant_shop.name
+        return other.full_name or other.email
 
     def get_other_user_id(self, obj):
-        user = self.context['request'].user
-        other = obj.participants.exclude(id=user.id).first()
+        other = self._get_other_participant(obj)
         return other.id if other else None
 
+    def get_other_user_image(self, obj):
+        other = self._get_other_participant(obj)
+        if other and other.profile_image:
+            try:
+                return other.profile_image.url
+            except Exception:
+                pass
+        return None
+
+    def get_other_user_status(self, obj):
+        other = self._get_other_participant(obj)
+        if other is None:
+            return "Offline"
+        if other.is_online:
+            return "Active now"
+        if other.last_seen:
+            delta = timezone.now() - other.last_seen
+            if delta.total_seconds() < 300:
+                return "Active now"
+            if delta.total_seconds() < 86400:
+                minutes = int(delta.total_seconds() // 60)
+                return f"Active {minutes}m ago"
+            return f"Last seen {other.last_seen.strftime('%d %b')}"
+        return "Offline"
+
     def get_last_message(self, obj):
-        last = obj.messages.order_by('-created_at').first()
-        return last.text if last else "New Conversation"
+        try:
+            return obj.last_message_text
+        except AttributeError:
+            last = obj.messages.order_by('-created_at').first()
+            return last.text if last else "New Conversation"
+
+    def get_last_message_time(self, obj):
+        try:
+            return obj.last_message_time_iso
+        except AttributeError:
+            last = obj.messages.order_by('-created_at').first()
+            return last.created_at.isoformat() if last else None
 
     def get_unread_count(self, obj):
         user = self.context['request'].user
-        # Count messages not sent by me that are still 'is_read=False'
-        return obj.messages.filter(is_read=False).exclude(sender=user).count()
+        try:
+            return obj.unread_count_value
+        except AttributeError:
+            return obj.messages.filter(is_read=False).exclude(sender=user).count()
 
-    def get_other_user_status(self, obj):
+
+class ConversationDetailSerializer(serializers.ModelSerializer):
+    messages = serializers.SerializerMethodField()
+    other_user_name = serializers.SerializerMethodField()
+    other_user_id = serializers.SerializerMethodField()
+    other_user_image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Conversation
+        fields = [
+            'id', 'other_user_name', 'other_user_id', 'other_user_image',
+            'product_context_id', 'messages', 'created_at', 'updated_at',
+        ]
+
+    def _get_other_participant(self, obj):
         user = self.context['request'].user
-        other = obj.participants.exclude(id=user.id).first()
-        if other:
-            # If the user logged in within the last 5 minutes, consider them "Active Now"
-            if other.last_login and (timezone.now() - other.last_login).total_seconds() < 300:
-                return "Active now"
-            elif other.last_login:
-                return f"Last seen {other.last_login.strftime('%H:%M')}"
-        return "Offline"
-        user = self.context['request'].user
-        # Count messages not sent by me that are still 'is_read=False'
-        return obj.messages.filter(is_read=False).exclude(sender=user).count()
+        try:
+            return obj.other_participant
+        except AttributeError:
+            for p in obj.participants.all():
+                if p.id != user.id:
+                    obj.other_participant = p
+                    return p
+        return None
+
+    def get_other_user_name(self, obj):
+        other = self._get_other_participant(obj)
+        if other is None:
+            return "Unknown User"
+        if hasattr(other, 'merchant_shop') and other.merchant_shop:
+            return other.merchant_shop.name
+        return other.full_name or other.email
+
+    def get_other_user_id(self, obj):
+        other = self._get_other_participant(obj)
+        return other.id if other else None
+
+    def get_other_user_image(self, obj):
+        other = self._get_other_participant(obj)
+        if other and other.profile_image:
+            try:
+                return other.profile_image.url
+            except Exception:
+                pass
+        return None
+
+    def get_messages(self, obj):
+        messages = obj.messages.select_related('sender', 'recipient').all()
+        return MessageSerializer(
+            messages, many=True, context=self.context
+        ).data
