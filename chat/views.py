@@ -9,8 +9,12 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
+try:
+    from asgiref.sync import async_to_sync
+    from channels.layers import get_channel_layer
+    CHANNELS_AVAILABLE = True
+except ImportError:
+    CHANNELS_AVAILABLE = False
 
 from .models import Conversation, Message
 from .serializers import (
@@ -53,32 +57,39 @@ def send_expo_push_notification(token, title, body, data=None):
 
 
 def broadcast_message(message):
-    channel_layer = get_channel_layer()
-    conv_id = message.conversation_id
-    group_name = f"chat_{conv_id}"
-    async_to_sync(channel_layer.group_send)(
-        group_name,
-        {
-            "type": "new_message",
-            "payload": {
-                "id": message.id,
-                "conversation": conv_id,
-                "text": message.text,
-                "attachment": message.attachment,
-                "sender": message.sender_id,
-                "sender_id": message.sender_id,
-                "sender_name": message.sender.full_name or message.sender.email,
-                "sender_image": (
-                    message.sender.profile_image.url
-                    if message.sender.profile_image
-                    else None
-                ),
-                "recipient": message.recipient_id,
-                "is_read": message.is_read,
-                "created_at": message.created_at.isoformat(),
+    if not CHANNELS_AVAILABLE:
+        return
+    try:
+        channel_layer = get_channel_layer()
+        if channel_layer is None:
+            return
+        conv_id = message.conversation_id
+        group_name = f"chat_{conv_id}"
+        async_to_sync(channel_layer.group_send)(
+            group_name,
+            {
+                "type": "new_message",
+                "payload": {
+                    "id": message.id,
+                    "conversation": conv_id,
+                    "text": message.text,
+                    "attachment": message.attachment,
+                    "sender": message.sender_id,
+                    "sender_id": message.sender_id,
+                    "sender_name": message.sender.full_name or message.sender.email,
+                    "sender_image": (
+                        message.sender.profile_image.url
+                        if message.sender.profile_image
+                        else None
+                    ),
+                    "recipient": message.recipient_id,
+                    "is_read": message.is_read,
+                    "created_at": message.created_at.isoformat(),
+                },
             },
-        },
-    )
+        )
+    except Exception as exc:
+        logger.warning(f"WebSocket broadcast failed: {exc}")
 
 
 class InboxListView(generics.ListAPIView):

@@ -49,7 +49,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Third Party
-    'channels',
     'rest_framework',
     'rest_framework.authtoken',
     'dj_rest_auth',
@@ -63,6 +62,15 @@ INSTALLED_APPS = [
     'finance',
     'chat'
 ]
+
+# Channels (optional — only if package is installed)
+try:
+    import channels  # noqa
+    INSTALLED_APPS.insert(
+        INSTALLED_APPS.index('rest_framework'), 'channels'
+    )
+except ImportError:
+    pass
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -93,13 +101,14 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'globalink_core.wsgi.application'
-ASGI_APPLICATION = 'globalink_core.asgi.application'
 
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer',
-    },
-}
+if 'channels' in INSTALLED_APPS:
+    ASGI_APPLICATION = 'globalink_core.asgi.application'
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        },
+    }
 
 # 7. Database
 DATABASES = {
