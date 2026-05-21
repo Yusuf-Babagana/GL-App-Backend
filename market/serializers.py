@@ -88,7 +88,11 @@ class ProductSerializer(serializers.ModelSerializer):
             'currency', 'cloudinary_url', 'chat_partner_id', 'chat_partner_name', 
             'chat_partner_image', 'created_at', 'seller_id', 'shop_name'
         ]
-        read_only_fields = ['shop', 'average_rating', 'total_reviews']
+        read_only_fields = [
+            'shop', 'average_rating', 'total_reviews', 'created_at',
+            'chat_partner_id', 'chat_partner_name', 'chat_partner_image',
+            'seller_id', 'shop_name', 'video_ad_url',
+        ]
 
     def to_internal_value(self, data):
         # Handle empty strings from FormData
