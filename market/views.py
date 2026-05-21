@@ -1011,7 +1011,44 @@ class ProductUpdateView(generics.RetrieveUpdateAPIView):
     def get_queryset(self):
         return Product.objects.filter(shop__owner=self.request.user)
 
+    def _validate_lookup(self, request, *args, **kwargs):
+        pk = kwargs.get('pk')
+        if pk is None:
+            return False, Response(
+                {"error": "Malformed or missing identifier parameters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            int(pk)
+        except (TypeError, ValueError):
+            return False, Response(
+                {"error": "Malformed or missing identifier parameters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return True, None
+
+    def get(self, request, *args, **kwargs):
+        valid, error = self._validate_lookup(request, *args, **kwargs)
+        if not valid:
+            return error
+        return self.retrieve(request, *args, **kwargs)
+
+    def put(self, request, *args, **kwargs):
+        valid, error = self._validate_lookup(request, *args, **kwargs)
+        if not valid:
+            return error
+        return self.update(request, *args, **kwargs)
+
+    def patch(self, request, *args, **kwargs):
+        valid, error = self._validate_lookup(request, *args, **kwargs)
+        if not valid:
+            return error
+        return self.partial_update(request, *args, **kwargs)
+
     def post(self, request, *args, **kwargs):
+        valid, error = self._validate_lookup(request, *args, **kwargs)
+        if not valid:
+            return error
         return self.partial_update(request, *args, **kwargs)
 
 
