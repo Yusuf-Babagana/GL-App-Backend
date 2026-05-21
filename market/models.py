@@ -129,6 +129,7 @@ class Product(models.Model):
     
     image = models.CharField(max_length=500, blank=True, null=True)
     video = models.URLField(max_length=500, blank=True, null=True) 
+    video_ad_url = models.URLField(max_length=500, blank=True, null=True)
     is_ad = models.BooleanField(default=False)
     average_rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_reviews = models.IntegerField(default=0)

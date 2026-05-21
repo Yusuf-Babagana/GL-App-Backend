@@ -84,7 +84,7 @@ class ProductSerializer(serializers.ModelSerializer):
         model = Product
         fields = [
             'id', 'name', 'price', 'shop', 'image', 'images', 
-            'video', 'video_url', 'is_ad', 'stock', 'description', 'category',
+            'video', 'video_ad_url', 'video_url', 'is_ad', 'stock', 'description', 'category',
             'currency', 'cloudinary_url', 'chat_partner_id', 'chat_partner_name', 
             'chat_partner_image', 'created_at', 'seller_id', 'shop_name'
         ]

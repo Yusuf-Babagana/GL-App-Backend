@@ -54,8 +54,8 @@ class ShopAdmin(admin.ModelAdmin):
 # Safely register the remaining core e-commerce models with standard layout views
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('name', 'shop', 'price', 'stock')
-    search_fields = ('name', 'shop__name')
+    list_display = ('name', 'shop', 'price', 'stock', 'is_ad', 'video_ad_url')
+    search_fields = ('name', 'shop__name', 'video_ad_url')
 
 admin.site.register(Category)
 admin.site.register(Order)
