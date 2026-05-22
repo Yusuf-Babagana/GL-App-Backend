@@ -50,4 +50,11 @@ class Command(BaseCommand):
             else:
                 self.stdout.write('Migration already registered')
 
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM django_migrations WHERE app='finance' AND name IN ('0006_rename_balance_fields', '0007_platformrevenue_withdrawalticket_and_more')"
+            )
+            if cursor.rowcount:
+                self.stdout.write(self.style.WARNING(f'Cleaned {cursor.rowcount} orphaned finance migration(s)'))
+
         self.stdout.write(self.style.SUCCESS('Chat tables ready'))

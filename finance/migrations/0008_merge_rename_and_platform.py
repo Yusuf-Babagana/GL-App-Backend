@@ -6,11 +6,6 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
 
-    replaces = [
-        ('finance', '0006_rename_balance_fields'),
-        ('finance', '0007_platformrevenue_withdrawalticket_and_more'),
-    ]
-
     dependencies = [
         ('finance', '0005_remove_bankaccount_is_primary_and_more'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
