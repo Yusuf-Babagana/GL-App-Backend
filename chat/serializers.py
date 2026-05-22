@@ -11,7 +11,7 @@ class MessageSerializer(serializers.ModelSerializer):
             'id', 'conversation', 'sender', 'sender_name', 'text',
             'is_read', 'created_at',
         ]
-        read_only_fields = ['id', 'sender', 'sender_name', 'created_at']
+        read_only_fields = ['id', 'sender', 'sender_name', 'conversation', 'created_at']
 
     def get_sender_name(self, obj):
         return obj.sender.full_name or obj.sender.email
