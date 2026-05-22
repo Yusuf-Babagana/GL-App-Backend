@@ -284,31 +284,91 @@ class DataHistoryView(generics.ListAPIView):
 class DataVariationsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    # Values are (network_key_for_nellobyte, display_label)
+    NETWORK_MAPPING = {
+        'mtn-data':    ('MTN',     'MTN'),
+        'glo-data':    ('Glo',     'Glo'),
+        'airtel-data': ('Airtel',  'Airtel'),
+        '9mobile-data':('9mobile', '9mobile'),
+    }
+
+    def _get_plan_field(self, plan, *keys, default=None):
+        """Try multiple possible field names from Nellobyte response."""
+        for key in keys:
+            val = plan.get(key)
+            if val is not None:
+                return val
+        return default
+
+    def _format_plan(self, plan, provider_label=None):
+        """
+        Format a raw Nellobyte V2 PRODUCT item into the standardized response.
+
+        Nellobyte V2 fields:  PRODUCT_ID, PRODUCT_NAME, PRODUCT_AMOUNT, PRODUCT_CODE
+        Fallbacks for older / alternative field conventions are kept.
+        """
+        variation_code = str(self._get_plan_field(
+            plan,
+            'PRODUCT_ID', 'ID', 'variation_code', 'id',
+            default=''
+        ))
+        name = str(self._get_plan_field(
+            plan,
+            'PRODUCT_NAME', 'name', 'Name', 'plan_name', 'PlanName',
+            default=''
+        ))
+        original_price = float(self._get_plan_field(
+            plan,
+            'PRODUCT_AMOUNT',          # ← real Nellobyte V2 field
+            'price', 'Price',
+            'amount', 'Amount',
+            'variation_amount',
+            default=0
+        ))
+        selling_price = original_price + 50
+        plan_type = str(self._get_plan_field(plan, 'type', 'Type', default='Standard'))
+
+        formatted = {
+            "variation_code": variation_code,
+            "name": name,
+            "variation_amount": str(round(selling_price, 2)),
+            "original_amount":  str(round(original_price, 2)),
+            "type": plan_type,
+        }
+        if provider_label:
+            formatted["provider"] = provider_label
+        return formatted
+
     def get(self, request):
-        service_id = request.query_params.get('service_id') # e.g., 'mtn-data'
+        service_id = request.query_params.get('service_id')  # e.g., 'mtn-data' or 'all'
         client = NellobyteClient()
-        
-        # Map your frontend string to Nellobyte's numeric network ID
-        network_mapping = {'mtn-data': '1', 'glo-data': '2', 'airtel-data': '3', '9mobile-data': '4'}
-        network_id = network_mapping.get(service_id)
 
-        if not network_id:
-            return Response({"error": "Invalid service"}, status=400)
+        # Handle "ALL" providers - fetch plans from every network and merge
+        if not service_id or service_id.lower() == 'all':
+            all_plans = []
+            for svc, (net_id, label) in self.NETWORK_MAPPING.items():
+                try:
+                    raw = client.fetch_all_variations(net_id)
+                    for plan in raw:
+                        formatted = self._format_plan(plan, provider_label=label)
+                        formatted['service_id'] = svc
+                        all_plans.append(formatted)
+                except Exception as e:
+                    logger.error(f"Failed to fetch plans for {svc}: {e}")
+                    continue
+            return Response({"plans": all_plans})
 
+        # Handle specific provider
+        mapping = self.NETWORK_MAPPING.get(service_id)
+        if not mapping:
+            return Response({"error": f"Unknown service: {service_id}"}, status=400)
+
+        network_id, provider_label = mapping
         all_plans = client.fetch_all_variations(network_id)
 
         formatted_plans = []
         for plan in all_plans:
-            # Add your profit margin (e.g., ₦50)
-            original_price = float(plan.get('price', 0))
-            selling_price = original_price + 50 
-
-            formatted_plans.append({
-                "variation_code": str(plan.get('ID')),
-                "name": str(plan.get('name', '')).upper(),
-                "variation_amount": str(int(selling_price)),
-                "type": plan.get('type', 'Standard') # e.g., 'SME' or 'Gifting'
-            })
+            formatted_plans.append(self._format_plan(plan, provider_label=provider_label))
 
         return Response({"plans": formatted_plans})
 

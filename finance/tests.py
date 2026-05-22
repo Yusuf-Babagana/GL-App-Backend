@@ -112,5 +112,37 @@ class DataPurchaseTests(TestCase):
         response = self.client.get(url, {'service_id': 'mtn-data'}, **self.headers)
         
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()['plans']), 2)
-        self.assertEqual(response.json()['plans'][0]['variation_code'], "1")
+        data = response.json()
+        self.assertEqual(len(data['plans']), 2)
+        self.assertEqual(data['plans'][0]['variation_code'], "1")
+        self.assertEqual(data['plans'][0]['name'], "500MB")
+        self.assertEqual(data['plans'][0]['variation_amount'], "150")  # 100 + 50 profit
+        self.assertEqual(data['plans'][0]['type'], "Standard")
+
+    @patch('finance.views.NellobyteClient.fetch_all_variations')
+    def test_data_variations_all_providers(self, mock_fetch):
+        # Same mock for all 4 providers
+        mock_fetch.return_value = [
+            {"ID": "1", "Name": "500MB", "Amount": "100.00"},
+        ]
+
+        url = reverse('data-plans')
+        response = self.client.get(url, {'service_id': 'all'}, **self.headers)
+        
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        # Should have 4 plans (one from each provider)
+        self.assertEqual(len(data['plans']), 4)
+        # Each plan should have a provider label
+        providers = {p['provider'] for p in data['plans']}
+        self.assertEqual(providers, {'MTN', 'Glo', 'Airtel', '9mobile'})
+
+    @patch('finance.views.NellobyteClient.fetch_all_variations')
+    def test_data_variations_empty_plans(self, mock_fetch):
+        mock_fetch.return_value = []
+
+        url = reverse('data-plans')
+        response = self.client.get(url, {'service_id': 'mtn-data'}, **self.headers)
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['plans'], [])

@@ -17,21 +17,52 @@ class NellobyteClient:
         }
         return mapping.get(service_id.lower(), '01')
 
-    def fetch_all_variations(self, network_id):
+    # Maps app-friendly network key to the key used in the V2 API response
+    NETWORK_KEY_MAP = {
+        'MTN':     'MTN',
+        'Glo':     'Glo',
+        'Airtel':  'Airtel',
+        '9mobile': 'm_9mobile',
+    }
+
+    def fetch_all_variations(self, network_key):
         """
-        Fetches all available plans for a specific network (1=MTN, 2=Glo, etc.)
+        Fetches all available plans for a specific network using the V2 plans endpoint.
+
+        network_key: one of 'MTN', 'Glo', 'Airtel', '9mobile'
+
+        The V2 endpoint returns:
+        {
+            "MOBILE_NETWORK": {
+                "MTN":      [{ "ID": "01", "PRODUCT": [...] }],
+                "Glo":      [{ "ID": "02", "PRODUCT": [...] }],
+                "m_9mobile":[{ "ID": "03", "PRODUCT": [...] }],
+                "Airtel":   [{ "ID": "04", "PRODUCT": [...] }],
+            }
+        }
+        Each PRODUCT item has: PRODUCT_ID, PRODUCT_NAME, PRODUCT_AMOUNT, PRODUCT_CODE
         """
-        # Endpoint varies; usually: APIPackage.asp or APIDataPlan.asp
-        url = f"{self.base_url}/APIDataPlan.asp?UserID={self.user_id}&APIKey={self.api_key}&Network={network_id}"
-        
+        url = f"{self.base_url}/APIDatabundlePlansV2.asp?UserID={self.user_id}"
+
         try:
             response = requests.get(url, timeout=20)
             data = response.json()
-            # Nellobyte often returns plans under a 'dataplan' or 'packages' key
-            # But the new V1/V2 structure sometimes uses different keys. We'll stick to 'dataplan' as requested.
-            return data.get('DATAPLAN', data.get('dataplan', []))
+
+            mobile_networks = data.get('MOBILE_NETWORK', {})
+            api_key = self.NETWORK_KEY_MAP.get(network_key, network_key)
+            network_entries = mobile_networks.get(api_key, [])
+
+            if not network_entries:
+                print(f"[Nellobyte] No entries found for network '{network_key}' (api_key='{api_key}'). "
+                      f"Available keys: {list(mobile_networks.keys())}")
+                return []
+
+            # Each entry is { "ID": "01", "PRODUCT": [...] }
+            products = network_entries[0].get('PRODUCT', [])
+            return products
+
         except Exception as e:
-            print(f"Nellobyte Fetch Error: {e}")
+            print(f"[Nellobyte] fetch_all_variations error for '{network_key}': {e}")
             return []
 
     def purchase_data(self, request_id, service_id, data_plan, phone):
