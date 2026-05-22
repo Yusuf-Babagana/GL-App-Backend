@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from django.db import models
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
@@ -5,6 +6,8 @@ from rest_framework.response import Response
 
 from .models import Conversation, Message
 from .serializers import ConversationSerializer, MessageSerializer
+
+User = get_user_model()
 
 
 class ConversationListView(generics.ListAPIView):
@@ -70,3 +73,42 @@ class SendMessageView(generics.CreateAPIView):
             conversation=conversation,
             sender=self.request.user,
         )
+
+
+class StartConversationView(generics.GenericAPIView):
+    serializer_class = ConversationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_context(self):
+        return {'request': self.request}
+
+    def post(self, request):
+        seller_id = request.data.get('user_id') or request.data.get('seller_id')
+        product_id = request.data.get('product_id')
+        if not seller_id or not product_id:
+            return Response(
+                {'error': 'user_id and product_id are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        seller = get_object_or_404(User, id=seller_id)
+        if request.user == seller:
+            return Response(
+                {'error': 'You cannot chat with yourself'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from market.models import Product
+        product = get_object_or_404(Product, id=product_id)
+
+        conversation = Conversation.objects.filter(
+            buyer=request.user, seller=seller, product=product
+        ).first()
+
+        if not conversation:
+            conversation = Conversation.objects.create(
+                buyer=request.user, seller=seller, product=product
+            )
+
+        serializer = self.get_serializer(conversation)
+        return Response(serializer.data, status=status.HTTP_200_OK)
