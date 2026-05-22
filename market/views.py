@@ -388,7 +388,18 @@ class ProductCreateView(APIView):
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            logger.exception("Product creation failed")
+            logger.exception(
+                "Product creation failed — user=%s shop=%s data_keys=%s",
+                request.user.id,
+                shop.id if shop else None,
+                list(request.data.keys()),
+            )
+            import json as _json
+            safe_data = {
+                k: v if k not in ('image', 'images') else f'{type(v).__name__}(truncated)'
+                for k, v in request.data.items()
+            }
+            logger.error("Request data snapshot: %s", _json.dumps(safe_data, default=str))
             return Response({"error": "Failed to create product. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # --- PUBLIC BROWSING ---
