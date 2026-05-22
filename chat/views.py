@@ -111,36 +111,41 @@ class StartConversationView(generics.GenericAPIView):
                 {'error': 'Authentication required'},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-        seller_id = request.data.get('user_id') or request.data.get('seller_id')
-        if not seller_id:
+
+        sender_id = request.data.get('sender_id')
+        receiver_id = request.data.get('receiver_id')
+
+        if not sender_id or not receiver_id:
             return Response(
-                {'error': 'user_id is required'},
+                {'error': 'sender_id and receiver_id are required'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        seller = get_object_or_404(User, id=seller_id)
-        if request.user == seller:
+        if int(sender_id) != request.user.id:
+            return Response(
+                {'error': 'sender_id must match the authenticated user'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if int(sender_id) == int(receiver_id):
             return Response(
                 {'error': 'You cannot chat with yourself'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        product_id = request.data.get('product_id')
-        filters = {'buyer': request.user, 'seller': seller}
-        extra = {}
+        receiver = get_object_or_404(User, id=receiver_id)
 
-        if product_id:
-            from market.models import Product
-            product = get_object_or_404(Product, id=product_id)
-            filters['product'] = product
-            extra['product'] = product
-
-        conversation = Conversation.objects.filter(**filters).first()
+        conversation = Conversation.objects.filter(
+            models.Q(buyer=request.user, seller=receiver)
+            | models.Q(buyer=receiver, seller=request.user)
+        ).first()
 
         if not conversation:
             conversation = Conversation.objects.create(
-                buyer=request.user, seller=seller, **extra
+                buyer=request.user,
+                seller=receiver,
             )
 
-        serializer = self.get_serializer(conversation)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response({
+            'conversation_id': conversation.id,
+        }, status=status.HTTP_200_OK)

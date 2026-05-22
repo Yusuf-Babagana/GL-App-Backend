@@ -229,17 +229,18 @@ class UpdateBVNView(APIView):
 
     def post(self, request):
         bvn = request.data.get('bvn')
-        
+        print("DEBUG: BVN received:", bvn)
+
         if not bvn or len(str(bvn)) != 11:
+            print("DEBUG: BVN validation failed - not 11 digits")
             return Response({"error": "A valid 11-digit BVN is required"}, status=400)
-            
+
         user = request.user
         user.bvn = str(bvn).strip()
-        user.save() 
+        user.save()
+        print("DEBUG: BVN saved for user:", user.id)
 
-        # IMMEDIATELY try to create the account and return the result
         from finance.utils import MonnifyAPI
-        # Utility now returns (data, error_msg)
         acc_data, error_msg = MonnifyAPI.create_virtual_account(user)
 
         if acc_data:
@@ -248,10 +249,11 @@ class UpdateBVNView(APIView):
             wallet.bank_name = acc_data['bank_name']
             wallet.bank_code = acc_data['bank_code']
             wallet.save()
+            print("DEBUG: Virtual account created:", acc_data['account_number'])
             return Response({"message": "Success", "account": acc_data}, status=200)
-        
-        
-        return Response({"error": error_msg}, status=400)
+
+        print("DEBUG: Virtual account creation failed:", error_msg)
+        return Response({"error": error_msg or "Virtual account creation failed"}, status=400)
 
 
 class CustomLoginView(APIView):
