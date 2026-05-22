@@ -9,7 +9,8 @@ from .views import (
     WithdrawalView,
     BankListView,
     VerifyBankAccountView,
-    clubkonnect_deposit_webhook
+    clubkonnect_deposit_webhook,
+    webhook_data_callback,
 )
 
 urlpatterns = [
@@ -17,6 +18,7 @@ urlpatterns = [
     path('transactions/', TransactionListView.as_view(), name='transaction-list'),
     path('monnify-webhook/', MonnifyWebhookView.as_view(), name='monnify-webhook'),
     path('webhook/deposit/', clubkonnect_deposit_webhook, name='deposit_webhook'),
+    path('nellobyte-callback/', webhook_data_callback, name='nellobyte-callback'),
     path('banks/', BankListView.as_view(), name='bank-list'),
     path('verify-bank/', VerifyBankAccountView.as_view(), name='verify-bank'),
     path('withdraw/', WithdrawalView.as_view(), name='withdraw'),

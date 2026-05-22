@@ -68,6 +68,7 @@ class WalletDetailView(APIView):
 
 
 from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpResponse
 
 class MonnifyWebhookView(APIView):
     permission_classes = [AllowAny] # Publicly accessible for Monnify
@@ -468,3 +469,37 @@ def clubkonnect_deposit_webhook(request):
             return Response(f"Error: {str(e)}", status=400)
 
     return Response("Invalid Status", status=400)
+
+
+@csrf_exempt
+def webhook_data_callback(request):
+    orderid = request.GET.get('orderid')
+    statuscode = request.GET.get('statuscode')
+    orderstatus = request.GET.get('orderstatus', '')
+    orderremark = request.GET.get('orderremark', '')
+
+    logger.info(f"Nellobyte callback: orderid={orderid} statuscode={statuscode} orderstatus={orderstatus} orderremark={orderremark}")
+
+    if not orderid or not statuscode:
+        return HttpResponse("Missing orderid or statuscode", status=400)
+
+    try:
+        txn = Transaction.objects.get(reference=orderid, transaction_type=Transaction.TransactionType.BILL_PAYMENT)
+    except Transaction.DoesNotExist:
+        logger.error(f"Nellobyte callback: Transaction not found for orderid={orderid}")
+        return HttpResponse("Transaction not found", status=404)
+
+    if orderremark:
+        txn.description = (txn.description or '') + f" | Remark: {orderremark}"
+
+    if statuscode == '100':
+        txn.status = Transaction.Status.SUCCESS
+        txn.save()
+        logger.info(f"Nellobyte callback: Transaction {txn.id} marked SUCCESS (orderid={orderid})")
+        return HttpResponse("OK", status=200)
+    else:
+        txn.status = Transaction.Status.FAILED
+        txn.description += f" (Failed: code={statuscode})"
+        txn.save()
+        logger.warning(f"Nellobyte callback: Transaction {txn.id} marked FAILED (orderid={orderid}, code={statuscode})")
+        return HttpResponse("OK", status=200)
