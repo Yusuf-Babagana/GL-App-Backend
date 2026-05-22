@@ -19,7 +19,7 @@ class MessageSerializer(serializers.ModelSerializer):
 
 class ConversationSerializer(serializers.ModelSerializer):
     other_user_name = serializers.SerializerMethodField()
-    product_name = serializers.ReadOnlyField(source='product.name')
+    product_name = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
 
@@ -29,6 +29,9 @@ class ConversationSerializer(serializers.ModelSerializer):
             'id', 'other_user_name', 'product', 'product_name',
             'last_message', 'unread_count', 'created_at',
         ]
+
+    def get_product_name(self, obj):
+        return obj.product.name if obj.product else None
 
     def get_other_user_name(self, obj):
         request = self.context.get('request')
