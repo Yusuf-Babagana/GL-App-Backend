@@ -5,6 +5,7 @@ from .views import (
     TransactionListView,
     MonnifyWebhookView, 
     DataPurchaseView, 
+    DataHistoryView,
     DataVariationsView,
     WithdrawalView,
     BankListView,
@@ -25,5 +26,6 @@ urlpatterns = [
     path('withdraw/', WithdrawalView.as_view(), name='withdraw'),
     path('data/plans/', DataVariationsView.as_view(), name='data-plans'),
     path('data/purchase/', DataPurchaseView.as_view(), name='data-purchase'),
+    path('data/history/', DataHistoryView.as_view(), name='data-history'),
     path('pin/', SetTransactionPINView.as_view(), name='set-pin'),
 ]

@@ -16,7 +16,7 @@ from rest_framework import permissions, status, generics
 from django.db import transaction
 from .models import Wallet, Transaction, BankAccount, WithdrawalTicket, PlatformRevenue, MONNIFY_DEPOSIT_RATE, MONNIFY_DEPOSIT_CAP
 from market.models import Order
-from .serializers import WalletSerializer, TransactionSerializer
+from .serializers import WalletSerializer, TransactionSerializer, DataHistorySerializer
 
 MONNIFY_DEPOSIT_RATE = MONNIFY_DEPOSIT_RATE
 MONNIFY_DEPOSIT_CAP  = MONNIFY_DEPOSIT_CAP
@@ -269,6 +269,17 @@ class DataPurchaseView(APIView):
         except Exception as e:
             logger.error(f"Nellobyte Network/Critical Failure: {e}")
             return Response({"message": "Transaction submitted. Check history for status updates."}, status=202)
+
+class DataHistoryView(generics.ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DataHistorySerializer
+
+    def get_queryset(self):
+        return Transaction.objects.filter(
+            wallet=self.request.user.wallet,
+            transaction_type=Transaction.TransactionType.BILL_PAYMENT
+        ).order_by('-created_at')
+
 
 class DataVariationsView(APIView):
     permission_classes = [permissions.IsAuthenticated]

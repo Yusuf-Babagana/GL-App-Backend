@@ -40,6 +40,41 @@ class WalletSerializer(serializers.ModelSerializer):
         # Fallback to null so the frontend knows to show "Generating..."
         return None
 
+class DataHistorySerializer(serializers.ModelSerializer):
+    service_id = serializers.SerializerMethodField()
+    data_plan = serializers.SerializerMethodField()
+    phone = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Transaction
+        fields = ['id', 'amount', 'transaction_type', 'status', 'reference', 'description',
+                  'service_id', 'data_plan', 'phone', 'created_at']
+
+    def _parse_description(self, obj):
+        desc = obj.description or ''
+        if 'Nellobyte Data:' in desc:
+            try:
+                after = desc.split('Nellobyte Data:')[1].strip()
+                service_part = after.split('(')[0].strip()
+                plan_part = after.split('(')[1].split(')')[0].strip()
+                phone_part = after.split('to ')[-1].strip()
+                return service_part, plan_part, phone_part
+            except (IndexError, AttributeError):
+                pass
+        return None, None, None
+
+    def get_service_id(self, obj):
+        svc, _, _ = self._parse_description(obj)
+        return svc
+
+    def get_data_plan(self, obj):
+        _, plan, _ = self._parse_description(obj)
+        return plan
+
+    def get_phone(self, obj):
+        _, _, phone = self._parse_description(obj)
+        return phone
+
 class BankAccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = BankAccount
