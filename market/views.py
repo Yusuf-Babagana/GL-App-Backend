@@ -288,103 +288,17 @@ class ProductCreateView(APIView):
         if not shop.is_active:
             return Response({"error": "Your shop is pending activation."}, status=status.HTTP_403_FORBIDDEN)
 
-        errors = {}
-
-        name = request.data.get('name', '').strip()
-        if not name:
-            errors['name'] = 'This field is required.'
-
-        description = request.data.get('description', '').strip()
-        if not description:
-            errors['description'] = 'This field is required.'
-
-        price_raw = request.data.get('price')
-        if not price_raw:
-            errors['price'] = 'This field is required.'
-        else:
-            try:
-                price = Decimal(str(price_raw))
-                if price <= 0:
-                    errors['price'] = 'Price must be greater than zero.'
-            except Exception:
-                errors['price'] = 'Invalid decimal value for price.'
-
-        stock_raw = request.data.get('stock')
-        if stock_raw is not None and stock_raw != '':
-            try:
-                stock = int(str(stock_raw))
-                if stock < 0:
-                    errors['stock'] = 'Stock cannot be negative.'
-            except (ValueError, TypeError):
-                errors['stock'] = 'Invalid integer value for stock.'
-        else:
-            stock = 1
-
-        raw_category = request.data.get('category')
-        logger.debug("ProductCreateView raw category value: %r (type=%s)", raw_category, type(raw_category).__name__)
-        category = None
-        if raw_category or raw_category == 0:
-            try:
-                category = Category.objects.get(id=int(raw_category))
-            except (ValueError, TypeError):
-                errors['category'] = f'Invalid category identifier: expected integer, got {type(raw_category).__name__}'
-            except Category.DoesNotExist:
-                errors['category'] = f'Category with id={raw_category} does not exist.'
-
-        if errors:
+        serializer = ProductSerializer(data=request.data, context={'request': request})
+        if not serializer.is_valid():
             logger.warning(
-                "Product validation failed — user=%s data_keys=%s errors=%s",
+                "Product validation failed — user=%s errors=%s",
                 request.user.id,
-                list(request.data.keys()),
-                errors,
+                serializer.errors,
             )
-            return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
-
-        image_value = ''
-        if 'image' in request.FILES:
-            uploaded = request.FILES['image']
-            from django.core.files.storage import default_storage
-            from django.utils import timezone
-            ts = int(timezone.now().timestamp())
-            path = default_storage.save(f'products/{ts}_{uploaded.name}', uploaded)
-            image_value = default_storage.url(path)
-        elif request.data.get('image'):
-            image_value = request.data.get('image')
-
-        video_value = request.data.get('video_url', '')
-
-        image_links = request.data.get('images', [])
-        if isinstance(image_links, str):
-            try:
-                import json
-                image_links = json.loads(image_links)
-            except (json.JSONDecodeError, ValueError):
-                image_links = []
+            return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            with transaction.atomic():
-                product = Product.objects.create(
-                    shop=shop,
-                    name=name,
-                    description=description,
-                    price=price,
-                    stock=stock,
-                    category=category,
-                    image=image_value,
-                    video=video_value if video_value else '',
-                    is_ad=request.data.get('is_ad', False),
-                    currency=request.data.get('currency', 'NGN'),
-                )
-
-                if isinstance(image_links, list):
-                    for i, link in enumerate(image_links):
-                        if link:
-                            ProductImage.objects.create(
-                                product=product,
-                                image=link,
-                                is_primary=(i == 0 and not image_value)
-                            )
-
+            product = serializer.save(shop=shop)
             return Response({
                 "message": "Product created successfully",
                 "product": {
@@ -395,20 +309,12 @@ class ProductCreateView(APIView):
                     "image": product.image,
                 }
             }, status=status.HTTP_201_CREATED)
-
         except Exception as e:
             logger.exception(
-                "Product creation failed — user=%s shop=%s data_keys=%s",
+                "Product creation failed — user=%s shop=%s",
                 request.user.id,
-                shop.id if shop else None,
-                list(request.data.keys()),
+                shop.id,
             )
-            import json as _json
-            safe_data = {
-                k: v if k not in ('image', 'images') else f'{type(v).__name__}(truncated)'
-                for k, v in request.data.items()
-            }
-            logger.error("Request data snapshot: %s", _json.dumps(safe_data, default=str))
             return Response({"error": "Failed to create product. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # --- PUBLIC BROWSING ---
