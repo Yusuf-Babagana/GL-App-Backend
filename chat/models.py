@@ -12,7 +12,8 @@ class Conversation(models.Model):
         related_name='chat_conversations_as_seller'
     )
     product = models.ForeignKey(
-        'market.Product', on_delete=models.CASCADE, related_name='conversations'
+        'market.Product', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='conversations'
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

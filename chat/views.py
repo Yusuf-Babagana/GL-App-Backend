@@ -84,10 +84,9 @@ class StartConversationView(generics.GenericAPIView):
 
     def post(self, request):
         seller_id = request.data.get('user_id') or request.data.get('seller_id')
-        product_id = request.data.get('product_id')
-        if not seller_id or not product_id:
+        if not seller_id:
             return Response(
-                {'error': 'user_id and product_id are required'},
+                {'error': 'user_id is required'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -98,16 +97,21 @@ class StartConversationView(generics.GenericAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        from market.models import Product
-        product = get_object_or_404(Product, id=product_id)
+        product_id = request.data.get('product_id')
+        filters = {'buyer': request.user, 'seller': seller}
+        extra = {}
 
-        conversation = Conversation.objects.filter(
-            buyer=request.user, seller=seller, product=product
-        ).first()
+        if product_id:
+            from market.models import Product
+            product = get_object_or_404(Product, id=product_id)
+            filters['product'] = product
+            extra['product'] = product
+
+        conversation = Conversation.objects.filter(**filters).first()
 
         if not conversation:
             conversation = Conversation.objects.create(
-                buyer=request.user, seller=seller, product=product
+                buyer=request.user, seller=seller, **extra
             )
 
         serializer = self.get_serializer(conversation)
