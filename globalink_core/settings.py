@@ -15,7 +15,7 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 SECRET_KEY = env('SECRET_KEY')
 DEBUG = env.bool('DEBUG', default=False)
 
-ALLOWED_HOSTS = ['glappbackend.pythonanywhere.com', '127.0.0.1', 'localhost']
+ALLOWED_HOSTS = ['glappbackend.pythonanywhere.com', '127.0.0.1', 'localhost', 'testserver']
 
 # 4. Auth & User Model
 AUTH_USER_MODEL = 'users.User'
@@ -154,8 +154,8 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # 11. API & Security Settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.TokenAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
