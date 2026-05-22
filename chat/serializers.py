@@ -16,11 +16,11 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = [
             'id', 'conversation', 'text', 'image_url',
-            'sender', 'sender_id', 'sender_name', 'sender_image',
+            'sender_id', 'sender_name', 'sender_image',
             'recipient', 'is_read', 'is_me', 'created_at',
         ]
         read_only_fields = [
-            'id', 'sender', 'sender_id', 'sender_name', 'sender_image',
+            'id', 'sender_id', 'sender_name', 'sender_image',
             'recipient', 'is_read', 'is_me', 'created_at', 'conversation',
         ]
 
@@ -151,55 +151,3 @@ class ConversationListSerializer(serializers.ModelSerializer):
             return obj.messages.filter(
                 is_read=False
             ).exclude(sender=user).count()
-
-
-class ConversationDetailSerializer(serializers.ModelSerializer):
-    messages = serializers.SerializerMethodField()
-    other_user_name = serializers.SerializerMethodField()
-    other_user_id = serializers.SerializerMethodField()
-    other_user_image = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Conversation
-        fields = [
-            'id', 'other_user_name', 'other_user_id', 'other_user_image',
-            'product_context_id', 'messages', 'created_at', 'updated_at',
-        ]
-
-    def _get_other_participant(self, obj):
-        user = self.context['request'].user
-        try:
-            return obj.other_participant
-        except AttributeError:
-            for p in obj.participants.all():
-                if p.id != user.id:
-                    obj.other_participant = p
-                    return p
-        return None
-
-    def get_other_user_name(self, obj):
-        other = self._get_other_participant(obj)
-        if other is None:
-            return 'Unknown User'
-        if hasattr(other, 'merchant_shop') and other.merchant_shop:
-            return other.merchant_shop.name
-        return other.full_name or other.email
-
-    def get_other_user_id(self, obj):
-        other = self._get_other_participant(obj)
-        return other.id if other else None
-
-    def get_other_user_image(self, obj):
-        other = self._get_other_participant(obj)
-        if other and other.profile_image:
-            try:
-                return other.profile_image.url
-            except Exception:
-                pass
-        return None
-
-    def get_messages(self, obj):
-        qs = obj.messages.select_related('sender').all()
-        return MessageSerializer(
-            qs, many=True, context=self.context
-        ).data

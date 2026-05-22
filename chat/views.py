@@ -6,16 +6,8 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 
-try:
-    from asgiref.sync import async_to_sync
-    from channels.layers import get_channel_layer
-    CHANNELS_AVAILABLE = True
-except ImportError:
-    CHANNELS_AVAILABLE = False
-
 from .models import Conversation, Message
 from .serializers import (
-    ConversationDetailSerializer,
     ConversationListSerializer,
     MessageSerializer,
     MessageCreateSerializer,
@@ -52,42 +44,6 @@ def send_expo_push_notification(token, title, body, data=None):
     except requests.RequestException as exc:
         logger.error(f'Expo push notification failed: {exc}')
         return False
-
-
-def broadcast_message(message):
-    if not CHANNELS_AVAILABLE:
-        return
-    try:
-        channel_layer = get_channel_layer()
-        if channel_layer is None:
-            return
-        conv_id = message.conversation_id
-        group_name = f'chat_{conv_id}'
-        async_to_sync(channel_layer.group_send)(
-            group_name,
-            {
-                'type': 'new_message',
-                'payload': {
-                    'id': message.id,
-                    'conversation': conv_id,
-                    'text': message.text,
-                    'image_url': message.image_url,
-                    'sender': message.sender_id,
-                    'sender_id': message.sender_id,
-                    'sender_name': message.sender.full_name or message.sender.email,
-                    'sender_image': (
-                        message.sender.profile_image.url
-                        if message.sender.profile_image
-                        else None
-                    ),
-                    'recipient': message.recipient_id,
-                    'is_read': message.is_read,
-                    'created_at': message.created_at.isoformat(),
-                },
-            },
-        )
-    except Exception as exc:
-        logger.warning(f'WebSocket broadcast failed: {exc}')
 
 
 class InboxListView(generics.ListAPIView):
@@ -203,8 +159,10 @@ class MessageListCreateView(generics.ListCreateAPIView):
             except (ValueError, TypeError):
                 pass
 
-        unread = qs.filter(is_read=False).exclude(sender=user)
-        unread.update(is_read=True)
+        Message.objects.filter(
+            conversation_id=conversation_id,
+            is_read=False,
+        ).exclude(sender=user).update(is_read=True)
 
         return qs
 
@@ -226,8 +184,6 @@ class MessageListCreateView(generics.ListCreateAPIView):
         )
 
         conv.save(update_fields=['updated_at'])
-
-        broadcast_message(message)
 
         if recipient and not recipient.is_online:
             sender_name = (
