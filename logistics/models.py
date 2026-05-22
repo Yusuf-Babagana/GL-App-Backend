@@ -2,6 +2,37 @@ from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 
+
+class DataTransaction(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', _('Pending')
+        SUCCESS = 'success', _('Success')
+        FAILED = 'failed', _('Failed')
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='data_transactions'
+    )
+    request_id = models.CharField(max_length=100, unique=True)
+    order_id = models.CharField(max_length=100, null=True, blank=True)
+    service_id = models.CharField(max_length=50)
+    data_plan = models.CharField(max_length=100)
+    phone = models.CharField(max_length=20)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+    remark = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"DataTransaction #{self.id} - {self.service_id} to {self.phone} [{self.status}]"
+
+    class Meta:
+        ordering = ['-created_at']
+
+
 # We reference the Order model using a string to avoid circular import issues
 # if market.models imports logistics.models later.
 
