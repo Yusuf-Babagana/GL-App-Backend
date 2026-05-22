@@ -3,6 +3,9 @@ from decimal import Decimal
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpResponse
+import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import generics, status, permissions
@@ -11,6 +14,9 @@ from finance.models import Transaction
 from finance.utils import WalletManager
 from market.models import Order
 from market.serializers import OrderSerializer
+from .models import DataTransaction
+
+logger = logging.getLogger(__name__)
 
 class PurchaseDataView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -74,6 +80,37 @@ class PurchaseDataView(APIView):
             user.wallet.available_balance += float(amount)
             user.wallet.save()
             return Response({"error": f"Connection failed: {str(e)}"}, status=502)
+
+
+@csrf_exempt
+def nellobyte_callback(request):
+    orderid = request.GET.get('orderid')
+    statuscode = request.GET.get('statuscode')
+    orderstatus = request.GET.get('orderstatus', '')
+
+    logger.info(f"Nellobyte callback: orderid={orderid} statuscode={statuscode} orderstatus={orderstatus}")
+
+    if not orderid:
+        return HttpResponse("Missing orderid", status=400)
+
+    try:
+        txn = DataTransaction.objects.get(order_id=orderid)
+    except DataTransaction.DoesNotExist:
+        logger.error(f"Nellobyte callback: DataTransaction not found for orderid={orderid}")
+        return HttpResponse("Transaction not found", status=404)
+
+    if statuscode == '100':
+        txn.status = DataTransaction.Status.SUCCESS
+        txn.remark = f"statuscode={statuscode} orderstatus={orderstatus}"
+        txn.save()
+        logger.info(f"DataTransaction {txn.id} marked SUCCESS (orderid={orderid})")
+    else:
+        txn.status = DataTransaction.Status.FAILED
+        txn.remark = f"statuscode={statuscode} orderstatus={orderstatus}"
+        txn.save()
+        logger.warning(f"DataTransaction {txn.id} marked FAILED (orderid={orderid}, code={statuscode})")
+
+    return HttpResponse("OK", status=200)
 
 
 # ---------------------------------------------------------------------------
