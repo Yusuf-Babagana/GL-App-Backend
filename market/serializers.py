@@ -52,48 +52,19 @@ class ProductSerializer(serializers.ModelSerializer):
     category = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.all(), required=False, allow_null=True
     )
-
-    def validate_category(self, value):
-        import logging
-        logging.getLogger(__name__).debug("ProductSerializer category value received: %r (type=%s)", value, type(value).__name__)
-        return value
+    image = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+    video_url = serializers.URLField(
+        required=False, allow_blank=True, allow_null=True, source='video'
+    )
 
     # Receive URL from mobile app
     cloudinary_url = serializers.URLField(write_only=True, required=False)
-    # Allow 'video' to be a string or blank so the 'not a file' error stops
-    video = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    video_url = serializers.SerializerMethodField()
-    # Add 'image' field for single primary image access
-    image = serializers.SerializerMethodField()
-
-    def get_video_url(self, obj):
-        if not obj.video:
-            return None
-        # Return the string directly if it's a URL
-        return str(obj.video)
-
-    def get_image(self, obj):
-        # 1. Look for actual uploaded images (The /image/upload/ links)
-        # Check the related ProductImage model
-        first_img = obj.images.first()
-        if first_img:
-            return str(first_img.image)
-
-        # 2. Fallback to the direct image field if populated
-        if hasattr(obj, 'image') and obj.image and str(obj.image).startswith('http'):
-            return str(obj.image)
-
-        # 3. Last Resort: Video thumbnail (The /video/upload/ links)
-        if obj.video:
-            return str(obj.video).replace('/video/upload/', '/video/upload/so_0,f_jpg/')
-            
-        return None
 
     class Meta:
         model = Product
         fields = [
             'id', 'name', 'price', 'shop', 'image', 'images', 
-            'video', 'video_ad_url', 'video_url', 'is_ad', 'stock', 'description', 'category',
+            'video_ad_url', 'video_url', 'is_ad', 'stock', 'description', 'category',
             'currency', 'cloudinary_url', 'chat_partner_id', 'chat_partner_name', 
             'chat_partner_image', 'created_at', 'seller_id', 'shop_name'
         ]
@@ -115,14 +86,8 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         cloudinary_url = validated_data.pop('cloudinary_url', None)
-        # Ensure video_url is saved to the video field
-        video_url = validated_data.pop('video', None) 
         
         product = Product.objects.create(**validated_data)
-        
-        if video_url:
-            product.video = video_url # Save the URL string to the FileField (it works safely as Char)
-            product.save()
         
         if cloudinary_url:
             ProductImage.objects.create(
