@@ -10,12 +10,18 @@ from .serializers import ConversationSerializer, MessageSerializer
 User = get_user_model()
 
 
+def _real_user(request):
+    return request.user.is_authenticated
+
+
 class ConversationListView(generics.ListAPIView):
     serializer_class = ConversationSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
         user = self.request.user
+        if not _real_user(self.request):
+            return Conversation.objects.none()
         return (
             Conversation.objects.filter(
                 models.Q(buyer=user) | models.Q(seller=user)
@@ -27,12 +33,14 @@ class ConversationListView(generics.ListAPIView):
 
 class MessageListView(generics.ListAPIView):
     serializer_class = MessageSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get_serializer_context(self):
         return {'request': self.request}
 
     def get_queryset(self):
+        if not _real_user(self.request):
+            return Message.objects.none()
         conversation_id = self.kwargs['conversation_id']
         conversation = get_object_or_404(Conversation, id=conversation_id)
         if self.request.user not in (conversation.buyer, conversation.seller):
@@ -58,12 +66,14 @@ class MessageListView(generics.ListAPIView):
 
 class SendMessageView(generics.CreateAPIView):
     serializer_class = MessageSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get_serializer_context(self):
         return {'request': self.request}
 
     def perform_create(self, serializer):
+        if not _real_user(self.request):
+            self.permission_denied(self.request)
         conversation_id = self.kwargs['conversation_id']
         conversation = get_object_or_404(Conversation, id=conversation_id)
         if self.request.user not in (conversation.buyer, conversation.seller):
@@ -77,12 +87,17 @@ class SendMessageView(generics.CreateAPIView):
 
 class StartConversationView(generics.GenericAPIView):
     serializer_class = ConversationSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get_serializer_context(self):
         return {'request': self.request}
 
     def post(self, request):
+        if not _real_user(request):
+            return Response(
+                {'error': 'Authentication required'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
         seller_id = request.data.get('user_id') or request.data.get('seller_id')
         if not seller_id:
             return Response(
