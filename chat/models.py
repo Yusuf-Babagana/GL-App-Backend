@@ -14,10 +14,10 @@ class Conversation(models.Model):
     product = models.ForeignKey(
         'market.Product', on_delete=models.CASCADE, related_name='conversations'
     )
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-updated_at']
+        ordering = ['-created_at']
 
     def __str__(self):
         return f"Chat: {self.buyer.email} ↔ {self.seller.email} about {self.product}"
@@ -31,7 +31,6 @@ class Message(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='chat_messages'
     )
     text = models.TextField(blank=True, default='')
-    image_url = models.URLField(max_length=500, null=True, blank=True)
     is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
