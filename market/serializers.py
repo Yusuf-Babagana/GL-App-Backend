@@ -74,14 +74,14 @@ class ProductSerializer(serializers.ModelSerializer):
             'seller_id', 'shop_name', 'video_ad_url',
         ]
 
-    def to_internal_value(self, data):
-        # Handle empty strings from FormData
-        if 'stock' in data and data['stock'] == '':
-            data['stock'] = 1 # Default to 1
-        
-        if 'category' in data and data['category'] == '':
-            data['category'] = None # Allow null category
+    def validate(self, data):
+        return data
 
+    def to_internal_value(self, data):
+        if 'stock' in data and data['stock'] == '':
+            data['stock'] = 1
+        if 'category' in data and data['category'] == '':
+            data['category'] = None
         return super().to_internal_value(data)
 
     def create(self, validated_data):
