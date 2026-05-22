@@ -49,6 +49,15 @@ class ProductSerializer(serializers.ModelSerializer):
     seller_id = serializers.ReadOnlyField(source='shop.owner.id')
     shop_name = serializers.ReadOnlyField(source='shop.name')
 
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(), required=False, allow_null=True
+    )
+
+    def validate_category(self, value):
+        import logging
+        logging.getLogger(__name__).debug("ProductSerializer category value received: %r (type=%s)", value, type(value).__name__)
+        return value
+
     # Receive URL from mobile app
     cloudinary_url = serializers.URLField(write_only=True, required=False)
     # Allow 'video' to be a string or blank so the 'not a file' error stops

@@ -320,13 +320,16 @@ class ProductCreateView(APIView):
         else:
             stock = 1
 
-        category_id = request.data.get('category')
+        raw_category = request.data.get('category')
+        logger.debug("ProductCreateView raw category value: %r (type=%s)", raw_category, type(raw_category).__name__)
         category = None
-        if category_id:
+        if raw_category or raw_category == 0:
             try:
-                category = Category.objects.get(id=int(category_id))
-            except (ValueError, TypeError, Category.DoesNotExist):
-                errors['category'] = 'Invalid category identifier.'
+                category = Category.objects.get(id=int(raw_category))
+            except (ValueError, TypeError):
+                errors['category'] = f'Invalid category identifier: expected integer, got {type(raw_category).__name__}'
+            except Category.DoesNotExist:
+                errors['category'] = f'Category with id={raw_category} does not exist.'
 
         if errors:
             logger.warning(
