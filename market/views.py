@@ -329,6 +329,12 @@ class ProductCreateView(APIView):
                 errors['category'] = 'Invalid category identifier.'
 
         if errors:
+            logger.warning(
+                "Product validation failed — user=%s data_keys=%s errors=%s",
+                request.user.id,
+                list(request.data.keys()),
+                errors,
+            )
             return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
         image_value = ''
