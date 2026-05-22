@@ -18,27 +18,26 @@ class ConversationListView(generics.ListAPIView):
                 models.Q(buyer=user) | models.Q(seller=user)
             )
             .select_related('buyer', 'seller', 'product')
-            .order_by('-updated_at')
+            .order_by('-created_at')
         )
 
 
-class MessageView(generics.GenericAPIView):
+class MessageListView(generics.ListAPIView):
+    serializer_class = MessageSerializer
     permission_classes = [permissions.IsAuthenticated]
-
-    def get_serializer_class(self):
-        return MessageSerializer
 
     def get_serializer_context(self):
         return {'request': self.request}
 
-    def get(self, request, conversation_id):
+    def get_queryset(self):
+        conversation_id = self.kwargs['conversation_id']
         conversation = get_object_or_404(Conversation, id=conversation_id)
-        if request.user not in (conversation.buyer, conversation.seller):
-            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+        if self.request.user not in (conversation.buyer, conversation.seller):
+            return Message.objects.none()
 
         qs = Message.objects.filter(conversation=conversation).select_related('sender')
 
-        last_id = request.query_params.get('last_id')
+        last_id = self.request.query_params.get('last_id')
         if last_id:
             try:
                 qs = qs.filter(id__gt=int(last_id))
@@ -49,26 +48,25 @@ class MessageView(generics.GenericAPIView):
 
         Message.objects.filter(
             conversation=conversation, is_read=False
-        ).exclude(sender=request.user).update(is_read=True)
+        ).exclude(sender=self.request.user).update(is_read=True)
 
-        serializer = MessageSerializer(qs, many=True, context={'request': request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return qs
 
-    def post(self, request, conversation_id):
+
+class SendMessageView(generics.CreateAPIView):
+    serializer_class = MessageSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_context(self):
+        return {'request': self.request}
+
+    def perform_create(self, serializer):
+        conversation_id = self.kwargs['conversation_id']
         conversation = get_object_or_404(Conversation, id=conversation_id)
-        if request.user not in (conversation.buyer, conversation.seller):
-            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+        if self.request.user not in (conversation.buyer, conversation.seller):
+            self.permission_denied(self.request)
 
-        serializer = MessageSerializer(data=request.data, context={'request': request})
-        serializer.is_valid(raise_exception=True)
-        message = serializer.save(
+        serializer.save(
             conversation=conversation,
-            sender=request.user,
-        )
-
-        conversation.save(update_fields=['updated_at'])
-
-        return Response(
-            MessageSerializer(message, context={'request': request}).data,
-            status=status.HTTP_201_CREATED,
+            sender=self.request.user,
         )

@@ -6,15 +6,15 @@ from .models import Conversation, Message
 class MessageInline(admin.TabularInline):
     model = Message
     extra = 0
-    fields = ('sender', 'text', 'image_url', 'is_read', 'created_at')
+    fields = ('sender', 'text', 'is_read', 'created_at')
     readonly_fields = ('created_at',)
     ordering = ('-created_at',)
 
 
 @admin.register(Conversation)
 class ConversationAdmin(admin.ModelAdmin):
-    list_display = ('id', 'buyer', 'seller', 'product', 'updated_at')
-    list_filter = ('updated_at',)
+    list_display = ('id', 'buyer', 'seller', 'product', 'created_at')
+    list_filter = ('created_at',)
     inlines = [MessageInline]
 
 
