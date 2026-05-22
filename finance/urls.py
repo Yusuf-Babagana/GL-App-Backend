@@ -12,6 +12,7 @@ from .views import (
     clubkonnect_deposit_webhook,
     webhook_data_callback,
 )
+from users.views import SetTransactionPINView
 
 urlpatterns = [
     path('wallet/', WalletDetailView.as_view(), name='wallet-detail'),
@@ -24,4 +25,5 @@ urlpatterns = [
     path('withdraw/', WithdrawalView.as_view(), name='withdraw'),
     path('data/plans/', DataVariationsView.as_view(), name='data-plans'),
     path('data/purchase/', DataPurchaseView.as_view(), name='data-purchase'),
+    path('pin/', SetTransactionPINView.as_view(), name='set-pin'),
 ]
