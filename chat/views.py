@@ -14,6 +14,19 @@ def _real_user(request):
     return request.user.is_authenticated
 
 
+def _resolve_conversation(request, conversation_id):
+    try:
+        return Conversation.objects.get(id=conversation_id)
+    except Conversation.DoesNotExist:
+        conv = Conversation.objects.filter(
+            models.Q(buyer=request.user, seller_id=conversation_id)
+            | models.Q(buyer_id=conversation_id, seller=request.user)
+        ).first()
+        if conv:
+            return conv
+    return get_object_or_404(Conversation, id=conversation_id)
+
+
 class ConversationListView(generics.ListAPIView):
     serializer_class = ConversationSerializer
     permission_classes = [permissions.AllowAny]
@@ -42,7 +55,7 @@ class MessageListView(generics.ListAPIView):
         if not _real_user(self.request):
             return Message.objects.none()
         conversation_id = self.kwargs['conversation_id']
-        conversation = get_object_or_404(Conversation, id=conversation_id)
+        conversation = _resolve_conversation(self.request, conversation_id)
         if self.request.user not in (conversation.buyer, conversation.seller):
             return Message.objects.none()
 
@@ -75,7 +88,7 @@ class SendMessageView(generics.CreateAPIView):
         if not _real_user(self.request):
             self.permission_denied(self.request)
         conversation_id = self.kwargs['conversation_id']
-        conversation = get_object_or_404(Conversation, id=conversation_id)
+        conversation = _resolve_conversation(self.request, conversation_id)
         if self.request.user not in (conversation.buyer, conversation.seller):
             self.permission_denied(self.request)
 
