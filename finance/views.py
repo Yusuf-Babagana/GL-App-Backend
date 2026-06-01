@@ -188,6 +188,7 @@ class MonnifyWebhookView(APIView):
 
 
 from .nellobyte import NellobyteClient
+from market.pagination import MarketPageNumberPagination
 
 class DataPurchaseView(APIView):
     """
@@ -339,38 +340,51 @@ class DataVariationsView(APIView):
             formatted["provider"] = provider_label
         return formatted
 
+    def _fetch_all_raw_plans(self, client):
+        """Fetch and format plans from ALL providers. Returns flat list of formatted plans."""
+        all_plans = []
+        for svc, (net_id, label) in self.NETWORK_MAPPING.items():
+            try:
+                raw = client.fetch_all_variations(net_id)
+                for plan in raw:
+                    formatted = self._format_plan(plan, provider_label=label)
+                    formatted['service_id'] = svc
+                    all_plans.append(formatted)
+            except Exception as e:
+                logger.error(f"Failed to fetch plans for {svc}: {e}")
+                continue
+        return all_plans
+
+    def _fetch_single_raw_plans(self, client, service_id, network_id, provider_label):
+        """Fetch and format plans for a single provider. Returns flat list."""
+        raw = client.fetch_all_variations(network_id)
+        formatted_plans = []
+        for plan in raw:
+            formatted = self._format_plan(plan, provider_label=provider_label)
+            formatted['service_id'] = service_id
+            formatted_plans.append(formatted)
+        return formatted_plans
+
     def get(self, request):
-        service_id = request.query_params.get('service_id')  # e.g., 'mtn-data' or 'all'
+        service_id = request.query_params.get('service_id')
         client = NellobyteClient()
 
-        # Handle "ALL" providers - fetch plans from every network and merge
         if not service_id or service_id.lower() == 'all':
-            all_plans = []
-            for svc, (net_id, label) in self.NETWORK_MAPPING.items():
-                try:
-                    raw = client.fetch_all_variations(net_id)
-                    for plan in raw:
-                        formatted = self._format_plan(plan, provider_label=label)
-                        formatted['service_id'] = svc
-                        all_plans.append(formatted)
-                except Exception as e:
-                    logger.error(f"Failed to fetch plans for {svc}: {e}")
-                    continue
-            return Response({"plans": all_plans})
+            all_plans = self._fetch_all_raw_plans(client)
+        else:
+            mapping = self.NETWORK_MAPPING.get(service_id)
+            if not mapping:
+                return Response({"error": f"Unknown service: {service_id}"}, status=400)
+            network_id, provider_label = mapping
+            all_plans = self._fetch_single_raw_plans(client, service_id, network_id, provider_label)
 
-        # Handle specific provider
-        mapping = self.NETWORK_MAPPING.get(service_id)
-        if not mapping:
-            return Response({"error": f"Unknown service: {service_id}"}, status=400)
+        paginator = MarketPageNumberPagination()
+        paginator.page_size_query_param = 'page_size'
+        page = paginator.paginate_queryset(all_plans, request)
+        if page is not None:
+            return paginator.get_paginated_response(page)
 
-        network_id, provider_label = mapping
-        all_plans = client.fetch_all_variations(network_id)
-
-        formatted_plans = []
-        for plan in all_plans:
-            formatted_plans.append(self._format_plan(plan, provider_label=provider_label))
-
-        return Response({"plans": formatted_plans})
+        return Response({"results": all_plans})
 
 
 class VerifyBankAccountView(APIView):

@@ -37,17 +37,16 @@ def provision_monnify_task(user, wallet):
     """Background task to communicate with Monnify API."""
     try:
         # Attempt to create account via our utility
-        acc_data = MonnifyAPI.create_virtual_account(user)
+        acc_data, error_msg = MonnifyAPI.create_virtual_account(user)
         
         if acc_data:
             wallet.account_number = acc_data['account_number']
             wallet.bank_name = acc_data['bank_name']
             wallet.bank_code = acc_data['bank_code']
             wallet.save()
-            logger.info(f"✅ Success: Monnify account {wallet.account_number} provisioned for {user.email}")
+            logger.info(f"Success: Monnify account {wallet.account_number} provisioned for {user.email}")
         else:
-            # This usually happens if Monnify rejects the BVN/Name combination
-            logger.warning(f"⚠️ Monnify returned None for {user.email}. Check utility logs.")
+            logger.warning(f"Monnify account creation failed for {user.email}: {error_msg}")
             
     except Exception as e:
         logger.error(f"CRITICAL: Signal failed to provision account for {user.email} -> {str(e)}")
