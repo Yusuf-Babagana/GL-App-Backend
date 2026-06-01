@@ -14,6 +14,7 @@ from .views import (
     AdminReviewShopView, MerchantAnalyticsView, MyShopStatusView,
     InternalWalletCheckoutView, MerchantWithdrawalView
 )
+from chat.views import ConversationListView
 
 urlpatterns = [
     # --- CART & CHECKOUT (The 404 Zone) ---
@@ -72,4 +73,7 @@ urlpatterns = [
 
     # --- WITHDRAWAL ---
     path('merchant/withdraw/', MerchantWithdrawalView.as_view(), name='merchant-withdraw'),
+
+    # --- CHAT (alias for frontend compatibility) ---
+    path('conversations/', ConversationListView.as_view(), name='market-conversations'),
 ]
