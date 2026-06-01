@@ -113,11 +113,14 @@ class DataPurchaseTests(TestCase):
         
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(len(data['plans']), 2)
-        self.assertEqual(data['plans'][0]['variation_code'], "1")
-        self.assertEqual(data['plans'][0]['name'], "500MB")
-        self.assertEqual(data['plans'][0]['variation_amount'], "150")  # 100 + 50 profit
-        self.assertEqual(data['plans'][0]['type'], "Standard")
+        self.assertEqual(data['count'], 2)
+        self.assertEqual(data['total_pages'], 1)
+        self.assertEqual(data['page'], 1)
+        self.assertEqual(len(data['results']), 2)
+        self.assertEqual(data['results'][0]['variation_code'], "1")
+        self.assertEqual(data['results'][0]['name'], "500MB")
+        self.assertEqual(data['results'][0]['variation_amount'], "150.0")  # 100 + 50 profit
+        self.assertEqual(data['results'][0]['type'], "Standard")
 
     @patch('finance.views.NellobyteClient.fetch_all_variations')
     def test_data_variations_all_providers(self, mock_fetch):
@@ -132,9 +135,10 @@ class DataPurchaseTests(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         # Should have 4 plans (one from each provider)
-        self.assertEqual(len(data['plans']), 4)
+        self.assertEqual(data['count'], 4)
+        self.assertEqual(len(data['results']), 4)
         # Each plan should have a provider label
-        providers = {p['provider'] for p in data['plans']}
+        providers = {p['provider'] for p in data['results']}
         self.assertEqual(providers, {'MTN', 'Glo', 'Airtel', '9mobile'})
 
     @patch('finance.views.NellobyteClient.fetch_all_variations')
@@ -145,4 +149,6 @@ class DataPurchaseTests(TestCase):
         response = self.client.get(url, {'service_id': 'mtn-data'}, **self.headers)
         
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['plans'], [])
+        data = response.json()
+        self.assertEqual(data['count'], 0)
+        self.assertEqual(data['results'], [])
