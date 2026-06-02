@@ -256,6 +256,54 @@ class UpdateBVNView(APIView):
         return Response({"error": error_msg or "Virtual account creation failed"}, status=400)
 
 
+class RequestAccountDeletionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+
+        if user.is_deactivation_pending:
+            return Response({
+                "message": "Deletion already requested. Use /cancel-deletion/ to reverse it."
+            }, status=400)
+
+        from django.utils import timezone
+        user.is_deactivation_pending = True
+        user.deletion_requested_at = timezone.now()
+        user.save()
+
+        from .utils import send_deletion_requested_email
+        send_deletion_requested_email(user)
+
+        return Response({
+            "message": "Account deletion requested. A confirmation email has been sent.",
+            "deletion_requested_at": user.deletion_requested_at,
+        }, status=200)
+
+
+class CancelAccountDeletionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+
+        if not user.is_deactivation_pending:
+            return Response({
+                "message": "No pending deletion request."
+            }, status=400)
+
+        user.is_deactivation_pending = False
+        user.deletion_requested_at = None
+        user.save()
+
+        from .utils import send_deletion_cancelled_email
+        send_deletion_cancelled_email(user)
+
+        return Response({
+            "message": "Account deletion request cancelled."
+        }, status=200)
+
+
 class CustomLoginView(APIView):
     permission_classes = [permissions.AllowAny] # Allow public access to log in
 

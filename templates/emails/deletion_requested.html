@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+</head>
+<body style="font-family: Arial, sans-serif; padding: 20px;">
+    <h2>Account Deletion Request Confirmed</h2>
+    <p>Hi {{ user.full_name|default:user.email }},</p>
+    <p>We received a request to delete your Globalink account.</p>
+    <p>Your account will be permanently deleted in <strong>{{ grace_period_days }} days</strong>.</p>
+    <p>
+        If you did not make this request, you can cancel it here:
+        <br>
+        <a href="{{ cancel_url }}" style="display: inline-block; margin-top: 10px; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px;">Cancel Deletion</a>
+    </p>
+    <p>If you do not cancel, your account will be anonymized after {{ grace_period_days }} days.</p>
+    <p>Thank you,<br>Globalink Team</p>
+</body>
+</html>
