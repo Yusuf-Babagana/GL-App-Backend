@@ -320,7 +320,7 @@ class ProductCreateView(APIView):
 # --- PUBLIC BROWSING ---
 
 class CategoryListView(generics.ListAPIView):
-    queryset = Category.objects.all()
+    queryset = Category.objects.all().order_by('name')
     serializer_class = CategorySerializer
     permission_classes = [permissions.AllowAny]
 
@@ -993,7 +993,7 @@ class SellerOrderDetailView(generics.RetrieveUpdateAPIView):
 
 
 class ShopListView(generics.ListAPIView):
-    queryset = Shop.objects.filter(is_active=True).select_related('owner')
+    queryset = Shop.objects.filter(is_active=True).select_related('owner').order_by('-created_at')
     serializer_class = ShopSerializer
     permission_classes = [AllowAny]
     filter_backends = [filters.SearchFilter]
