@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import AdminDashboardStatsView, CustomRegisterView, AdminKYCListView, AdminKYCActionView, UserProfileView, AddRoleView, KYCSubmissionView, SetTransactionPINView, UpdateBVNView, CustomLoginView
+from .views import AdminDashboardStatsView, CustomRegisterView, AdminKYCListView, AdminKYCActionView, UserProfileView, AddRoleView, KYCSubmissionView, SetTransactionPINView, UpdateBVNView, CustomLoginView, RequestAccountDeletionView, CancelAccountDeletionView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
@@ -21,4 +21,8 @@ urlpatterns = [
 
     # Financial KYC
     path('update-bvn/', UpdateBVNView.as_view(), name='update-bvn'),
+
+    # Account Deletion
+    path('request-deletion/', RequestAccountDeletionView.as_view(), name='request-deletion'),
+    path('cancel-deletion/', CancelAccountDeletionView.as_view(), name='cancel-deletion'),
 ]

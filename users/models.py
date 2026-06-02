@@ -96,6 +96,10 @@ class User(AbstractUser):
 
     transaction_pin = models.CharField(max_length=128, null=True, blank=True)
 
+    # Account Deletion
+    is_deactivation_pending = models.BooleanField(default=False)
+    deletion_requested_at = models.DateTimeField(null=True, blank=True)
+
     objects = UserManager()
 
     USERNAME_FIELD = 'email'
