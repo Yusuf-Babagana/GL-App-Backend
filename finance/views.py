@@ -318,14 +318,15 @@ class DataVariationsView(APIView):
             'PRODUCT_NAME', 'name', 'Name', 'plan_name', 'PlanName',
             default=''
         ))
-        original_price = float(self._get_plan_field(
+        raw_price = self._get_plan_field(
             plan,
-            'PRODUCT_AMOUNT',          # ← real Nellobyte V2 field
+            'PRODUCT_AMOUNT',
             'price', 'Price',
             'amount', 'Amount',
             'variation_amount',
             default=0
-        ))
+        )
+        original_price = float(str(raw_price).replace(',', ''))
         selling_price = original_price + 50
         plan_type = str(self._get_plan_field(plan, 'type', 'Type', default='Standard'))
 
@@ -347,9 +348,13 @@ class DataVariationsView(APIView):
             try:
                 raw = client.fetch_all_variations(net_id)
                 for plan in raw:
-                    formatted = self._format_plan(plan, provider_label=label)
-                    formatted['service_id'] = svc
-                    all_plans.append(formatted)
+                    try:
+                        formatted = self._format_plan(plan, provider_label=label)
+                        formatted['service_id'] = svc
+                        all_plans.append(formatted)
+                    except Exception as e:
+                        logger.error(f"Failed to format plan for {svc}: {e}")
+                        continue
             except Exception as e:
                 logger.error(f"Failed to fetch plans for {svc}: {e}")
                 continue
@@ -360,9 +365,13 @@ class DataVariationsView(APIView):
         raw = client.fetch_all_variations(network_id)
         formatted_plans = []
         for plan in raw:
-            formatted = self._format_plan(plan, provider_label=provider_label)
-            formatted['service_id'] = service_id
-            formatted_plans.append(formatted)
+            try:
+                formatted = self._format_plan(plan, provider_label=provider_label)
+                formatted['service_id'] = service_id
+                formatted_plans.append(formatted)
+            except Exception as e:
+                logger.error(f"Failed to format plan for {provider_label}: {e}")
+                continue
         return formatted_plans
 
     def get(self, request):
