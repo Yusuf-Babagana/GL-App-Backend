@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import generics, status, permissions
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from finance.models import Transaction, DataMarkup
+from finance.models import Transaction, DataMarkup, DataPlanPrice
 from finance.utils import WalletManager
 from finance.nellobyte import NellobyteClient
 from market.models import Order
@@ -58,6 +58,16 @@ class PurchaseDataView(APIView):
             return None, "Could not determine plan price from provider"
 
         original_price = float(str(raw_price).replace(',', ''))
+        # Check per-plan override first
+        try:
+            dpp = DataPlanPrice.objects.get(
+                network=service_id, variation_code=variation_code,
+                is_active=True, selling_price__isnull=False
+            )
+            verified = round(float(dpp.selling_price), 2)
+            return Decimal(str(verified)), None
+        except DataPlanPrice.DoesNotExist:
+            pass
         factor = 1.10
         try:
             dm = DataMarkup.objects.get(network=service_id, is_active=True)

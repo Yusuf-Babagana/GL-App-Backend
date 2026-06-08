@@ -14,7 +14,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework import permissions, status, generics
 from django.db import transaction
-from .models import Wallet, Transaction, BankAccount, WithdrawalTicket, PlatformRevenue, DataMarkup, MONNIFY_DEPOSIT_RATE, MONNIFY_DEPOSIT_CAP
+from .models import Wallet, Transaction, BankAccount, WithdrawalTicket, PlatformRevenue, DataMarkup, DataPlanPrice, MONNIFY_DEPOSIT_RATE, MONNIFY_DEPOSIT_CAP
 from market.models import Order
 from .serializers import WalletSerializer, TransactionSerializer, DataHistorySerializer
 
@@ -233,6 +233,16 @@ class DataPurchaseView(APIView):
             return None, "Could not determine plan price from provider"
 
         original_price = float(str(raw_price).replace(',', ''))
+        # Check per-plan override first
+        try:
+            dpp = DataPlanPrice.objects.get(
+                network=service_id, variation_code=variation_code,
+                is_active=True, selling_price__isnull=False
+            )
+            verified = round(float(dpp.selling_price), 2)
+            return Decimal(str(verified)), None
+        except DataPlanPrice.DoesNotExist:
+            pass
         factor = 1.10
         try:
             dm = DataMarkup.objects.get(network=service_id, is_active=True)
@@ -340,6 +350,17 @@ class DataVariationsView(APIView):
     }
 
     _markup_cache = {}
+    _plan_override_cache = None
+
+    def _load_plan_overrides(self):
+        if self._plan_override_cache is None:
+            self._plan_override_cache = {}
+            try:
+                for dpp in DataPlanPrice.objects.filter(is_active=True, selling_price__isnull=False):
+                    self._plan_override_cache[(dpp.network, dpp.variation_code)] = float(dpp.selling_price)
+            except Exception:
+                pass
+        return self._plan_override_cache
 
     def _get_price_factor(self, service_id):
         if service_id not in self._markup_cache:
@@ -384,8 +405,14 @@ class DataVariationsView(APIView):
             default=0
         )
         original_price = float(str(raw_price).replace(',', ''))
-        factor = self._get_price_factor(service_id) if service_id else 1.10
-        selling_price = original_price * factor
+        # Check per-plan override first
+        overrides = self._load_plan_overrides()
+        override_key = (service_id, variation_code)
+        if override_key in overrides:
+            selling_price = overrides[override_key]
+        else:
+            factor = self._get_price_factor(service_id) if service_id else 1.10
+            selling_price = original_price * factor
         plan_type = str(self._get_plan_field(plan, 'type', 'Type', default='Standard'))
 
         formatted = {
