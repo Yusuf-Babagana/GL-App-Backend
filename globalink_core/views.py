@@ -70,7 +70,7 @@ class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         context['pending_kyc_count'] = pending_kyc_count
         context['total_active_shops'] = total_active_shops
         try:
-            context['data_markups'] = DataMarkup.objects.all().order_by('network')
+            context['data_markups'] = list(DataMarkup.objects.all().order_by('network'))
         except OperationalError:
             context['data_markups'] = []
         return context
