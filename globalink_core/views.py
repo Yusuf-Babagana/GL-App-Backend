@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import json
-from finance.models import Wallet, WithdrawalTicket, PlatformRevenue, DataMarkup
+from finance.models import Wallet, WithdrawalTicket, PlatformRevenue, DataMarkup, DataPlanPrice
 from finance.nellobyte import NellobyteClient
 from market.models import Shop, Order
 
@@ -287,3 +287,111 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
                 'is_active': markup.is_active,
             }
         })
+
+
+NETWORK_INFO = {
+    'mtn-data':    ('MTN',     'MTN'),
+    'glo-data':    ('Glo',     'Glo'),
+    'airtel-data': ('Airtel',  'Airtel'),
+    '9mobile-data':('9mobile', '9mobile'),
+}
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class AdminDataPlansView(LoginRequiredMixin, UserPassesTestMixin, View):
+    login_url = 'admin_login'
+
+    def test_func(self):
+        return self.request.user.is_staff or self.request.user.is_superuser
+
+    def get(self, request):
+        client = NellobyteClient()
+        overrides = {}
+        try:
+            for dpp in DataPlanPrice.objects.filter(is_active=True):
+                overrides[(dpp.network, dpp.variation_code)] = dpp
+        except OperationalError:
+            overrides = {}
+
+        all_plans = []
+        for svc, (net_key, label) in NETWORK_INFO.items():
+            try:
+                plans = client.fetch_all_variations(net_key)
+            except Exception:
+                continue
+            factor = 1.10
+            try:
+                dm = DataMarkup.objects.get(network=svc, is_active=True)
+                factor = float(dm.price_factor)
+            except (DataMarkup.DoesNotExist, OperationalError):
+                pass
+            for plan in plans:
+                code = str(plan.get('PRODUCT_ID', '') or plan.get('variation_code', '') or '')
+                name = str(plan.get('PRODUCT_NAME', '') or plan.get('name', '') or '')
+                raw_price = None
+                for key in ('PRODUCT_AMOUNT', 'price', 'Price', 'amount', 'Amount', 'variation_amount'):
+                    val = plan.get(key)
+                    if val is not None:
+                        raw_price = val
+                        break
+                if raw_price is None:
+                    continue
+                original = float(str(raw_price).replace(',', ''))
+                key = (svc, code)
+                if key in overrides:
+                    dpp = overrides[key]
+                    sp = float(dpp.selling_price) if dpp.selling_price is not None else None
+                    all_plans.append({
+                        'id': dpp.id,
+                        'network': svc,
+                        'network_label': label,
+                        'variation_code': code,
+                        'plan_name': name,
+                        'original_price': str(round(original, 2)),
+                        'selling_price': str(round(sp, 2)) if sp is not None else None,
+                        'overridden': sp is not None,
+                    })
+                else:
+                    sp = round(original * factor, 2)
+                    all_plans.append({
+                        'id': None,
+                        'network': svc,
+                        'network_label': label,
+                        'variation_code': code,
+                        'plan_name': name,
+                        'original_price': str(round(original, 2)),
+                        'selling_price': str(sp),
+                        'overridden': False,
+                    })
+        return JsonResponse({'plans': all_plans})
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+        entries = body.get('overrides', [])
+        saved = 0
+        for entry in entries:
+            network = entry.get('network')
+            code = entry.get('variation_code')
+            sp_raw = entry.get('selling_price')
+            if not network or not code:
+                continue
+            try:
+                if sp_raw is not None:
+                    sp = Decimal(str(sp_raw))
+                    dpp, created = DataPlanPrice.objects.update_or_create(
+                        network=network,
+                        variation_code=code,
+                        defaults={'selling_price': sp, 'is_active': True},
+                    )
+                else:
+                    DataPlanPrice.objects.filter(
+                        network=network, variation_code=code
+                    ).update(is_active=False)
+                saved += 1
+            except Exception:
+                continue
+        return JsonResponse({'status': 'success', 'saved': saved})

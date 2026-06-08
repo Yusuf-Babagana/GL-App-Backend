@@ -199,3 +199,23 @@ class DataMarkup(models.Model):
 
     def __str__(self):
         return f"{self.network_label} (×{self.price_factor})"
+
+
+class DataPlanPrice(models.Model):
+    network = models.CharField(max_length=50, help_text="e.g. mtn-data, glo-data")
+    variation_code = models.CharField(max_length=100, help_text="Plan ID from Nellobyte")
+    plan_name = models.CharField(max_length=255, blank=True)
+    selling_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Custom selling price for this plan. Leave blank to use price_factor."
+    )
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Data Plan Price Override"
+        verbose_name_plural = "Data Plan Price Overrides"
+        unique_together = ('network', 'variation_code')
+
+    def __str__(self):
+        return f"{self.network}/{self.variation_code}"
