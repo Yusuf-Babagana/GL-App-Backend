@@ -379,6 +379,9 @@
         <i class="bi bi-shield-check"></i><span>KYC Reviews</span>
         {% if pending_kyc_count %}<span class="badge-count">{{ pending_kyc_count }}</span>{% endif %}
       </a>
+      <a href="#tab-pricing" class="nav-link" data-bs-toggle="tab">
+        <i class="bi bi-tags"></i><span>VTU Pricing</span>
+      </a>
       <a href="#tab-users" class="nav-link" data-bs-toggle="tab">
         <i class="bi bi-people"></i><span>User Audits</span>
       </a>
@@ -505,6 +508,11 @@
         <button class="nav-link" id="kyc-tab" data-bs-toggle="tab" data-bs-target="#tab-kyc" type="button" role="tab">
           <i class="bi bi-shield-check me-1"></i> KYC Reviews
           {% if pending_kyc_count %}<span class="badge bg-danger ms-1">{{ pending_kyc_count }}</span>{% endif %}
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="pricing-tab" data-bs-toggle="tab" data-bs-target="#tab-pricing" type="button" role="tab">
+          <i class="bi bi-tags me-1"></i> VTU Pricing
         </button>
       </li>
       <li class="nav-item" role="presentation">
@@ -689,6 +697,78 @@
             <div class="empty-state">
               <i class="bi bi-shield-check"></i>
               <p>No pending KYC verifications. All caught up!</p>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 5: VTU PRICING -->
+      <div class="tab-pane fade" id="tab-pricing" role="tabpanel">
+        <div class="panel">
+          <div class="panel-header">
+            <h5><i class="bi bi-tags" style="color:#f59e0b"></i> VTU Data Pricing Control</h5>
+            <span class="text-muted" style="font-size:0.78rem"><i class="bi bi-info-circle me-1"></i>Changes apply immediately to all users</span>
+          </div>
+          <div class="panel-body">
+            {% if data_markups %}
+            <div class="table-responsive">
+              <table class="table table-dashboard" id="pricingTable">
+                <thead>
+                  <tr>
+                    <th>Network</th>
+                    <th>Service ID</th>
+                    <th>Current Markup (&#8355;)</th>
+                    <th>Status</th>
+                    <th>Last Updated</th>
+                    <th class="text-end">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for m in data_markups %}
+                  <tr class="pricing-row" data-id="{{ m.id }}" data-network="{{ m.network }}">
+                    <td class="fw-semibold">
+                      <span class="badge-dashboard
+                        {% if m.network_label == 'MTN' %}bg-warning text-dark
+                        {% elif m.network_label == 'Glo' %}bg-success
+                        {% elif m.network_label == 'Airtel' %}bg-danger
+                        {% elif m.network_label == '9mobile' %}bg-info text-dark
+                        {% else %}bg-secondary{% endif %}">
+                        {{ m.network_label }}
+                      </span>
+                    </td>
+                    <td><code>{{ m.network }}</code></td>
+                    <td>
+                      <div class="input-group input-group-sm" style="max-width:160px">
+                        <span class="input-group-text bg-light fw-bold">&#8355;</span>
+                        <input type="number" step="0.01" min="0"
+                          class="form-control markup-input"
+                          value="{{ m.markup_amount|floatformat:2 }}"
+                          data-original="{{ m.markup_amount|floatformat:2 }}">
+                      </div>
+                    </td>
+                    <td>
+                      <div class="form-check form-switch" style="padding-left:2.5rem">
+                        <input class="form-check-input status-toggle" type="checkbox" role="switch"
+                          {% if m.is_active %}checked{% endif %}
+                          data-id="{{ m.id }}">
+                      </div>
+                    </td>
+                    <td><span class="text-muted small">{{ m.updated_at|date:"M d, H:i" }}</span></td>
+                    <td class="text-end">
+                      <button class="btn btn-soft-primary btn-action btn-save-price" data-id="{{ m.id }}">
+                        <i class="bi bi-check-lg me-1"></i>Save
+                      </button>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+              <i class="bi bi-tags"></i>
+              <p>No network pricing records found.</p>
             </div>
             {% endif %}
           </div>
@@ -927,6 +1007,80 @@
     btn.addEventListener('click', function(e) {
       e.preventDefault();
       handleKYCAction(this.getAttribute('data-id'), 'reject');
+    });
+  });
+
+  /* --- VTU Pricing save --- */
+  function handleSavePrice(btn) {
+    var row = btn.closest('.pricing-row');
+    var id = btn.getAttribute('data-id');
+    var input = row.querySelector('.markup-input');
+    var toggle = row.querySelector('.status-toggle');
+    var amount = parseFloat(input.value);
+    var isActive = toggle.checked;
+
+    if (isNaN(amount) || amount < 0) {
+      showToast('Please enter a valid markup amount.', 'danger');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+
+    fetch('/api/admin/data-pricing/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+      body: JSON.stringify({ id: id, markup_amount: amount, is_active: isActive })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === 'success') {
+        input.setAttribute('data-original', data.markup.markup_amount);
+        input.value = parseFloat(data.markup.markup_amount).toFixed(2);
+        showToast(data.markup.network_label + ' markup updated to ₦' + data.markup.markup_amount, 'success');
+      } else {
+        showToast('Error: ' + (data.error || 'Unknown error'), 'danger');
+      }
+    })
+    .catch(function() {
+      showToast('Network error. Please try again.', 'danger');
+    })
+    .finally(function() {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save';
+    });
+  }
+
+  document.querySelectorAll('.btn-save-price').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      handleSavePrice(this);
+    });
+  });
+
+  /* --- Markup input: highlight Save button when value changes --- */
+  document.querySelectorAll('.markup-input').forEach(function(input) {
+    input.addEventListener('input', function() {
+      var row = this.closest('.pricing-row');
+      var btn = row.querySelector('.btn-save-price');
+      var original = parseFloat(this.getAttribute('data-original'));
+      var current = parseFloat(this.value);
+      if (Math.abs(current - original) > 0.001) {
+        btn.classList.remove('btn-soft-primary');
+        btn.classList.add('btn-primary');
+      } else {
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-soft-primary');
+      }
+    });
+  });
+
+  /* --- Status toggle: auto-save on change --- */
+  document.querySelectorAll('.status-toggle').forEach(function(toggle) {
+    toggle.addEventListener('change', function() {
+      var row = this.closest('.pricing-row');
+      var btn = row.querySelector('.btn-save-price');
+      handleSavePrice(btn);
     });
   });
 

@@ -170,3 +170,28 @@ class PlatformRevenue(models.Model):
             row.total_commission += amount
             row.save()
         return row.total_commission
+
+
+class DataMarkup(models.Model):
+    network = models.CharField(
+        max_length=50, unique=True,
+        help_text="e.g. mtn-data, glo-data, airtel-data, 9mobile-data"
+    )
+    network_label = models.CharField(
+        max_length=50,
+        help_text="Display name e.g. MTN, Glo"
+    )
+    markup_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('50.00'),
+        help_text="Fixed markup amount added to the original price (₦)"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Data Markup"
+        verbose_name_plural = "Data Markups"
+
+    def __str__(self):
+        return f"{self.network_label} (+₦{self.markup_amount})"

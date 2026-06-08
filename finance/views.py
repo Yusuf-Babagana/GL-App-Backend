@@ -14,7 +14,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework import permissions, status, generics
 from django.db import transaction
-from .models import Wallet, Transaction, BankAccount, WithdrawalTicket, PlatformRevenue, MONNIFY_DEPOSIT_RATE, MONNIFY_DEPOSIT_CAP
+from .models import Wallet, Transaction, BankAccount, WithdrawalTicket, PlatformRevenue, DataMarkup, MONNIFY_DEPOSIT_RATE, MONNIFY_DEPOSIT_CAP
 from market.models import Order
 from .serializers import WalletSerializer, TransactionSerializer, DataHistorySerializer
 
@@ -293,6 +293,17 @@ class DataVariationsView(APIView):
         '9mobile-data':('9mobile', '9mobile'),
     }
 
+    _markup_cache = {}
+
+    def _get_markup(self, service_id):
+        if service_id not in self._markup_cache:
+            try:
+                markup = DataMarkup.objects.get(network=service_id, is_active=True)
+                self._markup_cache[service_id] = float(markup.markup_amount)
+            except DataMarkup.DoesNotExist:
+                self._markup_cache[service_id] = 50.0
+        return self._markup_cache[service_id]
+
     def _get_plan_field(self, plan, *keys, default=None):
         """Try multiple possible field names from Nellobyte response."""
         for key in keys:
@@ -301,7 +312,7 @@ class DataVariationsView(APIView):
                 return val
         return default
 
-    def _format_plan(self, plan, provider_label=None):
+    def _format_plan(self, plan, provider_label=None, service_id=None):
         """
         Format a raw Nellobyte V2 PRODUCT item into the standardized response.
 
@@ -327,7 +338,8 @@ class DataVariationsView(APIView):
             default=0
         )
         original_price = float(str(raw_price).replace(',', ''))
-        selling_price = original_price + 50
+        markup = self._get_markup(service_id) if service_id else 50.0
+        selling_price = original_price + markup
         plan_type = str(self._get_plan_field(plan, 'type', 'Type', default='Standard'))
 
         formatted = {
@@ -349,7 +361,7 @@ class DataVariationsView(APIView):
                 raw = client.fetch_all_variations(net_id)
                 for plan in raw:
                     try:
-                        formatted = self._format_plan(plan, provider_label=label)
+                        formatted = self._format_plan(plan, provider_label=label, service_id=svc)
                         formatted['service_id'] = svc
                         all_plans.append(formatted)
                     except Exception as e:
@@ -366,7 +378,7 @@ class DataVariationsView(APIView):
         formatted_plans = []
         for plan in raw:
             try:
-                formatted = self._format_plan(plan, provider_label=provider_label)
+                formatted = self._format_plan(plan, provider_label=provider_label, service_id=service_id)
                 formatted['service_id'] = service_id
                 formatted_plans.append(formatted)
             except Exception as e:
