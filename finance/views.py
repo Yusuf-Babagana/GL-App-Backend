@@ -193,26 +193,72 @@ from market.pagination import MarketPageNumberPagination
 class DataPurchaseView(APIView):
     """
     Handles Data Bundle purchases using NellobyteClient.
+    Fetches the live price from Nellobyte + admin markup on the server.
     """
     permission_classes = [permissions.IsAuthenticated]
+
+    SERVICE_TO_NETWORK = {
+        'mtn-data': 'MTN',
+        'glo-data': 'Glo',
+        'airtel-data': 'Airtel',
+        '9mobile-data': '9mobile',
+    }
+
+    def _fetch_live_price(self, service_id, variation_code):
+        network_key = self.SERVICE_TO_NETWORK.get(service_id)
+        if not network_key:
+            return None, f"Unknown service: {service_id}"
+
+        client = NellobyteClient()
+        plans = client.fetch_all_variations(network_key)
+
+        matched = None
+        for plan in plans:
+            pid = str(plan.get('PRODUCT_ID', '') or plan.get('ID', '') or '')
+            if pid == variation_code:
+                matched = plan
+                break
+
+        if not matched:
+            return None, f"Plan '{variation_code}' not found for {service_id}"
+
+        raw_price = None
+        for key in ('PRODUCT_AMOUNT', 'price', 'Price', 'amount', 'Amount', 'variation_amount'):
+            val = matched.get(key)
+            if val is not None:
+                raw_price = val
+                break
+
+        if raw_price is None:
+            return None, "Could not determine plan price from provider"
+
+        original_price = float(str(raw_price).replace(',', ''))
+        markup = 50.0
+        try:
+            dm = DataMarkup.objects.get(network=service_id, is_active=True)
+            markup = float(dm.markup_amount)
+        except DataMarkup.DoesNotExist:
+            pass
+
+        verified = round(original_price + markup, 2)
+        return Decimal(str(verified)), None
 
     def post(self, request):
         logger.info(f"Data Purchase Request: {request.data}")
         service_id = request.data.get('service_id')
         data_plan = request.data.get('variation_code')
         phone = request.data.get('phone')
-        
-        raw_amount = request.data.get('amount')
-        if not all([service_id, data_plan, phone, raw_amount]):
-            logger.error("Data Purchase 400: Missing required fields.")
-            return Response({"error": "Missing service_id, variation_code, phone, or amount."}, status=400)
 
-        try:
-            amount = Decimal(str(raw_amount))
-        except Exception as e:
-            logger.error(f"Data Purchase 400: Invalid amount format: {raw_amount}")
-            return Response({"error": "Invalid amount format.", "details": str(e)}, status=400)
-        
+        if not all([service_id, data_plan, phone]):
+            logger.error("Data Purchase 400: Missing required fields.")
+            return Response({"error": "Missing service_id, variation_code, or phone."}, status=400)
+
+        # Fetch live price from Nellobyte + admin markup
+        amount, error = self._fetch_live_price(service_id, data_plan)
+        if error:
+            logger.error(f"Data Purchase 400: Price fetch failed: {error}")
+            return Response({"error": error}, status=400)
+
         request_id = str(uuid.uuid4().hex)[:12]
 
         try:
@@ -226,9 +272,9 @@ class DataPurchaseView(APIView):
                 wallet.save()
 
                 ledger = Transaction.objects.create(
-                    wallet=wallet, 
+                    wallet=wallet,
                     amount=-amount,
-                    transaction_type=Transaction.TransactionType.BILL_PAYMENT, 
+                    transaction_type=Transaction.TransactionType.BILL_PAYMENT,
                     status=Transaction.Status.PENDING,
                     description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone}",
                     reference=request_id
@@ -237,14 +283,14 @@ class DataPurchaseView(APIView):
             logger.error(f"Data Purchase 500: Internal Wallet Error: {e}")
             return Response({"error": f"Internal Wallet Error: {str(e)}"}, status=500)
 
-        # 3. Call Nellobyte
+        # Call Nellobyte
         try:
             client = NellobyteClient()
             logger.info(f"Calling Nellobyte with req_id={request_id}, svc={service_id}, plan={data_plan}, ph={phone}")
             resp = client.purchase_data(request_id, service_id, data_plan, phone)
-            
+
             status_code = str(resp.get('statuscode'))
-            
+
             if status_code == '100':
                 ledger.status = Transaction.Status.SUCCESS
                 ledger.save()
@@ -258,12 +304,12 @@ class DataPurchaseView(APIView):
                     w = Wallet.objects.select_for_update().get(user=request.user)
                     w.available_balance += amount
                     w.save()
-                    
+
                     ledger.status = Transaction.Status.FAILED
                     error_msg = resp.get('status', 'Provider rejected request')
                     ledger.description += f" (Refunded: {error_msg})"
                     ledger.save()
-                
+
                 logger.error(f"Data Purchase 400: Nellobyte Error: {error_msg} | Code: {status_code} | Raw: {resp}")
                 return Response({"error": f"Nellobyte Error: {error_msg}"}, status=400)
 

@@ -10,8 +10,9 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import generics, status, permissions
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from finance.models import Transaction
+from finance.models import Transaction, DataMarkup
 from finance.utils import WalletManager
+from finance.nellobyte import NellobyteClient
 from market.models import Order
 from market.serializers import OrderSerializer
 from .models import DataTransaction
@@ -21,17 +22,67 @@ logger = logging.getLogger(__name__)
 class PurchaseDataView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    SERVICE_TO_NETWORK = {
+        'mtn-data': 'MTN',
+        'glo-data': 'Glo',
+        'airtel-data': 'Airtel',
+        '9mobile-data': '9mobile',
+    }
+
+    def _fetch_live_price(self, service_id, variation_code):
+        network_key = self.SERVICE_TO_NETWORK.get(service_id)
+        if not network_key:
+            return None, f"Unknown service: {service_id}"
+
+        client = NellobyteClient()
+        plans = client.fetch_all_variations(network_key)
+
+        matched = None
+        for plan in plans:
+            pid = str(plan.get('PRODUCT_ID', '') or plan.get('ID', '') or '')
+            if pid == variation_code:
+                matched = plan
+                break
+
+        if not matched:
+            return None, f"Plan '{variation_code}' not found for {service_id}"
+
+        raw_price = None
+        for key in ('PRODUCT_AMOUNT', 'price', 'Price', 'amount', 'Amount', 'variation_amount'):
+            val = matched.get(key)
+            if val is not None:
+                raw_price = val
+                break
+
+        if raw_price is None:
+            return None, "Could not determine plan price from provider"
+
+        original_price = float(str(raw_price).replace(',', ''))
+        markup = 50.0
+        try:
+            dm = DataMarkup.objects.get(network=service_id, is_active=True)
+            markup = float(dm.markup_amount)
+        except DataMarkup.DoesNotExist:
+            pass
+
+        verified = round(original_price + markup, 2)
+        return Decimal(str(verified)), None
+
     def post(self, request):
         user = request.user
-        service_id = request.data.get("serviceID") # e.g., 'glo-data'
-        variation_code = request.data.get("variation_code") # e.g., 'glo-100mb'
+        service_id = request.data.get("serviceID")
+        variation_code = request.data.get("variation_code")
         phone = request.data.get("phone")
-        amount = request.data.get("amount") # The price of the plan
 
-        if not all([service_id, variation_code, phone, amount]):
-            return Response({"error": "Missing required fields"}, status=400)
+        if not all([service_id, variation_code, phone]):
+            return Response({"error": "Missing required fields: serviceID, variation_code, phone"}, status=400)
 
-        # 1. Deduct from Wallet locally first
+        # Fetch live price from Nellobyte + admin markup
+        amount, error = self._fetch_live_price(service_id, variation_code)
+        if error:
+            return Response({"error": error}, status=400)
+
+        # Deduct from Wallet locally first
         description = f"Data Purchase: {service_id} for {phone}"
         payment_success, message = WalletManager.process_payment(
             user=user,
@@ -43,8 +94,7 @@ class PurchaseDataView(APIView):
         if not payment_success:
             return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 2. Call Nellobyte API
-        from finance.nellobyte import NellobyteClient
+        # Call Nellobyte API
         from finance.utils import generate_vtpass_request_id
         
         request_id = generate_vtpass_request_id()
@@ -66,9 +116,8 @@ class PurchaseDataView(APIView):
                     "details": res_data
                 }, status=200)
             else:
-                # 3. AUTO-REFUND if Nellobyte fails
-                # Logic: Add money back to balance and record the failure
-                user.wallet.available_balance += float(amount) # Type safety
+                # AUTO-REFUND if Nellobyte fails
+                user.wallet.available_balance += float(amount)
                 user.wallet.save()
                 return Response({
                     "error": "Provider Error",
@@ -76,7 +125,7 @@ class PurchaseDataView(APIView):
                 }, status=400)
 
         except Exception as e:
-            # 4. SAFETY REFUND if network crashes
+            # SAFETY REFUND if network crashes
             user.wallet.available_balance += float(amount)
             user.wallet.save()
             return Response({"error": f"Connection failed: {str(e)}"}, status=502)
