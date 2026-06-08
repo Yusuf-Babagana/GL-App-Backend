@@ -10,7 +10,10 @@ from django.views.generic.base import TemplateView
 from django.views import View
 from django.db.models import Sum, Count
 from django.contrib.auth import get_user_model
-from finance.models import Wallet, WithdrawalTicket, PlatformRevenue
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+import json
+from finance.models import Wallet, WithdrawalTicket, PlatformRevenue, DataMarkup
 from market.models import Shop, Order
 
 User = get_user_model()
@@ -64,6 +67,7 @@ class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         context['pending_kyc_users'] = pending_kyc_users
         context['pending_kyc_count'] = pending_kyc_count
         context['total_active_shops'] = total_active_shops
+        context['data_markups'] = DataMarkup.objects.all().order_by('network')
         return context
 
 
@@ -166,3 +170,65 @@ class WithdrawalTicketUpdateStatusView(LoginRequiredMixin, UserPassesTestMixin, 
             return HttpResponse('rejected')
 
         return HttpResponse('Invalid action.', status=400)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
+    login_url = 'admin_login'
+
+    def test_func(self):
+        return self.request.user.is_staff or self.request.user.is_superuser
+
+    def get(self, request):
+        markups = DataMarkup.objects.all().order_by('network')
+        data = [{
+            'id': m.id,
+            'network': m.network,
+            'network_label': m.network_label,
+            'markup_amount': str(m.markup_amount),
+            'is_active': m.is_active,
+        } for m in markups]
+        return JsonResponse({'markups': data})
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+        markup_id = body.get('id')
+        markup_amount = body.get('markup_amount')
+        is_active = body.get('is_active')
+
+        if not markup_id:
+            return JsonResponse({'error': 'Missing markup id'}, status=400)
+
+        try:
+            markup = DataMarkup.objects.get(id=markup_id)
+        except DataMarkup.DoesNotExist:
+            return JsonResponse({'error': 'Markup not found'}, status=404)
+
+        if markup_amount is not None:
+            try:
+                markup.markup_amount = float(markup_amount)
+            except (TypeError, ValueError):
+                return JsonResponse({'error': 'Invalid markup amount'}, status=400)
+
+        if is_active is not None:
+            markup.is_active = bool(is_active)
+
+        markup.save()
+
+        from finance.views import DataVariationsView
+        DataVariationsView._markup_cache.pop(markup.network, None)
+
+        return JsonResponse({
+            'status': 'success',
+            'markup': {
+                'id': markup.id,
+                'network': markup.network,
+                'network_label': markup.network_label,
+                'markup_amount': str(markup.markup_amount),
+                'is_active': markup.is_active,
+            }
+        })

@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from django.http import HttpResponse
 from django.contrib import admin
-from .models import Wallet, Transaction, WithdrawalTicket
+from .models import Wallet, Transaction, WithdrawalTicket, DataMarkup
 
 
 @admin.register(WithdrawalTicket)
@@ -47,3 +47,9 @@ class WithdrawalTicketAdmin(admin.ModelAdmin):
 
 admin.site.register(Wallet)
 admin.site.register(Transaction)
+
+@admin.register(DataMarkup)
+class DataMarkupAdmin(admin.ModelAdmin):
+    list_display = ['network', 'network_label', 'markup_amount', 'is_active', 'updated_at']
+    list_editable = ['markup_amount', 'is_active']
+    list_filter = ['is_active']
