@@ -70,7 +70,7 @@
 
     <!-- METRICS ROW -->
     <div class="row g-4 mb-4">
-      <div class="col-md-3">
+      <div class="col-md-4">
         <div class="card stat-card shadow-sm border-0">
           <div class="card-body d-flex align-items-center gap-3">
             <div class="icon-shape bg-warning bg-opacity-15 text-warning"><i class="bi bi-clock-history"></i></div>
@@ -82,7 +82,7 @@
           </div>
         </div>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-4">
         <div class="card stat-card shadow-sm border-0">
           <div class="card-body d-flex align-items-center gap-3">
             <div class="icon-shape bg-info bg-opacity-15 text-info"><i class="bi bi-lock"></i></div>
@@ -94,7 +94,7 @@
           </div>
         </div>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-4">
         <div class="card stat-card shadow-sm border-0">
           <div class="card-body d-flex align-items-center gap-3">
             <div class="icon-shape bg-success bg-opacity-15 text-success"><i class="bi bi-people"></i></div>
@@ -106,7 +106,7 @@
           </div>
         </div>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-4">
         <div class="card stat-card shadow-sm border-0">
           <div class="card-body d-flex align-items-center gap-3">
             <div class="icon-shape bg-purple bg-opacity-15 text-purple"><i class="bi bi-graph-up-arrow"></i></div>
@@ -114,6 +114,30 @@
               <p class="text-muted small mb-0">Platform Commission</p>
               <h4 class="fw-bold mb-0">&#8358;{{ total_commission|floatformat:2 }}</h4>
               <small class="text-muted">Lifetime accrued revenue</small>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card stat-card shadow-sm border-0">
+          <div class="card-body d-flex align-items-center gap-3">
+            <div class="icon-shape bg-primary bg-opacity-15 text-primary"><i class="bi bi-bag-check"></i></div>
+            <div>
+              <p class="text-muted small mb-0">Total Orders</p>
+              <h4 class="fw-bold mb-0">{{ total_orders }}</h4>
+              <small class="text-muted">{{ total_active_shops }} active shops</small>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card stat-card shadow-sm border-0">
+          <div class="card-body d-flex align-items-center gap-3">
+            <div class="icon-shape bg-danger bg-opacity-15 text-danger"><i class="bi bi-shield-check"></i></div>
+            <div>
+              <p class="text-muted small mb-0">Pending KYC</p>
+              <h4 class="fw-bold mb-0">{{ pending_kyc_count }}</h4>
+              <small class="text-muted">Awaiting verification</small>
             </div>
           </div>
         </div>
@@ -135,6 +159,14 @@
       <li class="nav-item" role="presentation">
         <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#tab-users" type="button" role="tab">
           <i class="bi bi-people me-1"></i>Platform Users Log
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="kyc-tab" data-bs-toggle="tab" data-bs-target="#tab-kyc" type="button" role="tab">
+          <i class="bi bi-shield-check me-1"></i>KYC Reviews
+          {% if pending_kyc_count %}
+          <span class="badge bg-danger ms-1">{{ pending_kyc_count }}</span>
+          {% endif %}
         </button>
       </li>
     </ul>
@@ -298,7 +330,68 @@
         </div>
       </div>
 
-    </div><!-- /tab-content -->
+      <!-- TAB 4: KYC REVIEWS -->
+      <div class="tab-pane fade" id="tab-kyc" role="tabpanel">
+        <div class="card shadow-sm border-0 rounded-4">
+          <div class="card-header bg-white border-0 pt-4 px-4">
+            <h5 class="fw-bold mb-0"><i class="bi bi-shield-check me-2"></i>Pending KYC Verifications</h5>
+          </div>
+          <div class="card-body p-4">
+            {% if pending_kyc_users %}
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>ID Type</th>
+                    <th>Submitted</th>
+                    <th class="text-end">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for u in pending_kyc_users %}
+                  <tr class="kyc-row" data-id="{{ u.pk }}">
+                    <td class="fw-semibold">{{ u.full_name|default:'&mdash;' }}</td>
+                    <td class="small">{{ u.email }}</td>
+                    <td class="small">{{ u.phone_number|default:'&mdash;' }}</td>
+                    <td><span class="badge bg-secondary badge-role">{{ u.id_document_type|default:'Not specified' }}</span></td>
+                    <td class="small text-muted">{{ u.date_joined|date:"M d, Y" }}</td>
+                    <td class="text-end">
+                      {% if u.id_document_image %}
+                      <a href="{{ u.id_document_image.url }}" target="_blank" class="btn btn-outline-info btn-sm me-1" title="View ID Document">
+                        <i class="bi bi-eye"></i>
+                      </a>
+                      {% endif %}
+                      {% if u.selfie_image %}
+                      <a href="{{ u.selfie_image.url }}" target="_blank" class="btn btn-outline-info btn-sm me-1" title="View Selfie">
+                        <i class="bi bi-camera"></i>
+                      </a>
+                      {% endif %}
+                      <button class="btn btn-success btn-sm btn-kyc-approve btn-action me-1" data-id="{{ u.pk }}">
+                        <i class="bi bi-check-circle me-1"></i>Approve
+                      </button>
+                      <button class="btn btn-danger btn-sm btn-kyc-reject btn-action" data-id="{{ u.pk }}">
+                        <i class="bi bi-x-circle me-1"></i>Reject
+                      </button>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5 text-muted">
+              <i class="bi bi-shield-check" style="font-size:2.5rem;display:block;margin-bottom:0.75rem;"></i>
+              No pending KYC verifications. All caught up!
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      </div><!-- /tab-content -->
 
   </div><!-- /main-content -->
 </div>
@@ -404,6 +497,46 @@
     btn.addEventListener('click', function(e) {
       e.preventDefault();
       handleShopAction(this.getAttribute('data-id'), 'reject');
+    });
+  });
+
+  /* --- KYC verification actions --- */
+  function handleKYCAction(userId, action) {
+    var formData = new URLSearchParams();
+    formData.append('action', action);
+    formData.append('csrfmiddlewaretoken', csrfToken);
+
+    fetch('/api/users/admin/kyc/' + userId + '/action/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': csrfToken },
+      body: formData.toString()
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.message) {
+        var row = document.querySelector('.kyc-row[data-id="' + userId + '"]');
+        if (row) row.style.display = 'none';
+        showToast(data.message, 'success');
+      } else {
+        showToast('Error: ' + (data.error || 'Unknown error'), 'danger');
+      }
+    })
+    .catch(function() {
+      showToast('Network error. Please try again.', 'danger');
+    });
+  }
+
+  document.querySelectorAll('.btn-kyc-approve').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      handleKYCAction(this.getAttribute('data-id'), 'approve');
+    });
+  });
+
+  document.querySelectorAll('.btn-kyc-reject').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      handleKYCAction(this.getAttribute('data-id'), 'reject');
     });
   });
 })();

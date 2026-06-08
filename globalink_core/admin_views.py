@@ -1,17 +1,29 @@
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework import serializers
+from django.db.models import Sum
 from users.models import User
 from finance.models import Wallet, Transaction
 from market.models import Order, Shop
 
 # --- KYC & USER MANAGEMENT ---
 
+class AdminUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'full_name', 'phone_number',
+            'active_role', 'roles', 'kyc_status',
+            'is_staff', 'is_superuser', 'is_active',
+            'date_joined', 'last_seen'
+        ]
+
 class AdminUserListView(generics.ListAPIView):
     """Next.js will use this to show all users and their status"""
-    queryset = User.objects.all().order_list('-date_joined')
+    queryset = User.objects.all().order_by('-date_joined')
     permission_classes = [permissions.IsAdminUser]
-    # Use a specific serializer that shows ID, email, role, and verification status
+    serializer_class = AdminUserSerializer
 
 class AdminVerifySellerView(APIView):
     """Next.js will call this when admin clicks 'Approve' on a seller"""
@@ -39,7 +51,7 @@ class AdminSystemStatsView(APIView):
 
     def get(self, request):
         total_users = User.objects.count()
-        total_escrow = Wallet.objects.aggregate(sum=models.Sum('escrow_balance'))['sum'] or 0
+        total_escrow = Wallet.objects.aggregate(sum=Sum('escrow_balance'))['sum'] or 0
         total_orders = Order.objects.count()
         
         return Response({
