@@ -147,12 +147,22 @@ class MerchantGlobalOnboardingView(APIView):
         user = request.user
         data = request.data
 
-        # 🛡️ Prevent duplicate store entries for the same account profile
+        # 🛡️ If user already has a shop, return existing data instead of blocking
         if Shop.objects.filter(owner=user).exists():
+            shop = Shop.objects.get(owner=user)
             return Response({
-                "status": "error", 
-                "message": "An active registration file already exists for this account profile."
-            }, status=400)
+                "status": "exists",
+                "message": "You already have a shop registration.",
+                "shop": {
+                    "id": str(shop.id),
+                    "name": shop.name,
+                    "shop_type": shop.shop_type,
+                    "is_active": shop.is_active,
+                    "is_approved": shop.is_active,
+                    "status": "approved" if shop.is_active else "pending",
+                    "created_at": shop.created_at.isoformat() if shop.created_at else None,
+                }
+            }, status=200)
 
         try:
             # 🌟 CORE ARCHITECTURAL RULE COMPLIANCE:
