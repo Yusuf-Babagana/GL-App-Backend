@@ -7,6 +7,7 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <style>
     :root {
       --sidebar-bg: #0f172a;
@@ -105,6 +106,7 @@
     }
     .sidebar .nav-link.active .badge-count { background: rgba(255,255,255,0.2); }
     .sidebar-footer { padding: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06); }
+    .sidebar-toggle { display: none; }
 
     /* Main */
     .main-content { margin-left: var(--sidebar-width); padding: 1.5rem 2rem; min-height: 100vh; }
@@ -341,6 +343,31 @@
       margin-right: 0.35rem;
     }
 
+    /* Charts */
+    .chart-card { border-radius: var(--card-radius); border: none; box-shadow: var(--card-shadow); overflow: hidden; }
+    .chart-card .card-header {
+      background: transparent; border-bottom: 1px solid #f1f5f9;
+      padding: 0.85rem 1.25rem; font-weight: 600; font-size: 0.85rem;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .chart-card .card-body { padding: 0.75rem 1rem; position: relative; }
+    .chart-card canvas { max-height: 200px; max-width: 100%; }
+
+    /* Confirmation modal */
+    .confirm-modal .modal-content { border: none; border-radius: 16px; box-shadow: 0 16px 48px rgba(0,0,0,0.15); }
+    .confirm-modal .modal-header { border-bottom: 1px solid #f1f5f9; padding: 1.25rem 1.5rem; }
+    .confirm-modal .modal-body { padding: 1.25rem 1.5rem; }
+    .confirm-modal .modal-footer { border-top: 1px solid #f1f5f9; padding: 1rem 1.5rem; }
+
+    /* Pagination */
+    .pagination-sm .page-link { font-size: 0.75rem; padding: 0.3rem 0.6rem; border-radius: 6px !important; margin: 0 1px; }
+    .table-footer { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; border-top: 1px solid #f1f5f9; font-size: 0.78rem; color: #64748b; }
+    .table-search { max-width: 240px; }
+
+    /* Skeleton loading */
+    .skeleton { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 6px; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
     /* Plans table */
     .plans-table-wrap { max-height: 480px; overflow-y: auto; border-radius: 0; }
     .plans-table-wrap thead { position: sticky; top: 0; z-index: 2; }
@@ -356,7 +383,14 @@
       .sidebar .nav-link span, .sidebar .nav-link .badge-count { display: none; }
       .sidebar .nav-link { justify-content: center; padding: 0.6rem; margin: 0.1rem 0.4rem; }
       .sidebar .nav-link i { margin: 0; }
+      .sidebar-toggle { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: #fff; border: none; box-shadow: var(--card-shadow); cursor: pointer; color: #475569; }
+      .sidebar-toggle:hover { background: #f1f5f9; }
+      .sidebar.expanded { width: var(--sidebar-width); }
+      .sidebar.expanded .brand h4 span, .sidebar.expanded .brand small, .sidebar.expanded .nav-section,
+      .sidebar.expanded .nav-link span, .sidebar.expanded .nav-link .badge-count { display: block; }
+      .sidebar.expanded .nav-link { justify-content: flex-start; padding: 0.6rem 1.25rem; margin: 0.1rem 0.75rem; }
       .main-content { margin-left: 60px; padding: 1rem; }
+      .main-content.shifted { margin-left: var(--sidebar-width); }
       .page-header h3 { font-size: 1.1rem; }
     }
   </style>
@@ -388,8 +422,14 @@
       <a href="#tab-pricing" class="nav-link" data-tab="tab-pricing">
         <i class="bi bi-tags"></i><span>VTU Pricing</span>
       </a>
+      <a href="#tab-orders" class="nav-link" data-tab="tab-orders">
+        <i class="bi bi-bag-check"></i><span>Orders</span>
+      </a>
       <a href="#tab-users" class="nav-link" data-tab="tab-users">
-        <i class="bi bi-people"></i><span>User Audits</span>
+        <i class="bi bi-people"></i><span>Users</span>
+      </a>
+      <a href="#tab-transactions" class="nav-link" data-tab="tab-transactions">
+        <i class="bi bi-credit-card"></i><span>Transactions</span>
       </a>
       <div class="nav-section"><span>System</span></div>
       <a href="/admin/" class="nav-link" target="_blank">
@@ -409,6 +449,7 @@
   <!-- MAIN CONTENT -->
   <div class="main-content">
     <div class="page-header">
+      <button class="sidebar-toggle me-2" id="sidebarToggle" title="Toggle sidebar"><i class="bi bi-list"></i></button>
       <h3><i class="bi bi-speedometer2" style="color:#3b82f6"></i> Operational Dashboard</h3>
       <div class="d-flex align-items-center gap-3">
         <span class="date-badge">
@@ -496,6 +537,34 @@
       </div>
     </div>
 
+    <!-- CHARTS ROW -->
+    <div class="row g-3 mb-4" id="chartsRow">
+      <div class="col-md-4">
+        <div class="chart-card">
+          <div class="card-header"><i class="bi bi-graph-up" style="color:#3b82f6"></i> Revenue (7 Days)</div>
+          <div class="card-body"><canvas id="revenueChart" style="height:200px"></canvas>
+            <div class="skeleton" id="revenueSkeleton" style="height:200px"></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="chart-card">
+          <div class="card-header"><i class="bi bi-bag-check" style="color:#10b981"></i> Orders (7 Days)</div>
+          <div class="card-body"><canvas id="ordersChart" style="height:200px"></canvas>
+            <div class="skeleton" id="ordersSkeleton" style="height:200px"></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="chart-card">
+          <div class="card-header"><i class="bi bi-person-plus" style="color:#8b5cf6"></i> New Users (7 Days)</div>
+          <div class="card-body"><canvas id="usersChart" style="height:200px"></canvas>
+            <div class="skeleton" id="usersSkeleton" style="height:200px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- TABS -->
     <ul class="nav nav-tabs" id="dashboardTabs" role="tablist">
       <li class="nav-item" role="presentation">
@@ -522,8 +591,18 @@
         </button>
       </li>
       <li class="nav-item" role="presentation">
+        <button class="nav-link" id="orders-tab" data-bs-toggle="tab" data-bs-target="#tab-orders" type="button" role="tab">
+          <i class="bi bi-bag-check me-1"></i> Orders
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
         <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#tab-users" type="button" role="tab">
-          <i class="bi bi-people me-1"></i> User Audits
+          <i class="bi bi-people me-1"></i> Users
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="transactions-tab" data-bs-toggle="tab" data-bs-target="#tab-transactions" type="button" role="tab">
+          <i class="bi bi-credit-card me-1"></i> Transactions
         </button>
       </li>
     </ul>
@@ -860,62 +939,118 @@
         </div>
       </div>
 
-      <!-- TAB 4: USER AUDITS -->
+      <!-- TAB 5: ORDERS -->
+      <div class="tab-pane fade" id="tab-orders" role="tabpanel">
+        <div class="panel">
+          <div class="panel-header">
+            <h5><i class="bi bi-bag-check" style="color:#3b82f6"></i> Order Management</h5>
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+              <input type="text" class="form-control form-control-sm table-search" id="orderSearch" placeholder="Search by email, name, shop, ID...">
+              <select class="form-select form-select-sm" id="orderStatusFilter" style="max-width:140px">
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="ready_for_pickup">Ready for Pickup</option>
+                <option value="picked_up">Picked Up</option>
+                <option value="in_transit">In Transit</option>
+                <option value="shipped">Shipped</option>
+                <option value="delivered">Delivered</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+              <select class="form-select form-select-sm" id="orderPaymentFilter" style="max-width:130px">
+                <option value="">All Payments</option>
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="refunded">Refunded</option>
+              </select>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div id="ordersLoading" class="text-center py-3" style="display:none">
+              <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+              <span class="text-muted">Loading orders...</span>
+            </div>
+            <div id="ordersContainer"><div class="empty-state"><i class="bi bi-inbox"></i><p>Loading orders...</p></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 6: USER MANAGEMENT -->
       <div class="tab-pane fade" id="tab-users" role="tabpanel">
         <div class="panel">
           <div class="panel-header">
-            <h5><i class="bi bi-people" style="color:#0ea5e9"></i> Newest Registered Users</h5>
+            <h5><i class="bi bi-people" style="color:#8b5cf6"></i> User Management</h5>
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+              <input type="text" class="form-control form-control-sm table-search" id="userSearch" placeholder="Search by email, name, phone...">
+              <select class="form-select form-select-sm" id="userRoleFilter" style="max-width:130px">
+                <option value="">All Roles</option>
+                <option value="buyer">Buyer</option>
+                <option value="seller">Seller</option>
+                <option value="admin">Admin</option>
+                <option value="delivery_partner">Delivery</option>
+                <option value="job_seeker">Job Seeker</option>
+                <option value="employer">Employer</option>
+              </select>
+              <select class="form-select form-select-sm" id="userStatusFilter" style="max-width:120px">
+                <option value="">All</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <select class="form-select form-select-sm" id="userKycFilter" style="max-width:130px">
+                <option value="">All KYC</option>
+                <option value="unverified">Unverified</option>
+                <option value="pending">Pending</option>
+                <option value="verified">Verified</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
           </div>
           <div class="panel-body">
-            {% if recent_registrations %}
-            <div class="table-responsive">
-              <table class="table table-dashboard">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Phone</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                    <th>Joined</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for u in recent_registrations %}
-                  <tr>
-                    <td class="fw-semibold">{{ u.full_name|default:'&mdash;' }}</td>
-                    <td>{{ u.email }}</td>
-                    <td>{{ u.phone_number|default:'&mdash;' }}</td>
-                    <td>
-                      {% if u.active_role == 'admin' %}
-                      <span class="badge badge-dashboard bg-danger">Admin</span>
-                      {% elif u.active_role == 'seller' %}
-                      <span class="badge badge-dashboard bg-warning text-dark">Seller</span>
-                      {% elif u.active_role == 'delivery_partner' %}
-                      <span class="badge badge-dashboard bg-info text-dark">Delivery</span>
-                      {% else %}
-                      <span class="badge badge-dashboard bg-primary">Buyer</span>
-                      {% endif %}
-                    </td>
-                    <td>
-                      {% if u.is_active %}
-                      <span class="badge badge-dashboard bg-success">Active</span>
-                      {% else %}
-                      <span class="badge badge-dashboard bg-secondary">Inactive</span>
-                      {% endif %}
-                    </td>
-                    <td><span class="text-muted">{{ u.date_joined|date:"M d, Y" }}</span></td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
+            <div id="usersLoading" class="text-center py-3" style="display:none">
+              <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+              <span class="text-muted">Loading users...</span>
             </div>
-            {% else %}
-            <div class="empty-state">
-              <i class="bi bi-people"></i>
-              <p>No user registrations found.</p>
+            <div id="usersContainer"><div class="empty-state"><i class="bi bi-people"></i><p>Loading users...</p></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 7: TRANSACTIONS -->
+      <div class="tab-pane fade" id="tab-transactions" role="tabpanel">
+        <div class="panel">
+          <div class="panel-header">
+            <h5><i class="bi bi-credit-card" style="color:#10b981"></i> Transaction Monitor</h5>
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+              <input type="text" class="form-control form-control-sm table-search" id="txSearch" placeholder="Search by email, ref...">
+              <select class="form-select form-select-sm" id="txTypeFilter" style="max-width:140px">
+                <option value="">All Types</option>
+                <option value="deposit">Deposit</option>
+                <option value="payment">Payment</option>
+                <option value="withdrawal">Withdrawal</option>
+                <option value="refund">Refund</option>
+                <option value="fee">Fee</option>
+                <option value="bill_payment">Bill Payment</option>
+              </select>
+              <select class="form-select form-select-sm" id="txStatusFilter" style="max-width:120px">
+                <option value="">All Statuses</option>
+                <option value="success">Success</option>
+                <option value="pending">Pending</option>
+                <option value="failed">Failed</option>
+              </select>
+              <select class="form-select form-select-sm" id="txDaysFilter" style="max-width:100px">
+                <option value="">All time</option>
+                <option value="7">7 days</option>
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+              </select>
             </div>
-            {% endif %}
+          </div>
+          <div class="panel-body">
+            <div id="txLoading" class="text-center py-3" style="display:none">
+              <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+              <span class="text-muted">Loading transactions...</span>
+            </div>
+            <div id="txContainer"><div class="empty-state"><i class="bi bi-credit-card"></i><p>Loading transactions...</p></div></div>
           </div>
         </div>
       </div>
@@ -923,6 +1058,23 @@
     </div><!-- /tab-content -->
 
   </div><!-- /main-content -->
+</div>
+
+<!-- CONFIRMATION MODAL -->
+<div class="modal fade confirm-modal" id="confirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-bold" id="confirmModalTitle">Confirm Action</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="confirmModalBody">Are you sure?</div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light btn-action" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger btn-action" id="confirmModalBtn">Confirm</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- TOAST -->
@@ -936,6 +1088,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
 (function() {
   var csrfToken = '{{ csrf_token }}';
@@ -1546,6 +1699,310 @@
     showToast('Applied factor ' + f.toFixed(2) + ' to ' + rows.length + ' visible rows.', 'success');
     applyFilters();
   });
+
+  /* --- Confirmation modal helper --- */
+  var confirmModalEl = document.getElementById('confirmModal');
+  var confirmModal = new bootstrap.Modal(confirmModalEl);
+  var confirmCallback = null;
+  document.getElementById('confirmModalBtn').addEventListener('click', function() {
+    if (confirmCallback) confirmCallback();
+    confirmModal.hide();
+  });
+  function confirmAction(title, body, callback) {
+    document.getElementById('confirmModalTitle').textContent = title;
+    document.getElementById('confirmModalBody').innerHTML = body;
+    confirmCallback = callback;
+    confirmModal.show();
+  }
+
+  /* --- Charts --- */
+  var chartInstances = {};
+  function renderChart(canvasId, labels, data, label, color, bgColor) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    if (chartInstances[canvasId]) chartInstances[canvasId].destroy();
+    var ctx = canvas.getContext('2d');
+    chartInstances[canvasId] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: label, data: data, borderColor: color, backgroundColor: bgColor || color + '20',
+          fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: color, borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 }, maxTicksLimit: 7 } },
+          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 } } }
+        }
+      }
+    });
+    document.getElementById(canvasId.replace('Chart', 'Skeleton')).style.display = 'none';
+    canvas.style.display = 'block';
+  }
+
+  function loadCharts() {
+    fetch('/api/admin/dashboard/charts/')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        renderChart('revenueChart', d.labels, d.revenue, 'Revenue', '#3b82f6', 'rgba(59,130,246,0.08)');
+        renderChart('ordersChart', d.labels, d.orders, 'Orders', '#10b981', 'rgba(16,185,129,0.08)');
+        renderChart('usersChart', d.labels, d.users, 'New Users', '#8b5cf6', 'rgba(139,92,246,0.08)');
+      })
+      .catch(function() {
+        document.querySelectorAll('#chartsRow .skeleton').forEach(function(s) {
+          s.style.display = 'none';
+          var parent = s.parentElement;
+          parent.innerHTML = '<div class="text-muted small text-center py-4"><i class="bi bi-exclamation-triangle me-1"></i>Chart unavailable</div>';
+        });
+      });
+  }
+  loadCharts();
+
+  /* --- Generic paginated table render --- */
+  function renderPaginatedTable(containerId, data, renderRow, page, pageSize) {
+    page = page || 1;
+    pageSize = pageSize || 15;
+    var total = data.length;
+    var totalPages = Math.ceil(total / pageSize) || 1;
+    var start = (page - 1) * pageSize;
+    var end = Math.min(start + pageSize, total);
+    var pageData = data.slice(start, end);
+    var html = '<div class="table-responsive"><table class="table table-dashboard"><thead><tr>';
+    html += renderRow.header();
+    html += '</tr></thead><tbody>';
+    if (!pageData.length) {
+      html += '<tr><td colspan="10" class="text-center text-muted py-4"><i class="bi bi-inbox me-1"></i>No records found.</td></tr>';
+    } else {
+      pageData.forEach(function(item, i) { html += renderRow.row(item, start + i); });
+    }
+    html += '</tbody></table></div>';
+    html += '<div class="table-footer"><span>Showing ' + (total ? (start + 1) + '–' + end : 0) + ' of ' + total + '</span>';
+    html += '<nav><ul class="pagination pagination-sm mb-0">';
+    html += '<li class="page-item ' + (page <= 1 ? 'disabled' : '') + '"><button class="page-link" data-page="' + (page - 1) + '" data-container="' + containerId + '" data-ps="' + pageSize + '">&laquo;</button></li>';
+    for (var p = Math.max(1, page - 2); p <= Math.min(totalPages, page + 2); p++) {
+      html += '<li class="page-item ' + (p === page ? 'active' : '') + '"><button class="page-link" data-page="' + p + '" data-container="' + containerId + '" data-ps="' + pageSize + '">' + p + '</button></li>';
+    }
+    html += '<li class="page-item ' + (page >= totalPages ? 'disabled' : '') + '"><button class="page-link" data-page="' + (page + 1) + '" data-container="' + containerId + '" data-ps="' + pageSize + '">&raquo;</button></li>';
+    html += '</ul></nav></div>';
+    document.getElementById(containerId).innerHTML = html;
+    // Bind pagination clicks
+    document.querySelectorAll('#' + containerId + ' .page-link[data-container]').forEach(function(el) {
+      el.addEventListener('click', function(e) {
+        e.preventDefault();
+        var p = parseInt(this.getAttribute('data-page'));
+        var c = this.getAttribute('data-container');
+        var ps = parseInt(this.getAttribute('data-ps'));
+        if (p > 0) renderPaginatedTable(c, window[c + '_data'], window[c + '_render'], p, ps);
+      });
+    });
+  }
+
+  /* --- Order Management --- */
+  var orders_data = [];
+  var orders_render = null;
+
+  function loadOrders() {
+    var c = document.getElementById('ordersContainer');
+    var l = document.getElementById('ordersLoading');
+    l.style.display = 'block';
+    var params = new URLSearchParams();
+    var s = document.getElementById('orderSearch').value.trim();
+    if (s) params.set('search', s);
+    var st = document.getElementById('orderStatusFilter').value;
+    if (st) params.set('status', st);
+    var pm = document.getElementById('orderPaymentFilter').value;
+    if (pm) params.set('payment', pm);
+    fetch('/api/admin/orders/?' + params.toString())
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        l.style.display = 'none';
+        orders_data = data.results || data || [];
+        orders_render = {
+          header: function() {
+            return '<th>ID</th><th>Buyer</th><th>Shop</th><th class="text-end">Total</th><th>Delivery</th><th>Payment</th><th>Items</th><th>Date</th>';
+          },
+          row: function(o) {
+            var ds = o.delivery_status || '';
+            var ps = o.payment_status || '';
+            var dsBadge = ds === 'delivered' ? 'bg-success' : ds === 'cancelled' ? 'bg-danger' : ds === 'pending' ? 'bg-warning text-dark' : 'bg-info text-dark';
+            var psBadge = ps === 'paid' || ps === 'released' ? 'bg-success' : ps === 'refunded' ? 'bg-danger' : ps === 'pending' ? 'bg-warning text-dark' : 'bg-secondary';
+            var created = o.created_at ? o.created_at.slice(0, 10) : '';
+            return '<tr><td><code>#' + o.id + '</code></td><td class="fw-semibold small">' + (o.buyer_email || '') + '<br><span class="text-muted" style="font-size:0.7rem">' + (o.buyer_name || '') + '</span></td><td>' + (o.shop_name || '—') + '</td><td class="text-end fw-semibold">₦' + parseFloat(o.total_price).toFixed(2) + '</td><td><span class="badge badge-dashboard ' + dsBadge + '">' + ds.replace(/_/g, ' ') + '</span></td><td><span class="badge badge-dashboard ' + psBadge + '">' + ps + '</span></td><td class="text-center">' + (o.items_count || 0) + '</td><td><span class="text-muted small">' + created + '</span></td></tr>';
+          }
+        };
+        renderPaginatedTable('ordersContainer', orders_data, orders_render, 1);
+      })
+      .catch(function() {
+        l.style.display = 'none';
+        c.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error loading orders.</p></div>';
+      });
+  }
+
+  document.getElementById('orderSearch').addEventListener('input', function() { clearTimeout(window._orderTimer); window._orderTimer = setTimeout(loadOrders, 300); });
+  document.getElementById('orderStatusFilter').addEventListener('change', loadOrders);
+  document.getElementById('orderPaymentFilter').addEventListener('change', loadOrders);
+  loadOrders();
+
+  /* --- User Management --- */
+  var users_data = [];
+  var users_render = null;
+
+  function loadUsers() {
+    var c = document.getElementById('usersContainer');
+    var l = document.getElementById('usersLoading');
+    l.style.display = 'block';
+    var params = new URLSearchParams();
+    var s = document.getElementById('userSearch').value.trim();
+    if (s) params.set('search', s);
+    var role = document.getElementById('userRoleFilter').value;
+    if (role) params.set('role', role);
+    var st = document.getElementById('userStatusFilter').value;
+    if (st) params.set('status', st);
+    var kyc = document.getElementById('userKycFilter').value;
+    if (kyc) params.set('kyc', kyc);
+    fetch('/api/admin/users/?' + params.toString())
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        l.style.display = 'none';
+        users_data = data.results || data || [];
+        users_render = {
+          header: function() {
+            return '<th>Email</th><th>Name</th><th>Phone</th><th>Role</th><th>KYC</th><th>Status</th><th>Joined</th><th class="text-end">Actions</th>';
+          },
+          row: function(u) {
+            var roleBadge = u.active_role === 'admin' ? 'bg-danger' : u.active_role === 'seller' ? 'bg-warning text-dark' : u.active_role === 'delivery_partner' ? 'bg-info text-dark' : 'bg-primary';
+            var kycBadge = u.kyc_status === 'verified' ? 'bg-success' : u.kyc_status === 'rejected' ? 'bg-danger' : u.kyc_status === 'pending' ? 'bg-warning text-dark' : 'bg-secondary';
+            var activeBadge = u.is_active ? 'bg-success' : 'bg-secondary';
+            return '<tr><td class="small">' + u.email + '</td><td class="fw-semibold">' + (u.full_name || '—') + '</td><td class="small text-muted">' + (u.phone_number || '—') + '</td><td><span class="badge badge-dashboard ' + roleBadge + '">' + u.active_role + '</span></td><td><span class="badge badge-dashboard ' + kycBadge + '">' + u.kyc_status + '</span></td><td><span class="badge badge-dashboard ' + activeBadge + '">' + (u.is_active ? 'Active' : 'Inactive') + '</span></td><td><span class="text-muted small">' + (u.date_joined ? u.date_joined.slice(0, 10) : '') + '</span></td><td class="text-end"><button class="btn btn-soft-info btn-action-sm btn-user-toggle" data-id="' + u.id + '" data-active="' + u.is_active + '"><i class="bi bi-' + (u.is_active ? 'pause' : 'play') + '"></i></button> <button class="btn btn-soft-primary btn-action-sm btn-user-role" data-id="' + u.id + '" data-role="' + u.active_role + '"><i class="bi bi-shuffle"></i></button></td></tr>';
+          }
+        };
+        renderPaginatedTable('usersContainer', users_data, users_render, 1);
+        // Bind user action buttons
+        document.querySelectorAll('#usersContainer .btn-user-toggle').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var uid = this.getAttribute('data-id');
+            var active = this.getAttribute('data-active') === 'true';
+            confirmAction(
+              active ? 'Deactivate User' : 'Activate User',
+              'Are you sure you want to <strong>' + (active ? 'deactivate' : 'activate') + '</strong> this user?',
+              function() {
+                fetch('/api/admin/users/' + uid + '/toggle-active/', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                  body: '{}'
+                }).then(function(r) { return r.json(); }).then(function(d) {
+                  showToast(d.message || 'Done!', 'success');
+                  loadUsers();
+                }).catch(function() { showToast('Error toggling user.', 'danger'); });
+              }
+            );
+          });
+        });
+        document.querySelectorAll('#usersContainer .btn-user-role').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var uid = this.getAttribute('data-id');
+            var cur = this.getAttribute('data-role');
+            var roles = ['buyer', 'seller', 'admin', 'delivery_partner', 'job_seeker', 'employer'];
+            var next = roles[(roles.indexOf(cur) + 1) % roles.length];
+            fetch('/api/admin/users/' + uid + '/change-role/', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+              body: JSON.stringify({ role: next })
+            }).then(function(r) { return r.json(); }).then(function(d) {
+              showToast(d.message || 'Role changed!', 'success');
+              loadUsers();
+            }).catch(function() { showToast('Error changing role.', 'danger'); });
+          });
+        });
+      })
+      .catch(function() {
+        l.style.display = 'none';
+        c.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error loading users.</p></div>';
+      });
+  }
+
+  document.getElementById('userSearch').addEventListener('input', function() { clearTimeout(window._userTimer); window._userTimer = setTimeout(loadUsers, 300); });
+  document.getElementById('userRoleFilter').addEventListener('change', loadUsers);
+  document.getElementById('userStatusFilter').addEventListener('change', loadUsers);
+  document.getElementById('userKycFilter').addEventListener('change', loadUsers);
+  loadUsers();
+
+  /* --- Transaction Monitor --- */
+  var tx_data = [];
+  var tx_render = null;
+
+  function loadTransactions() {
+    var c = document.getElementById('txContainer');
+    var l = document.getElementById('txLoading');
+    l.style.display = 'block';
+    var params = new URLSearchParams();
+    var s = document.getElementById('txSearch').value.trim();
+    if (s) params.set('search', s);
+    var t = document.getElementById('txTypeFilter').value;
+    if (t) params.set('type', t);
+    var st = document.getElementById('txStatusFilter').value;
+    if (st) params.set('status', st);
+    var d = document.getElementById('txDaysFilter').value;
+    if (d) params.set('days', d);
+    fetch('/api/admin/transactions/?' + params.toString())
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        l.style.display = 'none';
+        tx_data = data.results || data || [];
+        tx_render = {
+          header: function() {
+            return '<th>User</th><th>Type</th><th class="text-end">Amount</th><th>Status</th><th>Description</th><th>Reference</th><th>Date</th>';
+          },
+          row: function(tx) {
+            var typeBadge = tx.transaction_type === 'deposit' ? 'bg-success' : tx.transaction_type === 'withdrawal' ? 'bg-danger' : tx.transaction_type === 'payment' ? 'bg-primary' : tx.transaction_type === 'refund' ? 'bg-warning text-dark' : 'bg-secondary';
+            var stBadge = tx.status === 'success' ? 'bg-success' : tx.status === 'failed' ? 'bg-danger' : 'bg-warning text-dark';
+            return '<tr><td class="small">' + (tx.user_email || '') + '<br><span class="text-muted" style="font-size:0.7rem">' + (tx.user_name || '') + '</span></td><td><span class="badge badge-dashboard ' + typeBadge + '">' + tx.transaction_type.replace(/_/g, ' ') + '</span></td><td class="text-end fw-semibold ' + (parseFloat(tx.amount) >= 0 ? 'text-success' : 'text-danger') + '">₦' + parseFloat(tx.amount).toFixed(2) + '</td><td><span class="badge badge-dashboard ' + stBadge + '">' + tx.status + '</span></td><td class="small text-muted" style="max-width:200px;white-space:normal">' + (tx.description || '—') + '</td><td class="small text-muted font-monospace">' + (tx.reference ? tx.reference.slice(0, 16) + '…' : '—') + '</td><td><span class="text-muted small">' + (tx.created_at ? tx.created_at.slice(0, 16).replace('T', ' ') : '') + '</span></td></tr>';
+          }
+        };
+        renderPaginatedTable('txContainer', tx_data, tx_render, 1);
+      })
+      .catch(function() {
+        l.style.display = 'none';
+        c.innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error loading transactions.</p></div>';
+      });
+  }
+
+  document.getElementById('txSearch').addEventListener('input', function() { clearTimeout(window._txTimer); window._txTimer = setTimeout(loadTransactions, 300); });
+  document.getElementById('txTypeFilter').addEventListener('change', loadTransactions);
+  document.getElementById('txStatusFilter').addEventListener('change', loadTransactions);
+  document.getElementById('txDaysFilter').addEventListener('change', loadTransactions);
+  loadTransactions();
+
+  /* --- Mobile sidebar toggle --- */
+  document.getElementById('sidebarToggle').addEventListener('click', function() {
+    document.querySelector('.sidebar').classList.toggle('expanded');
+    document.querySelector('.main-content').classList.toggle('shifted');
+  });
+
+  /* --- Auto-refresh stat cards every 30s --- */
+  function refreshStats() {
+    fetch('/api/users/admin/dashboard/stats/')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var cards = document.querySelectorAll('.stat-card');
+        if (d.orders && cards.length >= 5) {
+          var totalEl = cards[4].querySelector('.stat-value');
+          if (totalEl) totalEl.textContent = d.orders.total || totalEl.textContent;
+        }
+        if (d.users && cards.length >= 3) {
+          var usersEl = cards[2].querySelector('.stat-value');
+          if (usersEl) usersEl.textContent = d.users.total || usersEl.textContent;
+        }
+        if (d.finance && cards.length >= 2) {
+          var escrowEl = cards[1].querySelector('.stat-value');
+          if (escrowEl && d.finance.escrow_locked) escrowEl.textContent = '₦' + parseFloat(d.finance.escrow_locked).toFixed(2);
+        }
+      })
+      .catch(function() {});
+  }
+  setInterval(refreshStats, 30000);
 
   /* --- Sidebar tab switching (uses Bootstrap Tab API on top buttons) --- */
   document.querySelectorAll('.sidebar .nav-link[data-tab]').forEach(function(link) {
