@@ -363,26 +363,23 @@
     </div>
     <nav>
       <div class="nav-section"><span>Main</span></div>
-      <a href="#" class="nav-link active" data-tab-target="tab-payouts">
+      <a href="#tab-payouts" class="nav-link active" data-tab="tab-payouts">
         <i class="bi bi-speedometer2"></i><span>Dashboard</span>
-      </a>
-      <div class="nav-section"><span>Management</span></div>
-      <a href="#tab-payouts" class="nav-link" data-bs-toggle="tab">
-        <i class="bi bi-cash-stack"></i><span>Payout Queue</span>
         {% if pending_tickets %}<span class="badge-count">{{ pending_tickets|length }}</span>{% endif %}
       </a>
-      <a href="#tab-shops" class="nav-link" data-bs-toggle="tab">
+      <div class="nav-section"><span>Management</span></div>
+      <a href="#tab-shops" class="nav-link" data-tab="tab-shops">
         <i class="bi bi-shop"></i><span>Store Onboarding</span>
         {% if pending_shops %}<span class="badge-count">{{ pending_shops|length }}</span>{% endif %}
       </a>
-      <a href="#tab-kyc" class="nav-link" data-bs-toggle="tab">
+      <a href="#tab-kyc" class="nav-link" data-tab="tab-kyc">
         <i class="bi bi-shield-check"></i><span>KYC Reviews</span>
         {% if pending_kyc_count %}<span class="badge-count">{{ pending_kyc_count }}</span>{% endif %}
       </a>
-      <a href="#tab-pricing" class="nav-link" data-bs-toggle="tab">
+      <a href="#tab-pricing" class="nav-link" data-tab="tab-pricing">
         <i class="bi bi-tags"></i><span>VTU Pricing</span>
       </a>
-      <a href="#tab-users" class="nav-link" data-bs-toggle="tab">
+      <a href="#tab-users" class="nav-link" data-tab="tab-users">
         <i class="bi bi-people"></i><span>User Audits</span>
       </a>
       <div class="nav-section"><span>System</span></div>
@@ -708,7 +705,12 @@
         <div class="panel">
           <div class="panel-header">
             <h5><i class="bi bi-tags" style="color:#f59e0b"></i> VTU Data Pricing Control</h5>
-            <span class="text-muted" style="font-size:0.78rem"><i class="bi bi-info-circle me-1"></i>Changes apply immediately to all users</span>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="text-muted" style="font-size:0.78rem"><i class="bi bi-info-circle me-1"></i>Changes apply immediately</span>
+              <button class="btn btn-soft-info btn-action btn-refresh-prices" id="refreshPricesBtn" title="Fetch live prices from Nellobyte">
+                <i class="bi bi-cloud-download me-1"></i>Refresh Prices
+              </button>
+            </div>
           </div>
           <div class="panel-body">
             {% if data_markups %}
@@ -771,6 +773,17 @@
               <p>No network pricing records found. Run <code>python manage.py migrate finance</code> to initialize.</p>
             </div>
             {% endif %}
+
+            <!-- Price Preview Section -->
+            <div id="pricePreviewSection" class="mt-3" style="display:none">
+              <hr>
+              <h6 class="mb-3"><i class="bi bi-eye me-1"></i>Live Price Preview (from Nellobyte)</h6>
+              <div id="pricePreviewContainer"></div>
+              <div id="pricePreviewLoading" class="text-center py-3" style="display:none">
+                <div class="spinner-border spinner-border-sm text-warning me-2" role="status"></div>
+                <span class="text-muted">Fetching live prices from Nellobyte...</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1084,12 +1097,94 @@
     });
   });
 
-  /* --- Sidebar active tab sync --- */
-  var sidebarLinks = document.querySelectorAll('.sidebar .nav-link[data-bs-toggle="tab"]');
-  sidebarLinks.forEach(function(link) {
-    link.addEventListener('click', function() {
+  /* --- Refresh live prices from Nellobyte --- */
+  function renderPricePreview(entries) {
+    var container = document.getElementById('pricePreviewContainer');
+    var html = '';
+    entries.forEach(function(entry) {
+      html += '<div class="card mb-2 border">';
+      html += '<div class="card-body py-2 px-3">';
+      html += '<div class="d-flex justify-content-between align-items-center mb-1">';
+      html += '<strong>' + entry.network_label + '</strong>';
+      html += ' <code class="small">' + entry.network + '</code>';
+      if (entry.error) {
+        html += '<span class="text-danger small"><i class="bi bi-exclamation-triangle me-1"></i>' + entry.error + '</span>';
+      }
+      html += '</div>';
+      if (entry.samples && entry.samples.length) {
+        html += '<div class="table-responsive"><table class="table table-sm mb-0" style="font-size:0.8rem"><thead><tr>';
+        html += '<th>Plan</th><th class="text-end">Original (&#8355;)</th><th class="text-end">Markup (&#8355;)</th><th class="text-end fw-bold" style="color:#059669">Selling Price (&#8355;)</th>';
+        html += '</tr></thead><tbody>';
+        entry.samples.forEach(function(s) {
+          html += '<tr><td>' + s.name + '</td>';
+          html += '<td class="text-end text-muted">' + parseFloat(s.original_price).toFixed(2) + '</td>';
+          html += '<td class="text-end text-muted">+ ' + parseFloat(s.markup).toFixed(2) + '</td>';
+          html += '<td class="text-end fw-semibold" style="color:#059669">' + parseFloat(s.selling_price).toFixed(2) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+      } else if (!entry.error) {
+        html += '<span class="text-muted small">No plans returned from Nellobyte.</span>';
+      }
+      html += '</div></div>';
+    });
+    container.innerHTML = html;
+  }
+
+  document.querySelectorAll('.btn-refresh-prices').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      var section = document.getElementById('pricePreviewSection');
+      var loading = document.getElementById('pricePreviewLoading');
+      var container = document.getElementById('pricePreviewContainer');
+      section.style.display = 'block';
+      loading.style.display = 'block';
+      container.innerHTML = '';
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading...';
+
+      fetch('/api/admin/data-pricing/?refresh=true')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          loading.style.display = 'none';
+          if (data.price_preview && data.price_preview.length) {
+            renderPricePreview(data.price_preview);
+          } else {
+            container.innerHTML = '<div class="text-muted small py-2"><i class="bi bi-cloud-slash me-1"></i>Could not fetch live prices. Nellobyte may be unreachable.</div>';
+          }
+        })
+        .catch(function() {
+          loading.style.display = 'none';
+          container.innerHTML = '<div class="text-danger small py-2"><i class="bi bi-exclamation-triangle me-1"></i>Network error fetching prices.</div>';
+        })
+        .finally(function() {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>Refresh Prices';
+        });
+    });
+  });
+
+  /* --- Sidebar tab switching (uses Bootstrap Tab API on top buttons) --- */
+  document.querySelectorAll('.sidebar .nav-link[data-tab]').forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      var tabId = this.getAttribute('data-tab');
+      var topBtn = document.querySelector('.nav-tabs .nav-link[data-bs-target="#' + tabId + '"]');
+      if (topBtn) {
+        var tab = bootstrap.Tab.getOrCreateInstance(topBtn);
+        tab.show();
+      }
       document.querySelectorAll('.sidebar .nav-link').forEach(function(l) { l.classList.remove('active'); });
       this.classList.add('active');
+    });
+  });
+
+  /* --- When a top nav-tab is clicked, also sync the sidebar --- */
+  document.querySelectorAll('.nav-tabs .nav-link[data-bs-toggle="tab"]').forEach(function(btn) {
+    btn.addEventListener('shown.bs.tab', function(e) {
+      var targetId = this.getAttribute('data-bs-target').replace('#', '');
+      document.querySelectorAll('.sidebar .nav-link').forEach(function(l) { l.classList.remove('active'); });
+      var match = document.querySelector('.sidebar .nav-link[data-tab="' + targetId + '"]');
+      if (match) match.classList.add('active');
     });
   });
 })();

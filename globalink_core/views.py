@@ -15,6 +15,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import json
 from finance.models import Wallet, WithdrawalTicket, PlatformRevenue, DataMarkup
+from finance.nellobyte import NellobyteClient
 from market.models import Shop, Order
 
 User = get_user_model()
@@ -180,8 +181,48 @@ class WithdrawalTicketUpdateStatusView(LoginRequiredMixin, UserPassesTestMixin, 
 class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
     login_url = 'admin_login'
 
+    SERVICE_TO_NETWORK = {
+        'mtn-data': 'MTN',
+        'glo-data': 'Glo',
+        'airtel-data': 'Airtel',
+        '9mobile-data': '9mobile',
+    }
+
     def test_func(self):
         return self.request.user.is_staff or self.request.user.is_superuser
+
+    def _fetch_price_preview(self):
+        preview = []
+        for svc, net in self.SERVICE_TO_NETWORK.items():
+            entry = {'network': svc, 'network_label': net, 'samples': [], 'error': None}
+            try:
+                client = NellobyteClient()
+                plans = client.fetch_all_variations(net)
+                markup_amt = 50.0
+                try:
+                    dm = DataMarkup.objects.get(network=svc, is_active=True)
+                    markup_amt = float(dm.markup_amount)
+                except DataMarkup.DoesNotExist:
+                    pass
+                for plan in plans[:3]:
+                    raw_price = None
+                    for key in ('PRODUCT_AMOUNT', 'price', 'Price', 'amount', 'Amount', 'variation_amount'):
+                        val = plan.get(key)
+                        if val is not None:
+                            raw_price = val
+                            break
+                    if raw_price is not None:
+                        original = float(str(raw_price).replace(',', ''))
+                        entry['samples'].append({
+                            'name': plan.get('PRODUCT_NAME', plan.get('name', 'Plan')),
+                            'original_price': str(round(original, 2)),
+                            'markup': str(round(markup_amt, 2)),
+                            'selling_price': str(round(original + markup_amt, 2)),
+                        })
+            except Exception as e:
+                entry['error'] = str(e)
+            preview.append(entry)
+        return preview
 
     def get(self, request):
         try:
@@ -195,7 +236,9 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
             } for m in markups]
         except OperationalError:
             data = []
-        return JsonResponse({'markups': data})
+
+        price_preview = self._fetch_price_preview() if request.GET.get('refresh') == 'true' else []
+        return JsonResponse({'markups': data, 'price_preview': price_preview})
 
     def post(self, request):
         try:
