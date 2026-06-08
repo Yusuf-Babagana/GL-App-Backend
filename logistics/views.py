@@ -58,14 +58,14 @@ class PurchaseDataView(APIView):
             return None, "Could not determine plan price from provider"
 
         original_price = float(str(raw_price).replace(',', ''))
-        markup = 50.0
+        factor = 1.10
         try:
             dm = DataMarkup.objects.get(network=service_id, is_active=True)
-            markup = float(dm.markup_amount)
+            factor = float(dm.price_factor)
         except DataMarkup.DoesNotExist:
             pass
 
-        verified = round(original_price + markup, 2)
+        verified = round(original_price * factor, 2)
         return Decimal(str(verified)), None
 
     def post(self, request):

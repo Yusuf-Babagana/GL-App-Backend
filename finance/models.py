@@ -183,7 +183,11 @@ class DataMarkup(models.Model):
     )
     markup_amount = models.DecimalField(
         max_digits=10, decimal_places=2, default=Decimal('50.00'),
-        help_text="Fixed markup amount added to the original price (₦)"
+        help_text="Fixed markup amount added to the original price (₦) — legacy, use price_factor instead"
+    )
+    price_factor = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal('1.10'),
+        help_text="Multiplier on Nellobyte price (e.g. 1.10 = sell at 110% of original)"
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -194,4 +198,4 @@ class DataMarkup(models.Model):
         verbose_name_plural = "Data Markups"
 
     def __str__(self):
-        return f"{self.network_label} (+₦{self.markup_amount})"
+        return f"{self.network_label} (×{self.price_factor})"
