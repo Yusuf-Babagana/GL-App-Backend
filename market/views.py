@@ -497,6 +497,17 @@ class CreateOrderView(APIView):
 
     def post(self, request):
         cart_items = request.data.get('items', []) # Expects [{product_id, quantity}, ...]
+
+        # Fallback: if payload has no items, try the user's stored cart in the DB
+        if not cart_items:
+            try:
+                cart = Cart.objects.get(user=request.user)
+                db_items = CartItem.objects.filter(cart=cart).select_related('product')
+                if db_items.exists():
+                    cart_items = [{'product_id': ci.product_id, 'quantity': ci.quantity} for ci in db_items]
+            except Cart.DoesNotExist:
+                pass
+
         if not cart_items:
             return Response({"status": "error", "message": "Your cart compilation list is completely empty."}, status=400)
 
