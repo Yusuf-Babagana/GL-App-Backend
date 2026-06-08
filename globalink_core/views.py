@@ -9,6 +9,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.views.generic.base import TemplateView
 from django.views import View
 from django.db.models import Sum, Count
+from django.db.utils import OperationalError
 from django.contrib.auth import get_user_model
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -67,7 +68,10 @@ class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         context['pending_kyc_users'] = pending_kyc_users
         context['pending_kyc_count'] = pending_kyc_count
         context['total_active_shops'] = total_active_shops
-        context['data_markups'] = DataMarkup.objects.all().order_by('network')
+        try:
+            context['data_markups'] = DataMarkup.objects.all().order_by('network')
+        except OperationalError:
+            context['data_markups'] = []
         return context
 
 
@@ -180,14 +184,17 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
         return self.request.user.is_staff or self.request.user.is_superuser
 
     def get(self, request):
-        markups = DataMarkup.objects.all().order_by('network')
-        data = [{
-            'id': m.id,
-            'network': m.network,
-            'network_label': m.network_label,
-            'markup_amount': str(m.markup_amount),
-            'is_active': m.is_active,
-        } for m in markups]
+        try:
+            markups = DataMarkup.objects.all().order_by('network')
+            data = [{
+                'id': m.id,
+                'network': m.network,
+                'network_label': m.network_label,
+                'markup_amount': str(m.markup_amount),
+                'is_active': m.is_active,
+            } for m in markups]
+        except OperationalError:
+            data = []
         return JsonResponse({'markups': data})
 
     def post(self, request):
@@ -205,6 +212,8 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
 
         try:
             markup = DataMarkup.objects.get(id=markup_id)
+        except OperationalError:
+            return JsonResponse({'error': 'Database table not ready. Run migrations.'}, status=503)
         except DataMarkup.DoesNotExist:
             return JsonResponse({'error': 'Markup not found'}, status=404)
 
