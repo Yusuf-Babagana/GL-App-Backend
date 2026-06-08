@@ -1203,6 +1203,29 @@
     });
   });
 
+  /* --- Auto-fetch live prices on page load (silently populates main table) --- */
+  (function autoFetchPrices() {
+    fetch('/api/admin/data-pricing/?refresh=true')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.price_preview || !data.price_preview.length) return;
+        data.price_preview.forEach(function(entry) {
+          if (!entry.samples || !entry.samples.length) return;
+          var row = document.querySelector('.pricing-row[data-network="' + entry.network + '"]');
+          if (!row) return;
+          var liveEl = row.querySelector('.live-price');
+          var sellingEl = row.querySelector('.selling-price');
+          var factorInput = row.querySelector('.factor-input');
+          var first = entry.samples[0];
+          liveEl.textContent = '\u20A6' + parseFloat(first.original_price).toFixed(2);
+          liveEl.setAttribute('data-original', first.original_price);
+          var factor = parseFloat(factorInput.value) || 1.10;
+          sellingEl.textContent = '\u20A6' + (parseFloat(first.original_price) * factor).toFixed(2);
+        });
+      })
+      .catch(function() {});
+  })();
+
   /* --- Sidebar tab switching (uses Bootstrap Tab API on top buttons) --- */
   document.querySelectorAll('.sidebar .nav-link[data-tab]').forEach(function(link) {
     link.addEventListener('click', function(e) {
