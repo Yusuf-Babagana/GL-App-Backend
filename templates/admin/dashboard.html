@@ -807,7 +807,7 @@
         <!-- All Plans panel (per-plan selling prices) -->
         <div class="panel mt-3">
           <div class="panel-header">
-            <h5><i class="bi bi-list-ul" style="color:#0ea5e9"></i> All Data Plans — Set Per-Plan Prices</h5>
+            <h5><i class="bi bi-list-ul" style="color:#0ea5e9"></i> All Plans — Set Per-Plan Prices</h5>
             <button class="btn btn-soft-primary btn-action btn-load-plans" id="loadPlansBtn">
               <i class="bi bi-cloud-download me-1"></i>Load All Plans
             </button>
@@ -817,17 +817,44 @@
               <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
               <span class="text-muted">Fetching all plans from Nellobyte...</span>
             </div>
+
+            <!-- Toolbar -->
+            <div id="plansToolbar" class="d-flex flex-wrap align-items-center gap-2 px-3 py-2 border-bottom" style="display:none">
+              <div class="btn-group btn-group-sm" id="netFilterGroup">
+                <button class="btn btn-outline-secondary active" data-net="all">All</button>
+                <button class="btn btn-outline-secondary" data-net="MTN">MTN</button>
+                <button class="btn btn-outline-secondary" data-net="Glo">Glo</button>
+                <button class="btn btn-outline-secondary" data-net="Airtel">Airtel</button>
+                <button class="btn btn-outline-secondary" data-net="9mobile">9mobile</button>
+              </div>
+              <input type="text" class="form-control form-control-sm" id="plansSearch" placeholder="Search plans..." style="max-width:200px">
+              <div class="form-check form-switch ms-auto" style="padding-left:2.5rem">
+                <input class="form-check-input" type="checkbox" id="onlyOverridden">
+                <label class="form-check-label small" for="onlyOverridden">Overridden only</label>
+              </div>
+              <span class="text-muted small" id="plansCount"></span>
+            </div>
+
             <div id="plansContainer">
               <div class="empty-state">
                 <i class="bi bi-database"></i>
                 <p>Click <strong>Load All Plans</strong> to fetch and manage individual plan prices.</p>
               </div>
             </div>
-            <div id="plansActions" class="p-3 border-top" style="display:none">
+
+            <div id="plansActions" class="d-flex flex-wrap align-items-center gap-2 px-3 py-2 border-top" style="display:none">
               <button class="btn btn-success btn-action" id="saveAllPlanPrices">
                 <i class="bi bi-check-all me-1"></i>Save All Changes
               </button>
-              <span class="text-muted small ms-2" id="plansSaveStatus"></span>
+              <div class="vr"></div>
+              <span class="text-muted small">Fill visible:</span>
+              <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="fillValue" placeholder="Price" style="max-width:100px">
+              <button class="btn btn-soft-info btn-action-sm" id="fillVisibleBtn">Set</button>
+              <div class="vr"></div>
+              <span class="text-muted small">Factor:</span>
+              <input type="number" step="0.01" min="0.5" value="1.10" class="form-control form-control-sm" id="applyFactorValue" style="max-width:80px">
+              <button class="btn btn-soft-info btn-action-sm" id="applyFactorBtn">Apply</button>
+              <span class="text-muted small ms-auto" id="plansSaveStatus"></span>
             </div>
           </div>
         </div>
@@ -1267,45 +1294,77 @@
   var plansData = [];
   var plansChanged = {};
 
+  function netLabel(label) {
+    if (label === 'MTN') return 'bg-warning text-dark';
+    if (label === 'Glo') return 'bg-success';
+    if (label === 'Airtel') return 'bg-danger';
+    if (label === '9mobile') return 'bg-info text-dark';
+    return 'bg-secondary';
+  }
+
+  function applyFilters() {
+    var net = document.querySelector('#netFilterGroup .active').getAttribute('data-net');
+    var q = (document.getElementById('plansSearch').value || '').toLowerCase();
+    var onlyOv = document.getElementById('onlyOverridden').checked;
+    var rows = document.querySelectorAll('#plansTable .plan-row');
+    var visible = 0;
+    rows.forEach(function(r) {
+      var show = true;
+      if (net !== 'all' && r.getAttribute('data-network-label') !== net) show = false;
+      if (show && q) {
+        var name = (r.getAttribute('data-name') || '').toLowerCase();
+        if (name.indexOf(q) === -1) show = false;
+      }
+      if (show && onlyOv) {
+        var ov = r.getAttribute('data-overridden') === 'true';
+        if (!ov) show = false;
+      }
+      r.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    document.getElementById('plansCount').textContent = 'Showing ' + visible + ' of ' + rows.length;
+  }
+
   function renderPlansTable(plans) {
     var container = document.getElementById('plansContainer');
     if (!plans.length) {
       container.innerHTML = '<div class="empty-state"><i class="bi bi-database"></i><p>No plans returned from Nellobyte.</p></div>';
       document.getElementById('plansActions').style.display = 'none';
+      document.getElementById('plansToolbar').style.display = 'none';
       return;
     }
     var html = '<div class="table-responsive plans-table-wrap"><table class="table table-dashboard" id="plansTable"><thead><tr>';
-    html += '<th>Network</th><th>Plan Name</th><th class="text-end">Nellobyte (&#8355;)</th><th class="text-end">Selling Price (&#8355;)</th><th class="text-end">Profit (&#8355;)</th><th>Override</th>';
+    html += '<th>Network</th><th>Plan Name</th><th class="text-end">Nellobyte (&#8355;)</th><th class="text-end">Selling Price (&#8355;)</th><th class="text-end">Profit (&#8355;)</th><th class="text-center">Ov</th>';
     html += '</tr></thead><tbody>';
     plans.forEach(function(p, i) {
       var orig = parseFloat(p.original_price);
       var sp = p.selling_price ? parseFloat(p.selling_price) : null;
       var displaySp = sp !== null ? sp.toFixed(2) : '';
-      var profit = sp !== null ? (sp - orig).toFixed(2) : '';
+      var profit = sp !== null ? (sp - orig) : null;
+      var profitCls = profit !== null ? (profit > 0 ? 'profit-pos' : 'profit-neg') : '';
       var overridden = p.overridden ? 'plan-overridden' : '';
-      html += '<tr class="plan-row ' + overridden + '" data-index="' + i + '" data-network="' + p.network + '" data-code="' + p.variation_code + '">';
-      html += '<td><span class="badge-dashboard ';
-      if (p.network_label === 'MTN') html += 'bg-warning text-dark';
-      else if (p.network_label === 'Glo') html += 'bg-success';
-      else if (p.network_label === 'Airtel') html += 'bg-danger';
-      else if (p.network_label === '9mobile') html += 'bg-info text-dark';
-      else html += 'bg-secondary';
-      html += '">' + p.network_label + '</span></td>';
+      html += '<tr class="plan-row ' + overridden + '" data-index="' + i + '" data-network="' + p.network + '" data-network-label="' + p.network_label + '" data-name="' + (p.plan_name || '').replace(/"/g, '&quot;') + '" data-overridden="' + p.overridden + '" data-code="' + p.variation_code + '">';
+      html += '<td><span class="badge-dashboard ' + netLabel(p.network_label) + '">' + p.network_label + '</span></td>';
       html += '<td style="max-width:260px;white-space:normal">' + p.plan_name + '</td>';
-      html += '<td class="text-end text-muted">' + orig.toFixed(2) + '</td>';
-      html += '<td class="text-end">';
+      html += '<td class="text-end text-muted fw-semibold">' + orig.toFixed(2) + '</td>';
+      html += '<td class="text-end" style="width:130px">';
       html += '<input type="number" step="0.01" min="0" class="form-control form-control-sm plan-price-input text-end" value="' + displaySp + '" data-original="' + displaySp + '" placeholder="' + (orig * 1.10).toFixed(2) + '">';
       html += '</td>';
-      html += '<td class="text-end plan-profit" style="color:' + (profit > 0 ? '#059669' : '#94a3b8') + '">' + (profit !== '' ? '\u20A6' + profit : '\u2014') + '</td>';
+      html += '<td class="text-end plan-profit ' + profitCls + ' fw-semibold">';
+      if (profit !== null) html += '\u20A6' + profit.toFixed(2);
+      else html += '\u2014';
+      html += '</td>';
       html += '<td class="text-center">';
-      if (overridden) html += '<span class="badge bg-success" style="font-size:0.6rem">Yes</span>';
+      if (p.overridden) html += '<span class="badge bg-success" style="font-size:0.6rem">Y</span>';
       else html += '<span class="text-muted" style="font-size:0.6rem">\u2014</span>';
       html += '</td>';
       html += '</tr>';
     });
     html += '</tbody></table></div>';
     container.innerHTML = html;
-    document.getElementById('plansActions').style.display = 'block';
+
+    document.getElementById('plansActions').style.display = 'flex';
+    document.getElementById('plansToolbar').style.display = 'flex';
     document.getElementById('plansSaveStatus').textContent = '';
 
     // Track changes on inputs
@@ -1317,34 +1376,48 @@
         var originalVal = this.getAttribute('data-original');
         var newVal = this.value.trim();
         var profitEl = row.querySelector('.plan-profit');
+        var ovBadge = row.querySelector('td:last-child .badge');
         if (newVal !== '' && parseFloat(newVal) >= 0) {
           var sp = parseFloat(newVal);
           var profit = sp - orig;
           profitEl.textContent = '\u20A6' + profit.toFixed(2);
-          profitEl.style.color = profit > 0 ? '#059669' : '#dc2626';
+          profitEl.className = 'text-end plan-profit fw-semibold ' + (profit > 0 ? 'profit-pos' : 'profit-neg');
           plansData[idx].selling_price = newVal;
           plansData[idx].overridden = true;
           plansChanged[idx] = true;
           row.classList.add('plan-modified');
+          row.setAttribute('data-overridden', 'true');
+          if (!ovBadge) {
+            var td = row.querySelector('td:last-child');
+            td.innerHTML = '<span class="badge bg-success" style="font-size:0.6rem">Y</span>';
+          }
         } else {
           profitEl.textContent = '\u2014';
-          profitEl.style.color = '#94a3b8';
+          profitEl.className = 'text-end plan-profit fw-semibold';
           plansData[idx].selling_price = null;
           plansData[idx].overridden = false;
+          row.setAttribute('data-overridden', 'false');
+          var td = row.querySelector('td:last-child');
+          td.innerHTML = '<span class="text-muted" style="font-size:0.6rem">\u2014</span>';
           if (originalVal) {
             delete plansChanged[idx];
             row.classList.remove('plan-modified');
           }
         }
+        applyFilters();
       });
     });
+    applyFilters();
   }
 
+  /* --- Load button --- */
   document.getElementById('loadPlansBtn').addEventListener('click', function() {
     this.disabled = true;
     this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading...';
     document.getElementById('plansLoading').style.display = 'block';
     document.getElementById('plansContainer').innerHTML = '';
+    document.getElementById('plansToolbar').style.display = 'none';
+    document.getElementById('plansActions').style.display = 'none';
 
     fetch('/api/admin/data-plans/')
       .then(function(r) { return r.json(); })
@@ -1364,6 +1437,18 @@
       }.bind(this));
   });
 
+  /* --- Filter events --- */
+  document.querySelectorAll('#netFilterGroup button').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#netFilterGroup button').forEach(function(b) { b.classList.remove('active'); });
+      this.classList.add('active');
+      applyFilters();
+    });
+  });
+  document.getElementById('plansSearch').addEventListener('input', applyFilters);
+  document.getElementById('onlyOverridden').addEventListener('change', applyFilters);
+
+  /* --- Save All --- */
   document.getElementById('saveAllPlanPrices').addEventListener('click', function() {
     var changed = Object.keys(plansChanged);
     if (!changed.length) {
@@ -1372,14 +1457,10 @@
     }
     var overrides = changed.map(function(i) {
       var p = plansData[i];
-      return {
-        network: p.network,
-        variation_code: p.variation_code,
-        selling_price: p.selling_price || null,
-      };
+      return { network: p.network, variation_code: p.variation_code, selling_price: p.selling_price || null };
     });
     this.disabled = true;
-    this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+    this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving ' + changed.length + '...';
 
     fetch('/api/admin/data-plans/', {
       method: 'POST',
@@ -1404,6 +1485,66 @@
       this.disabled = false;
       this.innerHTML = '<i class="bi bi-check-all me-1"></i>Save All Changes';
     }.bind(this));
+  });
+
+  /* --- Fill Visible: set same price for all visible rows --- */
+  document.getElementById('fillVisibleBtn').addEventListener('click', function() {
+    var val = document.getElementById('fillValue').value.trim();
+    if (val === '' || isNaN(parseFloat(val)) || parseFloat(val) < 0) {
+      showToast('Enter a valid selling price.', 'warning');
+      return;
+    }
+    var sp = parseFloat(val);
+    var rows = document.querySelectorAll('#plansTable .plan-row:not([style*="display: none"])');
+    rows.forEach(function(row) {
+      var idx = parseInt(row.getAttribute('data-index'));
+      var orig = parseFloat(plansData[idx].original_price);
+      plansData[idx].selling_price = val;
+      plansData[idx].overridden = true;
+      plansChanged[idx] = true;
+      row.classList.add('plan-modified');
+      row.setAttribute('data-overridden', 'true');
+      var input = row.querySelector('.plan-price-input');
+      input.value = sp.toFixed(2);
+      var profitEl = row.querySelector('.plan-profit');
+      var profit = sp - orig;
+      profitEl.textContent = '\u20A6' + profit.toFixed(2);
+      profitEl.className = 'text-end plan-profit fw-semibold ' + (profit > 0 ? 'profit-pos' : 'profit-neg');
+      var ovTd = row.querySelector('td:last-child');
+      ovTd.innerHTML = '<span class="badge bg-success" style="font-size:0.6rem">Y</span>';
+    });
+    showToast('Filled ' + rows.length + ' visible rows.', 'success');
+    applyFilters();
+  });
+
+  /* --- Apply Factor: multiply Nellobyte price by factor for all visible rows --- */
+  document.getElementById('applyFactorBtn').addEventListener('click', function() {
+    var f = parseFloat(document.getElementById('applyFactorValue').value);
+    if (isNaN(f) || f <= 0) {
+      showToast('Enter a valid factor (e.g. 1.10).', 'warning');
+      return;
+    }
+    var rows = document.querySelectorAll('#plansTable .plan-row:not([style*="display: none"])');
+    rows.forEach(function(row) {
+      var idx = parseInt(row.getAttribute('data-index'));
+      var orig = parseFloat(plansData[idx].original_price);
+      var sp = orig * f;
+      plansData[idx].selling_price = sp.toFixed(2);
+      plansData[idx].overridden = true;
+      plansChanged[idx] = true;
+      row.classList.add('plan-modified');
+      row.setAttribute('data-overridden', 'true');
+      var input = row.querySelector('.plan-price-input');
+      input.value = sp.toFixed(2);
+      var profitEl = row.querySelector('.plan-profit');
+      var profit = sp - orig;
+      profitEl.textContent = '\u20A6' + profit.toFixed(2);
+      profitEl.className = 'text-end plan-profit fw-semibold ' + (profit > 0 ? 'profit-pos' : 'profit-neg');
+      var ovTd = row.querySelector('td:last-child');
+      ovTd.innerHTML = '<span class="badge bg-success" style="font-size:0.6rem">Y</span>';
+    });
+    showToast('Applied factor ' + f.toFixed(2) + ' to ' + rows.length + ' visible rows.', 'success');
+    applyFilters();
   });
 
   /* --- Sidebar tab switching (uses Bootstrap Tab API on top buttons) --- */
