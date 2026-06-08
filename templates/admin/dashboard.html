@@ -720,7 +720,9 @@
                   <tr>
                     <th>Network</th>
                     <th>Service ID</th>
-                    <th>Current Markup (&#8355;)</th>
+                    <th>Nellobyte Price</th>
+                    <th>Price Factor (&#215;)</th>
+                    <th>Selling Price (&#8355;)</th>
                     <th>Status</th>
                     <th>Last Updated</th>
                     <th class="text-end">Action</th>
@@ -741,13 +743,19 @@
                     </td>
                     <td><code>{{ m.network }}</code></td>
                     <td>
-                      <div class="input-group input-group-sm" style="max-width:160px">
-                        <span class="input-group-text bg-light fw-bold">&#8355;</span>
-                        <input type="number" step="0.01" min="0"
-                          class="form-control markup-input"
-                          value="{{ m.markup_amount|floatformat:2 }}"
-                          data-original="{{ m.markup_amount|floatformat:2 }}">
+                      <span class="live-price" data-network="{{ m.network }}">&mdash;</span>
+                    </td>
+                    <td>
+                      <div class="input-group input-group-sm" style="max-width:120px">
+                        <input type="number" step="0.01" min="0.50" max="5.00"
+                          class="form-control factor-input"
+                          value="{{ m.price_factor|floatformat:2 }}"
+                          data-original="{{ m.price_factor|floatformat:2 }}">
+                        <span class="input-group-text bg-light fw-bold">&#215;</span>
                       </div>
+                    </td>
+                    <td>
+                      <span class="selling-price fw-bold" style="color:#059669">&mdash;</span>
                     </td>
                     <td>
                       <div class="form-check form-switch" style="padding-left:2.5rem">
@@ -1023,17 +1031,31 @@
     });
   });
 
+  /* --- Update selling price in the main table for a given row --- */
+  function updateSellingPrice(row) {
+    var liveEl = row.querySelector('.live-price');
+    var factorEl = row.querySelector('.factor-input');
+    var sellingEl = row.querySelector('.selling-price');
+    var original = parseFloat(liveEl.getAttribute('data-original')) || 0;
+    var factor = parseFloat(factorEl.value) || 1.0;
+    if (original > 0) {
+      sellingEl.textContent = '\u20A6' + (original * factor).toFixed(2);
+    } else {
+      sellingEl.textContent = '\u2014';
+    }
+  }
+
   /* --- VTU Pricing save --- */
   function handleSavePrice(btn) {
     var row = btn.closest('.pricing-row');
     var id = btn.getAttribute('data-id');
-    var input = row.querySelector('.markup-input');
+    var input = row.querySelector('.factor-input');
     var toggle = row.querySelector('.status-toggle');
-    var amount = parseFloat(input.value);
+    var factor = parseFloat(input.value);
     var isActive = toggle.checked;
 
-    if (isNaN(amount) || amount < 0) {
-      showToast('Please enter a valid markup amount.', 'danger');
+    if (isNaN(factor) || factor <= 0) {
+      showToast('Please enter a valid price factor (e.g. 1.10).', 'danger');
       return;
     }
 
@@ -1043,14 +1065,15 @@
     fetch('/api/admin/data-pricing/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-      body: JSON.stringify({ id: id, markup_amount: amount, is_active: isActive })
+      body: JSON.stringify({ id: id, price_factor: factor, is_active: isActive })
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.status === 'success') {
-        input.setAttribute('data-original', data.markup.markup_amount);
-        input.value = parseFloat(data.markup.markup_amount).toFixed(2);
-        showToast(data.markup.network_label + ' markup updated to ₦' + data.markup.markup_amount, 'success');
+        input.setAttribute('data-original', data.markup.price_factor);
+        input.value = parseFloat(data.markup.price_factor).toFixed(2);
+        updateSellingPrice(row);
+        showToast(data.markup.network_label + ' factor set to \u00D7' + data.markup.price_factor, 'success');
       } else {
         showToast('Error: ' + (data.error || 'Unknown error'), 'danger');
       }
@@ -1071,8 +1094,8 @@
     });
   });
 
-  /* --- Markup input: highlight Save button when value changes --- */
-  document.querySelectorAll('.markup-input').forEach(function(input) {
+  /* --- Factor input: highlight Save button when value changes & update selling price --- */
+  document.querySelectorAll('.factor-input').forEach(function(input) {
     input.addEventListener('input', function() {
       var row = this.closest('.pricing-row');
       var btn = row.querySelector('.btn-save-price');
@@ -1085,6 +1108,7 @@
         btn.classList.remove('btn-primary');
         btn.classList.add('btn-soft-primary');
       }
+      updateSellingPrice(row);
     });
   });
 
@@ -1113,12 +1137,12 @@
       html += '</div>';
       if (entry.samples && entry.samples.length) {
         html += '<div class="table-responsive"><table class="table table-sm mb-0" style="font-size:0.8rem"><thead><tr>';
-        html += '<th>Plan</th><th class="text-end">Original (&#8355;)</th><th class="text-end">Markup (&#8355;)</th><th class="text-end fw-bold" style="color:#059669">Selling Price (&#8355;)</th>';
+        html += '<th>Plan</th><th class="text-end">Original (&#8355;)</th><th class="text-end">Factor (&#215;)</th><th class="text-end fw-bold" style="color:#059669">Selling Price (&#8355;)</th>';
         html += '</tr></thead><tbody>';
         entry.samples.forEach(function(s) {
           html += '<tr><td>' + s.name + '</td>';
           html += '<td class="text-end text-muted">' + parseFloat(s.original_price).toFixed(2) + '</td>';
-          html += '<td class="text-end text-muted">+ ' + parseFloat(s.markup).toFixed(2) + '</td>';
+          html += '<td class="text-end text-muted">' + parseFloat(s.factor).toFixed(2) + '</td>';
           html += '<td class="text-end fw-semibold" style="color:#059669">' + parseFloat(s.selling_price).toFixed(2) + '</td></tr>';
         });
         html += '</tbody></table></div>';
@@ -1148,6 +1172,22 @@
           loading.style.display = 'none';
           if (data.price_preview && data.price_preview.length) {
             renderPricePreview(data.price_preview);
+            // Also populate the main pricing table with the first sample price per network
+            data.price_preview.forEach(function(entry) {
+              if (entry.samples && entry.samples.length) {
+                var row = document.querySelector('.pricing-row[data-network="' + entry.network + '"]');
+                if (row) {
+                  var liveEl = row.querySelector('.live-price');
+                  var sellingEl = row.querySelector('.selling-price');
+                  var factorInput = row.querySelector('.factor-input');
+                  var first = entry.samples[0];
+                  liveEl.textContent = '\u20A6' + parseFloat(first.original_price).toFixed(2);
+                  liveEl.setAttribute('data-original', first.original_price);
+                  var factor = parseFloat(factorInput.value) || 1.10;
+                  sellingEl.textContent = '\u20A6' + (parseFloat(first.original_price) * factor).toFixed(2);
+                }
+              }
+            });
           } else {
             container.innerHTML = '<div class="text-muted small py-2"><i class="bi bi-cloud-slash me-1"></i>Could not fetch live prices. Nellobyte may be unreachable.</div>';
           }

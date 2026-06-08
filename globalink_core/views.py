@@ -198,10 +198,10 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
             try:
                 client = NellobyteClient()
                 plans = client.fetch_all_variations(net)
-                markup_amt = 50.0
+                factor = 1.10
                 try:
                     dm = DataMarkup.objects.get(network=svc, is_active=True)
-                    markup_amt = float(dm.markup_amount)
+                    factor = float(dm.price_factor)
                 except DataMarkup.DoesNotExist:
                     pass
                 for plan in plans[:3]:
@@ -216,8 +216,8 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
                         entry['samples'].append({
                             'name': plan.get('PRODUCT_NAME', plan.get('name', 'Plan')),
                             'original_price': str(round(original, 2)),
-                            'markup': str(round(markup_amt, 2)),
-                            'selling_price': str(round(original + markup_amt, 2)),
+                            'factor': str(round(factor, 2)),
+                            'selling_price': str(round(original * factor, 2)),
                         })
             except Exception as e:
                 entry['error'] = str(e)
@@ -231,7 +231,7 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
                 'id': m.id,
                 'network': m.network,
                 'network_label': m.network_label,
-                'markup_amount': str(m.markup_amount),
+                'price_factor': str(m.price_factor),
                 'is_active': m.is_active,
             } for m in markups]
         except OperationalError:
@@ -247,7 +247,7 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
             return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
         markup_id = body.get('id')
-        markup_amount = body.get('markup_amount')
+        price_factor = body.get('price_factor')
         is_active = body.get('is_active')
 
         if not markup_id:
@@ -260,11 +260,14 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
         except DataMarkup.DoesNotExist:
             return JsonResponse({'error': 'Markup not found'}, status=404)
 
-        if markup_amount is not None:
+        if price_factor is not None:
             try:
-                markup.markup_amount = float(markup_amount)
+                pf = float(price_factor)
+                if pf <= 0:
+                    raise ValueError
+                markup.price_factor = pf
             except (TypeError, ValueError):
-                return JsonResponse({'error': 'Invalid markup amount'}, status=400)
+                return JsonResponse({'error': 'Invalid price factor (must be a positive number)'}, status=400)
 
         if is_active is not None:
             markup.is_active = bool(is_active)
@@ -280,7 +283,7 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
                 'id': markup.id,
                 'network': markup.network,
                 'network_label': markup.network_label,
-                'markup_amount': str(markup.markup_amount),
+                'price_factor': str(markup.price_factor),
                 'is_active': markup.is_active,
             }
         })

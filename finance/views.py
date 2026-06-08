@@ -233,14 +233,14 @@ class DataPurchaseView(APIView):
             return None, "Could not determine plan price from provider"
 
         original_price = float(str(raw_price).replace(',', ''))
-        markup = 50.0
+        factor = 1.10
         try:
             dm = DataMarkup.objects.get(network=service_id, is_active=True)
-            markup = float(dm.markup_amount)
+            factor = float(dm.price_factor)
         except DataMarkup.DoesNotExist:
             pass
 
-        verified = round(original_price + markup, 2)
+        verified = round(original_price * factor, 2)
         return Decimal(str(verified)), None
 
     def post(self, request):
@@ -341,13 +341,13 @@ class DataVariationsView(APIView):
 
     _markup_cache = {}
 
-    def _get_markup(self, service_id):
+    def _get_price_factor(self, service_id):
         if service_id not in self._markup_cache:
             try:
                 markup = DataMarkup.objects.get(network=service_id, is_active=True)
-                self._markup_cache[service_id] = float(markup.markup_amount)
+                self._markup_cache[service_id] = float(markup.price_factor)
             except DataMarkup.DoesNotExist:
-                self._markup_cache[service_id] = 50.0
+                self._markup_cache[service_id] = 1.10
         return self._markup_cache[service_id]
 
     def _get_plan_field(self, plan, *keys, default=None):
@@ -384,8 +384,8 @@ class DataVariationsView(APIView):
             default=0
         )
         original_price = float(str(raw_price).replace(',', ''))
-        markup = self._get_markup(service_id) if service_id else 50.0
-        selling_price = original_price + markup
+        factor = self._get_price_factor(service_id) if service_id else 1.10
+        selling_price = original_price * factor
         plan_type = str(self._get_plan_field(plan, 'type', 'Type', default='Standard'))
 
         formatted = {
