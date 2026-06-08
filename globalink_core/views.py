@@ -8,10 +8,10 @@ from django.shortcuts import get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.views.generic.base import TemplateView
 from django.views import View
-from django.db.models import Sum
+from django.db.models import Sum, Count
 from django.contrib.auth import get_user_model
 from finance.models import Wallet, WithdrawalTicket, PlatformRevenue
-from market.models import Shop
+from market.models import Shop, Order
 
 User = get_user_model()
 
@@ -48,6 +48,11 @@ class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
 
         platform_revenue = PlatformRevenue.get_singleton()
 
+        total_orders = Order.objects.count()
+        pending_kyc_users = User.objects.filter(kyc_status='pending')
+        pending_kyc_count = pending_kyc_users.count()
+        total_active_shops = Shop.objects.filter(is_active=True).count()
+
         context['pending_tickets'] = pending_tickets
         context['total_pending_amount'] = total_pending_amount
         context['total_locked_escrow'] = total_locked_escrow
@@ -55,6 +60,10 @@ class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         context['pending_shops'] = pending_shops
         context['recent_registrations'] = recent_registrations
         context['total_commission'] = platform_revenue.total_commission
+        context['total_orders'] = total_orders
+        context['pending_kyc_users'] = pending_kyc_users
+        context['pending_kyc_count'] = pending_kyc_count
+        context['total_active_shops'] = total_active_shops
         return context
 
 

@@ -3,13 +3,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth import get_user_model
+from django.db.models import Sum
 from .serializers import UserSerializer, RegistrationSerializer, KYCUploadSerializer, AdminKYCSerializer
 from django.shortcuts import get_object_or_404
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from rest_framework.parsers import MultiPartParser, FormParser
-from .serializers import KYCUploadSerializer
+from finance.models import Wallet
+from market.models import Order
 
 User = get_user_model()
 
@@ -130,35 +131,34 @@ class AdminDashboardStatsView(APIView):
         # 1. User Stats
         User = get_user_model()
         total_users = User.objects.count()
-        # total_sellers = Store.objects.count()
+        total_sellers = User.objects.filter(active_role='seller').count()
         
         # 2. Financial Stats (Escrow)
-        # Calculate total money currently held in all user wallets (Liability)
-        # total_wallet_balance = Wallet.objects.aggregate(Sum('balance'))['balance__sum'] or 0.00
-        # total_escrow_locked = Wallet.objects.aggregate(Sum('escrow_balance'))['escrow_balance__sum'] or 0.00
+        total_wallet_balance = Wallet.objects.aggregate(Sum('available_balance'))['available_balance__sum'] or 0.00
+        total_escrow_locked = Wallet.objects.aggregate(Sum('locked_balance'))['locked_balance__sum'] or 0.00
         
         # 3. Order Stats
-        # total_orders = Order.objects.count()
-        # pending_orders = Order.objects.filter(delivery_status='pending').count()
-        # completed_orders = Order.objects.filter(delivery_status='delivered').count()
+        total_orders = Order.objects.count()
+        pending_orders = Order.objects.filter(delivery_status='pending').count()
+        completed_orders = Order.objects.filter(delivery_status='delivered').count()
         
         # 4. Total Volume (Gross Merchandise Value)
-        # gmv = Order.objects.aggregate(Sum('total_price'))['total_price__sum'] or 0.00
+        gmv = Order.objects.aggregate(Sum('total_price'))['total_price__sum'] or 0.00
 
         return Response({
             "users": {
                 "total": total_users,
-                # "sellers": total_sellers
+                "sellers": total_sellers
             },
             "finance": {
-                # "wallet_liability": total_wallet_balance,
-                # "escrow_locked": total_escrow_locked,
-                # "gmv": gmv
+                "wallet_liability": total_wallet_balance,
+                "escrow_locked": total_escrow_locked,
+                "gmv": gmv
             },
             "orders": {
-                # "total": total_orders,
-                # "pending": pending_orders,
-                # "completed": completed_orders
+                "total": total_orders,
+                "pending": pending_orders,
+                "completed": completed_orders
             }
         })
 
