@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
@@ -177,6 +178,7 @@ class Order(models.Model):
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='received_orders', null=True, blank=True)
     
     shipping_address_json = models.JSONField(null=True, blank=True, default=dict)
+    delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
 
     delivery_status = models.CharField(
         max_length=20, 
