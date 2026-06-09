@@ -166,7 +166,6 @@ class CartSyncResponseSerializer(serializers.Serializer):
 
 class OrderItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.name', read_only=True)
-    # Add this to ensure the frontend can see the price
     price = serializers.DecimalField(source='price_at_purchase', max_digits=10, decimal_places=2, read_only=True)
     
     class Meta:
@@ -176,18 +175,66 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     buyer = UserSerializer(read_only=True)
-    # Add Shop details so the "Track Rider" map knows the shop name
     shop_name = serializers.ReadOnlyField(source='shop.name')
-    # Add these two lines for the Buyer to contact the Rider
-    rider_name = serializers.ReadOnlyField(source='rider.full_name')
-    rider_phone = serializers.ReadOnlyField(source='rider.phone_number') # Ensure this field exists in your User model
-    
     class Meta:
         model = Order
         fields = [
             'id', 'buyer', 'shop', 'shop_name', 'items', 'total_price', 
-            'delivery_status', 'payment_status', 'delivery_code', 
-            'shipping_address_json', 'rider_name', 'rider_phone', 'created_at'
+            'delivery_status', 'payment_status', 
+            'shipping_address_json', 'created_at'
         ]
-        # REMOVE 'delivery_status' from read_only so the Seller can update it!
-        read_only_fields = ['buyer', 'total_price', 'payment_status']
+        read_only_fields = ['buyer', 'total_price', 'payment_status']
+
+
+class BuyerOrderSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(many=True, read_only=True)
+    shop_name = serializers.ReadOnlyField(source='shop.name')
+    shop_logo = serializers.ReadOnlyField(source='shop.logo')
+    seller_phone = serializers.ReadOnlyField(source='shop.owner.phone_number')
+
+    class Meta:
+        model = Order
+        fields = [
+            'id', 'shop', 'shop_name', 'shop_logo', 'items', 'total_price',
+            'delivery_status', 'payment_status',
+            'shipping_address_json', 'seller_phone', 'created_at'
+        ]
+        read_only_fields = fields
+
+
+class SellerOrderSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(many=True, read_only=True)
+    buyer_name = serializers.ReadOnlyField(source='buyer.full_name')
+    buyer_phone = serializers.ReadOnlyField(source='buyer.phone_number')
+    buyer_email = serializers.ReadOnlyField(source='buyer.email')
+
+    class Meta:
+        model = Order
+        fields = [
+            'id', 'buyer_name', 'buyer_phone', 'buyer_email',
+            'items', 'total_price',
+            'delivery_status', 'payment_status',
+            'shipping_address_json', 'created_at'
+        ]
+        read_only_fields = ['buyer_name', 'buyer_phone', 'buyer_email',
+                           'total_price', 'payment_status', 'created_at']
+
+
+class CheckoutItemSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+
+class CheckoutInputSerializer(serializers.Serializer):
+    items = CheckoutItemSerializer(many=True, required=False)
+    payment_method = serializers.ChoiceField(
+        choices=['wallet'], required=False, default=None
+    )
+    shipping_address = serializers.JSONField(required=False)
+
+class BuyNowInputSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(default=1, min_value=1)
+    payment_method = serializers.ChoiceField(
+        choices=['wallet'], required=False, default=None
+    )
+    shipping_address = serializers.JSONField(required=False)

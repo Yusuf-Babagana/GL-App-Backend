@@ -12,16 +12,18 @@ from .views import (
     AdminOverviewView, AdminApproveShopView, AdminUpdateUserRoleView,
     MerchantGlobalOnboardingView, AdminOverviewTelemetryView,
     AdminReviewShopView, MerchantAnalyticsView, MyShopStatusView,
-    InternalWalletCheckoutView, MerchantWithdrawalView
+    InternalWalletCheckoutView, MerchantWithdrawalView,
+    CheckoutView, BuyNowView, CheckoutSummaryView,
 )
 from chat.views import ConversationListView
 
 urlpatterns = [
-    # --- CART & CHECKOUT (The 404 Zone) ---
-    # We add multiple paths to ensure the phone finds it regardless of the naming used
+    # --- CHECKOUT & PURCHASE ---
+    path('checkout/', CheckoutView.as_view(), name='checkout'),
+    path('checkout/summary/', CheckoutSummaryView.as_view(), name='checkout-summary'),
+    path('buy-now/', BuyNowView.as_view(), name='buy-now'),
     path('orders/', CreateOrderView.as_view(), name='create-order'),
     path('orders/create/', CreateOrderView.as_view(), name='checkout-alias'),
-    path('checkout/', CreateOrderView.as_view(), name='checkout'),
     path('orders/wallet-pay/', InternalWalletCheckoutView.as_view(), name='wallet-pay'),
     
     # --- SELLER / SHOP ---

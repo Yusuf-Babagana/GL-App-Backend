@@ -34,23 +34,8 @@ class WalletService:
         # 1. Calculate Splits
         # Commission: 3% capped at ₦15,000
         commission = min(order.total_price * Decimal('0.03'), Decimal('15000'))
-        
-        rider_share = Decimal('0.00')
-        if hasattr(order, 'rider') and order.rider:
-            rider_share = order.delivery_fee
-            rider_wallet = Wallet.objects.select_for_update().get(user=order.rider)
-            
-            # Credit Rider
-            rider_wallet.available_balance += rider_share
-            rider_wallet.save()
-            
-            Transaction.objects.create(
-                wallet=rider_wallet, amount=rider_share,
-                transaction_type=Transaction.TransactionType.PAYMENT, status=Transaction.Status.SUCCESS,
-                related_order_id=str(order.id), description=f"Delivery Fee: Order #{order.id}"
-            )
 
-        seller_share = order.total_price - commission - rider_share
+        seller_share = order.total_price - commission
 
         # 2. Atomic Movement
         buyer_wallet.available_balance -= order.total_price
