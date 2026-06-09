@@ -35,8 +35,10 @@ GLAPP_COMMISSION_CAP  = Decimal('2500.00')
 from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile
 from .serializers import (
     CategorySerializer, ShopSerializer, ProductSerializer, 
-    OrderSerializer, CartSerializer, CartSyncInputSerializer,
+    OrderSerializer, BuyerOrderSerializer, SellerOrderSerializer,
+    CartSerializer, CartSyncInputSerializer,
     CartSyncItemSerializer, CartSyncResponseSerializer,
+    CheckoutInputSerializer, BuyNowInputSerializer,
 )
 from finance.models import Wallet, Transaction, PlatformRevenue
 
@@ -367,6 +369,238 @@ class SellerProductListCreateView(generics.ListCreateAPIView):
         serializer.save(shop=self.request.user.merchant_shop)
 
 
+# --- CHECKOUT & PURCHASE ---
+
+class CheckoutSummaryView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        cart, _ = Cart.objects.get_or_create(user=request.user)
+        items = CartItem.objects.filter(cart=cart).select_related('product__shop')
+
+        if not items.exists():
+            return Response({
+                "items": [],
+                "total_price": "0.00",
+                "item_count": 0,
+                "message": "Your cart is empty."
+            })
+
+        summary_items = []
+        for item in items:
+            product = item.product
+            summary_items.append({
+                "product_id": product.id,
+                "name": product.name,
+                "quantity": item.quantity,
+                "unit_price": str(product.price),
+                "subtotal": str(product.price * item.quantity),
+                "image": str(product.images.filter(is_primary=True).first().image) if product.images.filter(is_primary=True).first() else None,
+                "stock_available": product.stock,
+                "shop_name": product.shop.name if product.shop else None,
+            })
+
+        total = sum(item.product.price * item.quantity for item in items)
+        item_count = items.count()
+
+        return Response({
+            "items": summary_items,
+            "total_price": str(total),
+            "item_count": item_count
+        })
+
+
+class CheckoutView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = CheckoutInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                "status": "error",
+                "message": "Invalid request.",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        raw_items = data.get('items')
+        payment_method = data.get('payment_method')
+        shipping_address = data.get('shipping_address', {})
+
+        if not raw_items:
+            try:
+                cart = Cart.objects.get(user=request.user)
+                raw_items = [
+                    {'product_id': ci.product_id, 'quantity': ci.quantity}
+                    for ci in CartItem.objects.filter(cart=cart).select_related('product')
+                ]
+            except Cart.DoesNotExist:
+                pass
+
+        if not raw_items:
+            return Response({
+                "status": "error",
+                "message": "Your cart is empty. Add items before checking out."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        return self._process_checkout(request.user, raw_items, payment_method, shipping_address)
+
+    def _process_checkout(self, user, raw_items, payment_method, shipping_address):
+        try:
+            with transaction.atomic():
+                total_price = Decimal('0.00')
+                order_items_data = []
+                shop = None
+
+                for item in raw_items:
+                    product = Product.objects.select_for_update().get(id=item['product_id'])
+                    qty = int(item['quantity'])
+
+                    if product.stock < qty:
+                        return Response({
+                            "status": "out_of_stock",
+                            "product_id": product.id,
+                            "product_name": product.name,
+                            "available_stock": product.stock,
+                            "message": f"Only {product.stock} unit(s) of \"{product.name}\" are available."
+                        }, status=status.HTTP_400_BAD_REQUEST)
+
+                    total_price += product.price * qty
+                    order_items_data.append((product, qty))
+                    if not shop:
+                        shop = product.shop
+
+                order = Order.objects.create(
+                    buyer=user,
+                    shop=shop,
+                    total_price=total_price,
+                    delivery_status=Order.DeliveryStatus.PENDING,
+                    payment_status=Order.PaymentStatus.PENDING,
+                    shipping_address_json=shipping_address
+                )
+
+                for product, qty in order_items_data:
+                    OrderItem.objects.create(
+                        order=order,
+                        product=product,
+                        quantity=qty,
+                        price_at_purchase=product.price
+                    )
+                    product.stock -= qty
+                    product.save()
+
+                if payment_method == 'wallet':
+                    payment_result = self._process_wallet_payment(user, order, total_price)
+                    if isinstance(payment_result, Response):
+                        return payment_result
+
+                    order_serializer = OrderSerializer(order)
+                    return Response({
+                        "status": "success",
+                        "message": "Order placed and paid successfully.",
+                        "payment_method": "wallet",
+                        "order": order_serializer.data
+                    }, status=status.HTTP_201_CREATED)
+
+                order_serializer = OrderSerializer(order)
+                return Response({
+                    "status": "success",
+                    "message": "Order created successfully. Proceed to payment.",
+                    "order_id": order.id,
+                    "amount_to_pay": str(total_price),
+                    "order": order_serializer.data
+                }, status=status.HTTP_201_CREATED)
+
+        except Product.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "One or more products not found."
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.exception("Checkout failed for user %s", user.id)
+            return Response({
+                "status": "error",
+                "message": "Checkout failed. Please try again."
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _process_wallet_payment(self, user, order, total_price):
+        buyer_wallet, _ = Wallet.objects.select_for_update().get_or_create(
+            user=user, defaults={'available_balance': Decimal('0.00')}
+        )
+
+        if buyer_wallet.available_balance < total_price:
+            return Response({
+                "status": "low_balance",
+                "order_id": order.id,
+                "amount_to_pay": str(total_price),
+                "available_balance": str(buyer_wallet.available_balance),
+                "message": f"Insufficient wallet balance. Required: ₦{total_price:,.0f}, Available: ₦{buyer_wallet.available_balance:,.0f}."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        buyer_wallet.available_balance -= total_price
+        buyer_wallet.save()
+
+        order_items = OrderItem.objects.filter(order=order).select_related('product__shop__owner')
+        merchant_shares = {}
+        for oi in order_items:
+            owner = oi.product.shop.owner
+            amount = oi.quantity * oi.price_at_purchase
+            merchant_shares[owner] = merchant_shares.get(owner, Decimal('0.00')) + amount
+
+        for owner, amount in merchant_shares.items():
+            seller_wallet, _ = Wallet.objects.select_for_update().get_or_create(
+                user=owner, defaults={'available_balance': Decimal('0.00')}
+            )
+            seller_wallet.locked_balance += amount
+            seller_wallet.save()
+
+            Transaction.objects.create(
+                wallet=seller_wallet,
+                amount=amount,
+                transaction_type=Transaction.TransactionType.PAYMENT,
+                status=Transaction.Status.SUCCESS,
+                related_order_id=str(order.id),
+                description=f"Sales earnings (locked) for Order #{order.id}"
+            )
+
+        Transaction.objects.create(
+            wallet=buyer_wallet,
+            amount=-total_price,
+            transaction_type=Transaction.TransactionType.PAYMENT,
+            status=Transaction.Status.SUCCESS,
+            related_order_id=str(order.id),
+            description=f"Payment for Order #{order.id}"
+        )
+
+        order.payment_status = Order.PaymentStatus.PAID
+        order.save()
+        return None
+
+
+class BuyNowView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = BuyNowInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                "status": "error",
+                "message": "Invalid request.",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+
+        raw_items = [{
+            'product_id': data['product_id'],
+            'quantity': data['quantity']
+        }]
+        payment_method = data.get('payment_method')
+        shipping_address = data.get('shipping_address', {})
+
+        return CheckoutView()._process_checkout(request.user, raw_items, payment_method, shipping_address)
+
+
 # --- CART & ORDERING ---
 
 class CartAPIView(APIView):
@@ -496,9 +730,7 @@ class CreateOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        cart_items = request.data.get('items', []) # Expects [{product_id, quantity}, ...]
-
-        # Fallback: if payload has no items, try the user's stored cart in the DB
+        cart_items = request.data.get('items', [])
         if not cart_items:
             try:
                 cart = Cart.objects.get(user=request.user)
@@ -509,14 +741,13 @@ class CreateOrderView(APIView):
                 pass
 
         if not cart_items:
-            return Response({"status": "error", "message": "Your cart compilation list is completely empty."}, status=400)
+            return Response({"status": "error", "message": "Your cart is empty."}, status=400)
 
         try:
             total_calculated_price = Decimal('0.00')
             order_items_to_create = []
 
             with transaction.atomic():
-                # Loop through tracking array blocks to compute costs
                 for item in cart_items:
                     product = Product.objects.select_for_update().get(id=item['product_id'])
                     qty = int(item['quantity'])
@@ -526,14 +757,12 @@ class CreateOrderView(APIView):
                             "status": "out_of_stock",
                             "product_id": product.id,
                             "available_stock": product.stock,
-                            "message": f"Only {product.stock} units of {product.name} are available."
+                            "message": f"Only {product.stock} unit(s) of \"{product.name}\" are available."
                         }, status=400)
                     
                     total_calculated_price += (product.price * qty)
                     order_items_to_create.append((product, qty))
 
-                # Create the master order record sheet mapping instance
-                # Adapted to active database mapping definitions: buyer, total_price, delivery_status, payment_status
                 new_order = Order.objects.create(
                     buyer=request.user,
                     shop=order_items_to_create[0][0].shop if order_items_to_create else None,
@@ -543,7 +772,6 @@ class CreateOrderView(APIView):
                     shipping_address_json=request.data.get('shipping_address', {})
                 )
 
-                # Build item splits ledger linkages
                 for product, qty in order_items_to_create:
                     OrderItem.objects.create(
                         order=new_order, 
@@ -551,20 +779,21 @@ class CreateOrderView(APIView):
                         quantity=qty, 
                         price_at_purchase=product.price
                     )
-                    product.stock -= qty # Decrement catalog stock capacity counters
+                    product.stock -= qty
                     product.save()
 
             return Response({
                 "status": "success",
-                "message": "Order reference written successfully.",
+                "message": "Order created successfully.",
                 "order_id": new_order.id,
-                "amount_to_pay": total_calculated_price
+                "amount_to_pay": str(total_calculated_price)
             }, status=201)
 
         except Product.DoesNotExist:
-            return Response({"status": "error", "message": "One or more chosen item references do not match our database records."}, status=404)
+            return Response({"status": "error", "message": "One or more products not found."}, status=404)
         except Exception as e:
-            return Response({"status": "error", "message": f"Server transaction failed: {str(e)}"}, status=500)
+            logger.exception("Order creation failed for user %s", request.user.id)
+            return Response({"status": "error", "message": "Failed to create order. Please try again."}, status=500)
 
 
 class InternalWalletCheckoutView(APIView):
@@ -573,15 +802,24 @@ class InternalWalletCheckoutView(APIView):
     def post(self, request):
         order_id = request.data.get('order_id')
         if not order_id:
-            return Response({"error": "order_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "status": "error",
+                "message": "Order ID is required."
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             order = Order.objects.get(id=order_id, buyer=request.user)
         except Order.DoesNotExist:
-            return Response({"error": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({
+                "status": "error",
+                "message": "Order not found."
+            }, status=status.HTTP_404_NOT_FOUND)
 
         if order.payment_status == Order.PaymentStatus.PAID:
-            return Response({"error": "This order has already been paid."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "status": "error",
+                "message": "This order has already been paid."
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
             buyer_wallet, _ = Wallet.objects.select_for_update().get_or_create(
@@ -591,7 +829,10 @@ class InternalWalletCheckoutView(APIView):
             if buyer_wallet.available_balance < order.total_price:
                 return Response({
                     "status": "low_balance",
-                    "message": f"Insufficient wallet funds. Required: ₦{order.total_price:,.0f}, Available: ₦{buyer_wallet.available_balance:,.0f}."
+                    "order_id": order.id,
+                    "amount_to_pay": str(order.total_price),
+                    "available_balance": str(buyer_wallet.available_balance),
+                    "message": f"Insufficient wallet balance. Required: ₦{order.total_price:,.0f}, Available: ₦{buyer_wallet.available_balance:,.0f}."
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             buyer_wallet.available_balance -= order.total_price
@@ -634,19 +875,21 @@ class InternalWalletCheckoutView(APIView):
 
         return Response({
             "status": "success",
-            "message": "Payment successful. Funds locked until buyer confirms receipt."
+            "message": "Payment successful. Funds secured until you confirm receipt.",
+            "order_id": order.id,
+            "amount_paid": str(order.total_price)
         }, status=status.HTTP_200_OK)
 
 
 class BuyerOrderListView(generics.ListAPIView):
-    serializer_class = OrderSerializer
+    serializer_class = BuyerOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return Order.objects.filter(buyer=self.request.user).order_by('-created_at')
 
 class BuyerOrderDetailView(generics.RetrieveAPIView):
-    serializer_class = OrderSerializer
+    serializer_class = BuyerOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
@@ -667,15 +910,15 @@ class BuyerConfirmReceiptView(APIView):
                 order = Order.objects.select_for_update().get(id=order_id, buyer=request.user)
 
                 if order.payment_status != Order.PaymentStatus.PAID:
-                    return Response({"error": "Order has not been paid yet."}, status=400)
+                    return Response({"status": "error", "message": "Order has not been paid yet."}, status=400)
 
                 if order.payment_status == Order.PaymentStatus.CONFIRMED:
-                    return Response({"error": "This order has already been confirmed."}, status=400)
+                    return Response({"status": "error", "message": "This order has already been confirmed."}, status=400)
 
                 seller_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
 
                 if seller_wallet.locked_balance < order.total_price:
-                    return Response({"error": "Insufficient locked balance for this order."}, status=400)
+                    return Response({"status": "error", "message": "Unable to process confirmation. Please contact support."}, status=400)
 
                 order_total = order.total_price
 
@@ -701,29 +944,31 @@ class BuyerConfirmReceiptView(APIView):
                 order.save()
 
                 return Response({
-                    "message": "Receipt confirmed! Funds released to seller.",
+                    "status": "success",
+                    "message": "Receipt confirmed. Funds released to seller.",
+                    "order_id": order.id,
                     "net_payout": str(net_payout),
                     "commission": str(commission)
                 }, status=200)
 
         except Order.DoesNotExist:
-            return Response({"error": "Order not found."}, status=404)
+            return Response({"status": "error", "message": "Order not found."}, status=404)
         except Wallet.DoesNotExist:
-            return Response({"error": "Seller wallet not found."}, status=400)
+            return Response({"status": "error", "message": "Seller wallet not found."}, status=400)
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            logger.exception("Receipt confirmation failed for order %s", order_id)
+            return Response({"status": "error", "message": "An error occurred. Please try again."}, status=400)
 
 
 class SellerOrderListView(generics.ListAPIView):
     """
     List orders that contain items from the logged-in user's store.
+    Shows buyer contact info and allows dispatch actions.
     """
-    serializer_class = OrderSerializer
+    serializer_class = SellerOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Find the shop owned by this user
-        # Then find orders linked to that shop
         return Order.objects.filter(shop__owner=self.request.user).order_by('-created_at')
 
 class MerchantDashboardView(APIView):
@@ -1003,13 +1248,15 @@ class ProductUpdateView(generics.RetrieveUpdateAPIView):
 
 
 class SellerOrderDetailView(generics.RetrieveUpdateAPIView):
-    serializer_class = OrderSerializer
-    # CHANGE THIS: Use JWT instead of TokenAuthentication
+    """
+    Seller views/updates order details including dispatching.
+    Use PATCH with {"delivery_status": "shipped"} to dispatch.
+    """
+    serializer_class = SellerOrderSerializer
     authentication_classes = [JWTAuthentication] 
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # We ensure the vendor only sees orders from their own shop
         return Order.objects.filter(shop__owner=self.request.user)
 
 
@@ -1081,25 +1328,26 @@ class MarkOrderDispatchedView(APIView):
 
     def post(self, request, order_id):
         try:
-            # 1. Ensure the user is the owner of the shop that sold the item
-            order = Order.objects.get(id=order_id, shop__owner=request.user)
-            
-            if order.delivery_status != 'pending':
-                return Response({"error": f"Cannot dispatch order in '{order.delivery_status}' status."}, status=400)
-
-            # 2. Update status to 'shipped'
-            order.delivery_status = 'shipped'
-            order.save()
-
-            return Response({
-                "message": "Order marked as dispatched. Buyer has been notified.",
-                "status": order.delivery_status
-            }, status=200)
-
+            order = Order.objects.select_related('shop__owner').get(id=order_id)
         except Order.DoesNotExist:
-            return Response({"error": "Order not found or you are not the seller."}, status=404)
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            return Response({"error": f"Order #{order_id} does not exist."}, status=404)
+
+        if not order.shop:
+            return Response({"error": "Order has no shop assigned. Cannot dispatch."}, status=400)
+
+        if order.shop.owner != request.user:
+            return Response({"error": "You are not the seller of this order."}, status=403)
+
+        if order.delivery_status != 'pending':
+            return Response({"error": f"Cannot dispatch order in '{order.delivery_status}' status."}, status=400)
+
+        order.delivery_status = 'shipped'
+        order.save()
+
+        return Response({
+            "message": "Order marked as dispatched. Buyer has been notified.",
+            "status": order.delivery_status
+        }, status=200)
 
 
 class AdminUpdateUserRoleView(APIView):

@@ -81,7 +81,6 @@ class AdminOrderManageSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'buyer_email', 'buyer_name', 'shop_name',
             'total_price', 'delivery_status', 'payment_status',
-            'delivery_fee', 'delivery_code',
             'items_count', 'created_at', 'updated_at',
         ]
 

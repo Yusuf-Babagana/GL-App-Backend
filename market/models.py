@@ -176,21 +176,7 @@ class Order(models.Model):
     buyer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='orders')
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='received_orders', null=True, blank=True)
     
-    # Shipping Address Snapshot
     shipping_address_json = models.JSONField(null=True, blank=True, default=dict)
-    
-    
-    # --- UPDATED LOGISTICS FIELDS ---
-    rider = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True, 
-        related_name='deliveries'
-    )
-    delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    delivery_code = models.CharField(max_length=6, null=True, blank=True) # Secure PIN
-    # --------------------------------
 
     delivery_status = models.CharField(
         max_length=20, 
