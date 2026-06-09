@@ -446,30 +446,49 @@ class CheckoutView(APIView):
         return self._process_checkout(request.user, raw_items, payment_method, shipping_address)
 
     def _process_checkout(self, user, raw_items, payment_method, shipping_address):
+        total_price = Decimal('0.00')
+        order_items_data = []
+        shop = None
+
+        # Pre-validate stock before any DB writes
+        for item in raw_items:
+            try:
+                product = Product.objects.get(id=item['product_id'])
+            except Product.DoesNotExist:
+                return Response({
+                    "status": "error",
+                    "message": f"Product #{item['product_id']} not found."
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            qty = int(item['quantity'])
+            if product.stock < qty:
+                return Response({
+                    "status": "out_of_stock",
+                    "product_id": product.id,
+                    "product_name": product.name,
+                    "available_stock": product.stock,
+                    "message": f"Only {product.stock} unit(s) of \"{product.name}\" are available."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            total_price += product.price * qty
+            order_items_data.append((product, qty))
+            if not shop:
+                shop = product.shop
+
+        # Pre-validate wallet balance if paying via wallet
+        if payment_method == 'wallet':
+            buyer_wallet = Wallet.objects.filter(user=user).first()
+            if buyer_wallet and buyer_wallet.available_balance < total_price:
+                return Response({
+                    "status": "low_balance",
+                    "amount_to_pay": str(total_price),
+                    "available_balance": str(buyer_wallet.available_balance),
+                    "message": f"Insufficient wallet balance. Required: ₦{total_price:,.0f}, Available: ₦{buyer_wallet.available_balance:,.0f}."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        # All validations passed — execute the transaction
         try:
             with transaction.atomic():
-                total_price = Decimal('0.00')
-                order_items_data = []
-                shop = None
-
-                for item in raw_items:
-                    product = Product.objects.select_for_update().get(id=item['product_id'])
-                    qty = int(item['quantity'])
-
-                    if product.stock < qty:
-                        return Response({
-                            "status": "out_of_stock",
-                            "product_id": product.id,
-                            "product_name": product.name,
-                            "available_stock": product.stock,
-                            "message": f"Only {product.stock} unit(s) of \"{product.name}\" are available."
-                        }, status=status.HTTP_400_BAD_REQUEST)
-
-                    total_price += product.price * qty
-                    order_items_data.append((product, qty))
-                    if not shop:
-                        shop = product.shop
-
                 order = Order.objects.create(
                     buyer=user,
                     shop=shop,
@@ -480,6 +499,9 @@ class CheckoutView(APIView):
                 )
 
                 for product, qty in order_items_data:
+                    product = Product.objects.select_for_update().get(id=product.id)
+                    if product.stock < qty:
+                        raise ValueError(f"Stock changed for {product.name}")
                     OrderItem.objects.create(
                         order=order,
                         product=product,
@@ -490,9 +512,7 @@ class CheckoutView(APIView):
                     product.save()
 
                 if payment_method == 'wallet':
-                    payment_result = self._process_wallet_payment(user, order, total_price)
-                    if isinstance(payment_result, Response):
-                        return payment_result
+                    self._process_wallet_payment(user, order, total_price)
 
                     order_serializer = OrderSerializer(order)
                     return Response({
@@ -511,11 +531,11 @@ class CheckoutView(APIView):
                     "order": order_serializer.data
                 }, status=status.HTTP_201_CREATED)
 
-        except Product.DoesNotExist:
+        except ValueError as e:
             return Response({
                 "status": "error",
-                "message": "One or more products not found."
-            }, status=status.HTTP_404_NOT_FOUND)
+                "message": str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.exception("Checkout failed for user %s", user.id)
             return Response({
@@ -529,13 +549,7 @@ class CheckoutView(APIView):
         )
 
         if buyer_wallet.available_balance < total_price:
-            return Response({
-                "status": "low_balance",
-                "order_id": order.id,
-                "amount_to_pay": str(total_price),
-                "available_balance": str(buyer_wallet.available_balance),
-                "message": f"Insufficient wallet balance. Required: ₦{total_price:,.0f}, Available: ₦{buyer_wallet.available_balance:,.0f}."
-            }, status=status.HTTP_400_BAD_REQUEST)
+            raise ValueError("Insufficient wallet balance.")
 
         buyer_wallet.available_balance -= total_price
         buyer_wallet.save()
@@ -574,7 +588,6 @@ class CheckoutView(APIView):
 
         order.payment_status = Order.PaymentStatus.PAID
         order.save()
-        return None
 
 
 class BuyNowView(APIView):
@@ -730,6 +743,8 @@ class CreateOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        logger.info("CreateOrderView request data: %s", request.data)
+
         cart_items = request.data.get('items', [])
         if not cart_items:
             try:
