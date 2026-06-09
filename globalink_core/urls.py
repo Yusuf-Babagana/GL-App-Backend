@@ -5,6 +5,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from .views import AdminDashboardView, MonnifyBatchCsvExportView, WithdrawalTicketUpdateStatusView, AdminShopVerificationView, AdminDataPricingView, AdminDataPlansView
 from .admin_views import AdminOrderListView, AdminTransactionListView, AdminUserManageListView, AdminUserToggleActiveView, AdminUserChangeRoleView, AdminChartDataView
+from market.views import SellerOrderListView, SellerOrderDetailView, SellerUpdateOrderStatusView, MarkOrderDispatchedView, BuyerOrderListView, BuyerOrderDetailView, BuyerConfirmReceiptView
 
 urlpatterns = [
     path('', AdminDashboardView.as_view(), name='admin-dashboard'),
@@ -31,6 +32,15 @@ urlpatterns = [
     path('api/users/', include('users.urls')),
     path('api/finance/', include('finance.urls')),
     path('api/market/', include('market.urls')),
+
+    # Root-level aliases for frontend compatibility (some paths called without /api/market/ prefix)
+    path('api/seller/orders/', SellerOrderListView.as_view(), name='root-seller-orders'),
+    path('api/seller/orders/<int:pk>/', SellerOrderDetailView.as_view(), name='root-seller-order-detail'),
+    path('api/seller/orders/status-change/<int:pk>/', SellerUpdateOrderStatusView.as_view(), name='root-seller-order-status'),
+    path('api/seller/orders/<int:order_id>/dispatch/', MarkOrderDispatchedView.as_view(), name='root-seller-dispatch'),
+    path('api/buyer/orders/', BuyerOrderListView.as_view(), name='root-buyer-orders'),
+    path('api/buyer/orders/<int:pk>/', BuyerOrderDetailView.as_view(), name='root-buyer-order-detail'),
+    path('api/buyer/orders/<int:order_id>/confirm/', BuyerConfirmReceiptView.as_view(), name='root-buyer-confirm'),
 
     path('api/finance/withdraw/csv/', MonnifyBatchCsvExportView.as_view(), name='monnify-csv'),
     path(
