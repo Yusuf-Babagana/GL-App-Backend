@@ -1,3 +1,4 @@
+import logging
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,10 +13,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from finance.models import Wallet
 from market.models import Order
 
+logger = logging.getLogger(__name__)
 User = get_user_model()
 
 class CustomRegisterView(APIView):
-    permission_classes = [permissions.AllowAny] # Allow anyone to register an account
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         email = request.data.get('email')
@@ -23,19 +25,24 @@ class CustomRegisterView(APIView):
         first_name = request.data.get('first_name', '')
         last_name = request.data.get('last_name', '')
 
-        # 1. Structural Validation Checklist
-        print(f"📥 REGISTRATION INCOMING: email={email!r}, password={'***' if password else None}, first_name={first_name!r}, last_name={last_name!r}")
+        # Log the raw request info for debugging
+        logger.warning(
+            "REGISTER request — content_type=%s, keys=%s, email=%r, has_password=%s",
+            request.content_type,
+            list(request.data.keys()) if hasattr(request.data, 'keys') else 'N/A',
+            email,
+            'yes' if password else 'no',
+        )
 
         if not email or not password:
-            print(f"❌ REGISTRATION FAIL: missing fields — email={email!r}, password={'***' if password else None}")
+            logger.error("REGISTER 400: missing email=%r or password=%s", email, 'SET' if password else 'UNSET')
             return Response({"status": "error", "message": "Email and password are required fields."}, status=status.HTTP_400_BAD_REQUEST)
 
         if User.objects.filter(email=email).exists():
-            print(f"❌ REGISTRATION FAIL: duplicate email={email!r}")
+            logger.error("REGISTER 400: duplicate email=%r", email)
             return Response({"status": "error", "message": "An account with this email address already exists."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # 2. Build the Model Row Entry
             full_name = f"{first_name} {last_name}".strip() or "Globalink User"
             user = User.objects.create_user(
                 email=email,
@@ -44,13 +51,11 @@ class CustomRegisterView(APIView):
                 last_name=last_name,
                 full_name=full_name,
                 active_role='buyer',
-                roles=['buyer']
+                roles=['buyer'],
             )
 
-            # 3. Generate instant login tokens so the user skips logging in right after registering
             refresh = RefreshToken.for_user(user)
-            
-            # Send a uniform, predictable object dictionary
+
             payload = {
                 "status": "success",
                 "token": str(refresh.access_token),
@@ -59,14 +64,14 @@ class CustomRegisterView(APIView):
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "is_admin": False,
-                    "role": "buyer"
-                }
+                    "role": "buyer",
+                },
             }
-            print(f"📡 REGISTRATION SUCCESS OUTGOING: {payload}")
-            return Response(payload, status=status.HTTP_201_CREATED) # 🌟 Explicit 201 Created Status Code
+            logger.info("REGISTER 201: email=%r", email)
+            return Response(payload, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            print(f"❌ REGISTRATION INTERNAL CRASH: {str(e)}")
+            logger.exception("REGISTER 500: %s", e)
             return Response({"status": "error", "message": f"Server processing failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class UserProfileView(generics.RetrieveUpdateAPIView):

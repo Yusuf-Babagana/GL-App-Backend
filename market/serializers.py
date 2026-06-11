@@ -190,7 +190,15 @@ class BuyerOrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     shop_name = serializers.ReadOnlyField(source='shop.name')
     shop_logo = serializers.ReadOnlyField(source='shop.logo')
-    seller_phone = serializers.ReadOnlyField(source='shop.owner.phone_number')
+    seller_phone = serializers.SerializerMethodField()
+
+    def get_seller_phone(self, obj):
+        try:
+            if obj.shop and obj.shop.owner:
+                return obj.shop.owner.phone_number
+        except Exception:
+            pass
+        return None
 
     class Meta:
         model = Order
