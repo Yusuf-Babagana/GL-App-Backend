@@ -188,7 +188,7 @@ class MonnifyAPI:
         """Verifies the account number and returns the account name"""
         token = MonnifyAPI.get_auth_token()
         if not token:
-            return None
+            return None, "Authentication with payment provider failed."
 
         url = MonnifyAPI._get_url("/api/v1/disbursements/account/validate")
         headers = {"Authorization": f"Bearer {token}"}

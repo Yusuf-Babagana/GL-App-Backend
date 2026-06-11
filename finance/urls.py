@@ -10,6 +10,8 @@ from .views import (
     WithdrawalView,
     BankListView,
     VerifyBankAccountView,
+    AdminPendingWithdrawalListView,
+    AdminConfirmPayoutView,
     clubkonnect_deposit_webhook,
     webhook_data_callback,
 )
@@ -28,4 +30,6 @@ urlpatterns = [
     path('data/purchase/', DataPurchaseView.as_view(), name='data-purchase'),
     path('data/history/', DataHistoryView.as_view(), name='data-history'),
     path('pin/', SetTransactionPINView.as_view(), name='set-pin'),
+    path('admin/withdrawals/pending/', AdminPendingWithdrawalListView.as_view(), name='admin-pending-withdrawals'),
+    path('admin/withdrawals/<int:ticket_id>/confirm/', AdminConfirmPayoutView.as_view(), name='admin-confirm-payout'),
 ]

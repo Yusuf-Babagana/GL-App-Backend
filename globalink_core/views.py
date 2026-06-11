@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import json
-from finance.models import Wallet, WithdrawalTicket, PlatformRevenue, DataMarkup, DataPlanPrice
+from finance.models import Wallet, Transaction, WithdrawalTicket, PlatformRevenue, DataMarkup, DataPlanPrice
 from finance.nellobyte import NellobyteClient
 from market.models import Shop, Order
 
@@ -158,8 +158,27 @@ class WithdrawalTicketUpdateStatusView(LoginRequiredMixin, UserPassesTestMixin, 
             return HttpResponse('Ticket already processed.', status=400)
 
         if action == 'approve':
-            ticket.status = WithdrawalTicket.StatusChoices.SUCCESSFUL
-            ticket.save()
+            with transaction.atomic():
+                wallet = Wallet.objects.select_for_update().get(user=ticket.user)
+                if wallet.available_balance < ticket.amount:
+                    return HttpResponse('Insufficient balance.', status=400)
+
+                wallet.available_balance -= ticket.amount
+                wallet.save()
+
+                Transaction.objects.create(
+                    wallet=wallet,
+                    amount=-ticket.amount,
+                    transaction_type=Transaction.TransactionType.WITHDRAWAL,
+                    status=Transaction.Status.SUCCESS,
+                    description=(
+                        f"Withdrawal to {ticket.account_name} - "
+                        f"{ticket.account_number} ({ticket.bank_name})"
+                    ),
+                )
+
+                ticket.status = WithdrawalTicket.StatusChoices.SUCCESSFUL
+                ticket.save()
             return HttpResponse('approved')
 
         elif action == 'reject':

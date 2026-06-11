@@ -8,6 +8,7 @@ import hashlib
 import hmac
 from decimal import Decimal
 from django.conf import settings
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
@@ -16,7 +17,7 @@ from rest_framework import permissions, status, generics
 from django.db import transaction
 from .models import Wallet, Transaction, BankAccount, WithdrawalTicket, PlatformRevenue, DataMarkup, DataPlanPrice, MONNIFY_DEPOSIT_RATE, MONNIFY_DEPOSIT_CAP
 from market.models import Order
-from .serializers import WalletSerializer, TransactionSerializer, DataHistorySerializer
+from .serializers import WalletSerializer, TransactionSerializer, DataHistorySerializer, WithdrawalTicketSerializer
 
 MONNIFY_DEPOSIT_RATE = MONNIFY_DEPOSIT_RATE
 MONNIFY_DEPOSIT_CAP  = MONNIFY_DEPOSIT_CAP
@@ -174,13 +175,19 @@ class MonnifyWebhookView(APIView):
             try:
                 with transaction.atomic():
                     ledger = Transaction.objects.select_for_update().get(reference=ref)
-                    if ledger.status != Transaction.Status.FAILED:
+                    # Only refund if the wallet was actually deducted (SUCCESS status).
+                    # PENDING transactions haven't deducted the wallet yet.
+                    if ledger.status == Transaction.Status.SUCCESS:
                         ledger.wallet.available_balance += abs(ledger.amount)
                         ledger.wallet.save()
                         ledger.status = Transaction.Status.FAILED
                         ledger.description += " (Failed: Refunded)"
                         ledger.save()
-                logger.warning(f"⚠️ Disbursement failed and refunded for ref {ref}")
+                        logger.warning(f"⚠️ Disbursement failed and refunded for ref {ref}")
+                    else:
+                        ledger.status = Transaction.Status.FAILED
+                        ledger.save(update_fields=['status'])
+                        logger.warning(f"⚠️ Disbursement failed for ref {ref} (was PENDING, no refund needed)")
             except Exception as e:
                 logger.error(f"❌ Webhook Refund failure: {e}")
 
@@ -551,10 +558,64 @@ class WithdrawalView(APIView):
         if amount_dec <= 0:
             return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
 
+        wallet = Wallet.objects.select_for_update().get(user=request.user)
+        if wallet.available_balance < amount_dec:
+            return Response(
+                {"error": "Insufficient available balance. Locked funds cannot be withdrawn."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from .utils import MonnifyAPI
+
+        resolved_name, resolve_error = MonnifyAPI.resolve_bank_account(account_number, bank_code)
+        if resolve_error:
+            logger.warning("Withdrawal: bank validation failed for user %s — %s", request.user.id, resolve_error)
+            return Response(
+                {"error": f"Bank account validation failed: {resolve_error}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        display_name = account_name or resolved_name or account_number
+
+        reference = f"WTH-{uuid.uuid4().hex[:12]}-{int(timezone.now().timestamp())}"
+
+        # Create the transaction record BEFORE calling Monnify so a
+        # DISBURSEMENT_FAILED webhook always finds a matching reference.
+        ledger = Transaction.objects.create(
+            wallet=request.user.wallet,
+            amount=Decimal('0.00'),
+            transaction_type=Transaction.TransactionType.WITHDRAWAL,
+            status=Transaction.Status.PENDING,
+            reference=reference,
+            description=f"Withdrawal to {display_name} - {account_number} ({bank_name})",
+        )
+
+        disburse_result = MonnifyAPI.disburse_funds(
+            amount=amount_dec,
+            reference=reference,
+            bank_code=bank_code,
+            account_number=account_number,
+            narration=f"Withdrawal to {display_name} - {account_number}",
+        )
+
+        if not disburse_result.get('requestSuccessful'):
+            error_msg = disburse_result.get('responseMessage', 'Payment processor rejected the request')
+            logger.warning("Withdrawal: Monnify rejected for user %s — %s", request.user.id, error_msg)
+            ledger.status = Transaction.Status.FAILED
+            ledger.description += f" (Rejected: {error_msg})"
+            ledger.save(update_fields=['status', 'description'])
+            return Response(
+                {"error": f"Withdrawal failed: {error_msg}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         with transaction.atomic():
             wallet = Wallet.objects.select_for_update().get(user=request.user)
-
             if wallet.available_balance < amount_dec:
+                ledger.status = Transaction.Status.FAILED
+                ledger.description += " (Cancelled: insufficient balance)"
+                ledger.amount = Decimal('0.00')
+                ledger.save(update_fields=['status', 'description', 'amount'])
                 return Response(
                     {"error": "Insufficient available balance."},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -563,13 +624,9 @@ class WithdrawalView(APIView):
             wallet.available_balance -= amount_dec
             wallet.save()
 
-            Transaction.objects.create(
-                wallet=wallet,
-                amount=-amount_dec,
-                transaction_type=Transaction.TransactionType.WITHDRAWAL,
-                status=Transaction.Status.PENDING,
-                description=f"Withdrawal request for {account_name} - {account_number} ({bank_name})",
-            )
+            ledger.amount = -amount_dec
+            ledger.status = Transaction.Status.SUCCESS
+            ledger.save(update_fields=['amount', 'status'])
 
             WithdrawalTicket.objects.create(
                 user=request.user,
@@ -577,13 +634,87 @@ class WithdrawalView(APIView):
                 bank_code=bank_code,
                 bank_name=bank_name,
                 account_number=account_number,
-                account_name=account_name,
+                account_name=display_name,
+                status=WithdrawalTicket.StatusChoices.SUCCESSFUL,
             )
 
+        logger.info("Withdrawal SUCCESS: user=%s amount=%s ref=%s", request.user.id, amount_dec, reference)
         return Response(
-            {"status": "success", "message": "Withdrawal request logged successfully."},
-            status=status.HTTP_201_CREATED,
+            {
+                "status": "success",
+                "message": "Withdrawal processed successfully.",
+                "reference": reference,
+            },
+            status=status.HTTP_200_OK,
         )
+
+class AdminPendingWithdrawalListView(generics.ListAPIView):
+    """Admin-only: list all pending withdrawal tickets."""
+    permission_classes = [permissions.IsAdminUser]
+    serializer_class = WithdrawalTicketSerializer
+
+    def get_queryset(self):
+        return WithdrawalTicket.objects.filter(
+            status=WithdrawalTicket.StatusChoices.PENDING
+        ).select_related('user').order_by('-created_at')
+
+
+class AdminConfirmPayoutView(APIView):
+    """
+    Admin-only: confirm that money has been sent to the user.
+    Creates a Transaction record so the user sees it in wallet history.
+    """
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, ticket_id):
+        ticket = get_object_or_404(WithdrawalTicket, pk=ticket_id)
+
+        if ticket.status != WithdrawalTicket.StatusChoices.PENDING:
+            return Response(
+                {"error": "Ticket already processed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=ticket.user)
+
+            if wallet.available_balance < ticket.amount:
+                return Response(
+                    {"error": "Insufficient balance. User funds may have been used elsewhere."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            wallet.available_balance -= ticket.amount
+            wallet.save()
+
+            Transaction.objects.create(
+                wallet=wallet,
+                amount=-ticket.amount,
+                transaction_type=Transaction.TransactionType.WITHDRAWAL,
+                status=Transaction.Status.SUCCESS,
+                description=(
+                    f"Withdrawal to {ticket.account_name} - "
+                    f"{ticket.account_number} ({ticket.bank_name})"
+                ),
+            )
+
+            ticket.status = WithdrawalTicket.StatusChoices.SUCCESSFUL
+            ticket.save()
+
+        logger.info(
+            "Admin payout confirmed: ticket=%s user=%s amount=%s",
+            ticket.id, ticket.user.id, ticket.amount,
+        )
+        return Response(
+            {
+                "status": "success",
+                "message": "Payout confirmed. User wallet deducted.",
+                "ticket_id": ticket.id,
+                "amount": str(ticket.amount),
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class DepositNotificationView(APIView):
     permission_classes = [permissions.IsAuthenticated]
