@@ -52,6 +52,7 @@ class CustomRegisterView(APIView):
                 full_name=full_name,
                 active_role='buyer',
                 roles=['buyer'],
+                kyc_status=User.KycStatus.PENDING,
             )
 
             refresh = RefreshToken.for_user(user)
@@ -356,6 +357,19 @@ class CustomLoginView(APIView):
             print(f"❌ LOGIN FAIL: {reason} — email={email!r}")
 
         if user is not None:
+            # Block unapproved accounts
+            if user.kyc_status == User.KycStatus.PENDING:
+                logger.warning("LOGIN denied: pending approval — email=%r", email)
+                return Response({
+                    "error": "Your account is pending admin approval. Please wait for an administrator to verify your account.",
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            if user.kyc_status == User.KycStatus.REJECTED:
+                logger.warning("LOGIN denied: rejected — email=%r", email)
+                return Response({
+                    "error": "Your account has been rejected. Please contact support for assistance.",
+                }, status=status.HTTP_403_FORBIDDEN)
+
             refresh = RefreshToken.for_user(user)
             token_string = str(refresh.access_token)
             
@@ -375,7 +389,7 @@ class CustomLoginView(APIView):
                     "role": user_role  # 💥 Guaranteed to return 'admin' for admins now
                 }
             }
-            print(f"📡 DEBUG Server outgoing login payload: {payload}")
+            logger.info("LOGIN 200: email=%r role=%s", email, user_role)
             return Response(payload, status=status.HTTP_200_OK)
             
         return Response({"error": "Invalid email or password credentials"}, status=status.HTTP_401_UNAUTHORIZED)
