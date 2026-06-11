@@ -79,7 +79,7 @@ class AdminOrderManageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            'id', 'buyer_email', 'buyer_name', 'shop_name',
+            'id', 'order_number', 'buyer_email', 'buyer_name', 'shop_name',
             'total_price', 'delivery_status', 'payment_status',
             'items_count', 'created_at', 'updated_at',
         ]

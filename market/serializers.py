@@ -179,11 +179,11 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            'id', 'buyer', 'shop', 'shop_name', 'items', 'total_price', 
+            'id', 'order_number', 'buyer', 'shop', 'shop_name', 'items', 'total_price', 
             'delivery_status', 'payment_status', 
             'shipping_address_json', 'created_at'
         ]
-        read_only_fields = ['buyer', 'total_price', 'payment_status']
+        read_only_fields = ['order_number', 'buyer', 'total_price', 'payment_status']
 
 
 class BuyerOrderSerializer(serializers.ModelSerializer):
@@ -203,7 +203,7 @@ class BuyerOrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            'id', 'shop', 'shop_name', 'shop_logo', 'items', 'total_price',
+            'id', 'order_number', 'shop', 'shop_name', 'shop_logo', 'items', 'total_price',
             'delivery_status', 'payment_status',
             'shipping_address_json', 'seller_phone', 'created_at'
         ]
@@ -219,12 +219,12 @@ class SellerOrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            'id', 'buyer_name', 'buyer_phone', 'buyer_email',
+            'id', 'order_number', 'buyer_name', 'buyer_phone', 'buyer_email',
             'items', 'total_price',
             'delivery_status', 'payment_status',
             'shipping_address_json', 'created_at'
         ]
-        read_only_fields = ['buyer_name', 'buyer_phone', 'buyer_email',
+        read_only_fields = ['order_number', 'buyer_name', 'buyer_phone', 'buyer_email',
                            'total_price', 'payment_status', 'created_at']
 
 
