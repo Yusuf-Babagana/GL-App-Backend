@@ -198,12 +198,26 @@ class Order(models.Model):
     
     # We keep PaymentStatus.ESCROW_HELD but it now signifies 
     # "Paid but not yet settled/released by Monnify"
-    
+
+    order_number = models.PositiveIntegerField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        unique_together = ['buyer', 'order_number']
+
+    def save(self, *args, **kwargs):
+        if self.order_number is None:
+            from django.db.models import Max
+            max_num = Order.objects.filter(buyer=self.buyer).aggregate(
+                Max('order_number')
+            )['order_number__max']
+            self.order_number = (max_num or 0) + 1
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"Order #{self.id} - {self.delivery_status}"
+        return f"Order #{self.order_number or self.id} - {self.delivery_status}"
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')

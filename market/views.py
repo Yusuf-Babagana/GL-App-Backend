@@ -574,7 +574,7 @@ class CheckoutView(APIView):
                 transaction_type=Transaction.TransactionType.PAYMENT,
                 status=Transaction.Status.SUCCESS,
                 related_order_id=str(order.id),
-                description=f"Sales earnings (locked) for Order #{order.id}"
+                description=f"Sales earnings (locked) for Order #{order.order_number or order.id}"
             )
 
         Transaction.objects.create(
@@ -583,7 +583,7 @@ class CheckoutView(APIView):
             transaction_type=Transaction.TransactionType.PAYMENT,
             status=Transaction.Status.SUCCESS,
             related_order_id=str(order.id),
-            description=f"Payment for Order #{order.id}"
+            description=f"Payment for Order #{order.order_number or order.id}"
         )
 
         order.payment_status = Order.PaymentStatus.PAID
@@ -873,7 +873,7 @@ class InternalWalletCheckoutView(APIView):
                     transaction_type=Transaction.TransactionType.PAYMENT,
                     status=Transaction.Status.SUCCESS,
                     related_order_id=str(order.id),
-                    description=f"Sales earnings (locked) for Order #{order.id}"
+                    description=f"Sales earnings (locked) for Order #{order.order_number or order.id}"
                 )
 
             Transaction.objects.create(
@@ -882,7 +882,7 @@ class InternalWalletCheckoutView(APIView):
                 transaction_type=Transaction.TransactionType.PAYMENT,
                 status=Transaction.Status.SUCCESS,
                 related_order_id=str(order.id),
-                description=f"Payment for Order #{order.id}"
+                description=f"Payment for Order #{order.order_number or order.id}"
             )
 
             order.payment_status = Order.PaymentStatus.PAID
@@ -952,7 +952,7 @@ class BuyerConfirmReceiptView(APIView):
                     transaction_type=Transaction.TransactionType.ESCROW_RELEASE,
                     status=Transaction.Status.SUCCESS,
                     related_order_id=str(order.id),
-                    description=f"Funds released for Order #{order.id} (Commission: ₦{commission})"
+                    description=f"Funds released for Order #{order.order_number or order.id} (Commission: ₦{commission})"
                 )
 
                 order.payment_status = Order.PaymentStatus.CONFIRMED
@@ -1036,7 +1036,7 @@ class SellerUpdateOrderStatusView(APIView):
         order.save()
 
         # Yusuf: If status is 'ready_for_pickup', it will now show up for the Rider
-        return Response({"message": f"Order #{pk} updated to {new_status}"})
+        return Response({"message": f"Order #{order.order_number or pk} updated to {new_status}"})
 
 
 

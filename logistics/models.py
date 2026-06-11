@@ -93,7 +93,7 @@ class DeliveryJob(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Delivery for Order #{self.order.id} - {self.status}"
+        return f"Delivery for Order #{self.order.order_number or self.order.id} - {self.status}"
 
 class Vehicle(models.Model):
     """
