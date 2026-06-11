@@ -956,6 +956,7 @@ class BuyerConfirmReceiptView(APIView):
                 )
 
                 order.payment_status = Order.PaymentStatus.CONFIRMED
+                order.delivery_status = Order.DeliveryStatus.DELIVERED
                 order.save()
 
                 return Response({
