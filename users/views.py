@@ -234,30 +234,57 @@ class UpdateBVNView(APIView):
 
     def post(self, request):
         bvn = request.data.get('bvn')
-        print("DEBUG: BVN received:", bvn)
+        logger.info("UpdateBVN: BVN received for user %s", request.user.id)
 
         if not bvn or len(str(bvn)) != 11:
-            print("DEBUG: BVN validation failed - not 11 digits")
+            logger.warning("UpdateBVN: validation failed — not 11 digits: %r", bvn)
             return Response({"error": "A valid 11-digit BVN is required"}, status=400)
 
         user = request.user
         user.bvn = str(bvn).strip()
-        user.save()
-        print("DEBUG: BVN saved for user:", user.id)
+        user.save(update_fields=['bvn'])
+
+        # Refresh wallet from DB — the post_save signal may have already
+        # provisioned the account in a background thread.
+        wallet = user.wallet
+        wallet.refresh_from_db()
+
+        if wallet.account_number:
+            logger.info("UpdateBVN: account already provisioned (signal beat us)")
+            return Response({
+                "message": "Success",
+                "account": {
+                    "account_number": wallet.account_number,
+                    "bank_name": wallet.bank_name,
+                    "bank_code": wallet.bank_code,
+                },
+            }, status=200)
 
         from finance.utils import MonnifyAPI
         acc_data, error_msg = MonnifyAPI.create_virtual_account(user)
 
         if acc_data:
-            wallet = user.wallet
             wallet.account_number = acc_data['account_number']
             wallet.bank_name = acc_data['bank_name']
             wallet.bank_code = acc_data['bank_code']
             wallet.save()
-            print("DEBUG: Virtual account created:", acc_data['account_number'])
+            logger.info("UpdateBVN: virtual account %s created", acc_data['account_number'])
             return Response({"message": "Success", "account": acc_data}, status=200)
 
-        print("DEBUG: Virtual account creation failed:", error_msg)
+        # One last check — the signal thread may have finished since we last looked.
+        wallet.refresh_from_db()
+        if wallet.account_number:
+            logger.info("UpdateBVN: signal completed after our API call, using its result")
+            return Response({
+                "message": "Success",
+                "account": {
+                    "account_number": wallet.account_number,
+                    "bank_name": wallet.bank_name,
+                    "bank_code": wallet.bank_code,
+                },
+            }, status=200)
+
+        logger.error("UpdateBVN: Monnify creation failed: %s", error_msg)
         return Response({"error": error_msg or "Virtual account creation failed"}, status=400)
 
 
