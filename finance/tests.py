@@ -1,9 +1,10 @@
-from django.test import TestCase, Client
+from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
+from rest_framework.test import APIClient
 from rest_framework.authtoken.models import Token
 from .models import Wallet, Transaction
 from .nellobyte import NellobyteClient
@@ -300,3 +301,87 @@ class MonnifyAPITests(TestCase):
         result, error = MonnifyAPI.create_virtual_account(self.user)
         self.assertIsNone(result)
         self.assertEqual(error, "Auth Failed")
+
+
+class WithdrawalRequestTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            email="withdraw@example.com",
+            username="withdrawuser",
+            password="password123",
+            full_name="Withdraw User"
+        )
+        self.wallet = Wallet.objects.get(user=self.user)
+        self.wallet.available_balance = Decimal('5000.00')
+        self.wallet.save()
+        self.client.force_authenticate(user=self.user)
+        self.headers = {'content_type': 'application/json'}
+
+    def test_withdrawal_request_success(self):
+        """Creates a PENDING ticket without disbursing funds."""
+        url = reverse('withdraw')
+        data = {
+            'amount': '2000.00',
+            'bank_code': '058',
+            'bank_name': 'GTBank',
+            'account_number': '0123456789',
+            'account_name': 'Withdraw User',
+        }
+        response = self.client.post(url, data, content_type='application/json')
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(body['status'], 'pending')
+
+        from .models import WithdrawalTicket
+        ticket = WithdrawalTicket.objects.get(pk=body['ticket_id'])
+        self.assertEqual(ticket.status, WithdrawalTicket.StatusChoices.PENDING)
+        self.assertEqual(ticket.amount, Decimal('2000.00'))
+        self.assertEqual(ticket.account_number, '0123456789')
+        self.assertEqual(ticket.bank_code, '058')
+
+        # Balance should NOT be deducted yet
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.available_balance, Decimal('5000.00'))
+
+    def test_withdrawal_request_missing_fields(self):
+        """Returns 400 when required fields are missing."""
+        url = reverse('withdraw')
+        response = self.client.post(url, {'amount': '1000'}, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_withdrawal_request_insufficient_balance(self):
+        """Returns 400 when balance is too low."""
+        url = reverse('withdraw')
+        data = {
+            'amount': '10000.00',
+            'bank_code': '058',
+            'account_number': '0123456789',
+        }
+        response = self.client.post(url, data, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertIn('Insufficient', body['error'])
+
+    def test_withdrawal_request_zero_amount(self):
+        """Returns 400 for zero or negative amounts."""
+        url = reverse('withdraw')
+        data = {
+            'amount': '0',
+            'bank_code': '058',
+            'account_number': '0123456789',
+        }
+        response = self.client.post(url, data, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_withdrawal_request_unauthenticated(self):
+        """Returns 401 for unauthenticated requests."""
+        self.client.force_authenticate(user=None)
+        url = reverse('withdraw')
+        data = {
+            'amount': '1000',
+            'bank_code': '058',
+            'account_number': '0123456789',
+        }
+        response = self.client.post(url, data, content_type='application/json')
+        self.assertEqual(response.status_code, 401)
