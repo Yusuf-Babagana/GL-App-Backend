@@ -243,15 +243,22 @@ class UpdateBVNView(APIView):
 
         user = request.user
         user.bvn = str(bvn).strip()
-        user.save(update_fields=['bvn'])
 
-        # Refresh wallet from DB — the post_save signal may have already
-        # provisioned the account in a background thread.
+        # Set thread-local flag so the post_save signal knows not to race
+        # with us on Monnify account creation.
+        from finance.signals import _thread_local
+        _thread_local.skip_monnify = True
+        try:
+            user.save(update_fields=['bvn'])
+        finally:
+            _thread_local.skip_monnify = False
+
+        # Refresh wallet from DB.
         wallet = user.wallet
         wallet.refresh_from_db()
 
         if wallet.account_number:
-            logger.info("UpdateBVN: account already provisioned (signal beat us)")
+            logger.info("UpdateBVN: account already provisioned")
             return Response({
                 "message": "Success",
                 "account": {
@@ -272,7 +279,7 @@ class UpdateBVNView(APIView):
             logger.info("UpdateBVN: virtual account %s created", acc_data['account_number'])
             return Response({"message": "Success", "account": acc_data}, status=200)
 
-        # One last check — the signal thread may have finished since we last looked.
+        # One last check — the signal's background thread may have finished.
         wallet.refresh_from_db()
         if wallet.account_number:
             logger.info("UpdateBVN: signal completed after our API call, using its result")

@@ -11,6 +11,10 @@ import logging
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
+# Thread-local flag used by UpdateBVNView to tell this signal not to
+# race with its own Monnify API call.
+_thread_local = threading.local()
+
 @receiver(post_save, sender=User)
 def handle_user_wallet_and_monnify_account(sender, instance, created, **kwargs):
     """
@@ -24,7 +28,10 @@ def handle_user_wallet_and_monnify_account(sender, instance, created, **kwargs):
     # Check logic:
     # We trigger Monnify ONLY if the user has a BVN (mandatory for Live)
     # AND the wallet doesn't have an account number yet.
-    if instance.bvn and not wallet.account_number:
+    # AND the caller didn't set a thread-local flag to skip us
+    # (UpdateBVNView uses this to prevent racing with its own API call).
+    _skip = getattr(_thread_local, 'skip_monnify', False)
+    if instance.bvn and not wallet.account_number and not _skip:
         # We use threading so the API call doesn't slow down the User's save process
         thread = threading.Thread(
             target=provision_monnify_task, 
