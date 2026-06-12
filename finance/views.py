@@ -648,6 +648,69 @@ class WithdrawalView(APIView):
             status=status.HTTP_200_OK,
         )
 
+class WithdrawalRequestView(APIView):
+    """
+    User-facing: submit bank details for admin-manual payout.
+    Creates a PENDING WithdrawalTicket — NO money is disbursed.
+    An admin will process it offline and mark it as SUCCESSFUL/REJECTED.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        amount = request.data.get('amount')
+        bank_code = request.data.get('bank_code')
+        bank_name = request.data.get('bank_name', '')
+        account_number = request.data.get('account_number')
+        account_name = request.data.get('account_name', '')
+
+        if not all([amount, bank_code, account_number]):
+            return Response(
+                {"error": "Missing required fields: amount, bank_code, account_number"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            amount_dec = Decimal(str(amount))
+        except Exception:
+            return Response({"error": "Invalid amount format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if amount_dec <= 0:
+            return Response(
+                {"error": "Amount must be greater than zero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        wallet = Wallet.objects.select_for_update().get(user=request.user)
+        if wallet.available_balance < amount_dec:
+            return Response(
+                {"error": "Insufficient available balance."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ticket = WithdrawalTicket.objects.create(
+            user=request.user,
+            amount=amount_dec,
+            bank_code=bank_code,
+            bank_name=bank_name,
+            account_number=account_number,
+            account_name=account_name,
+            status=WithdrawalTicket.StatusChoices.PENDING,
+        )
+
+        logger.info(
+            "Withdrawal request created: user=%s amount=%s ticket=%s",
+            request.user.id, amount_dec, ticket.id,
+        )
+        return Response(
+            {
+                "status": "pending",
+                "message": "Withdrawal request submitted. An admin will process it shortly.",
+                "ticket_id": ticket.id,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class AdminPendingWithdrawalListView(generics.ListAPIView):
     """Admin-only: list all pending withdrawal tickets."""
     permission_classes = [permissions.IsAdminUser]

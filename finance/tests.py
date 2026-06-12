@@ -3,10 +3,11 @@ from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from rest_framework.authtoken.models import Token
 from .models import Wallet, Transaction
 from .nellobyte import NellobyteClient
+from .utils import MonnifyAPI
 
 User = get_user_model()
 
@@ -152,3 +153,150 @@ class DataPurchaseTests(TestCase):
         data = response.json()
         self.assertEqual(data['count'], 0)
         self.assertEqual(data['results'], [])
+
+
+class MonnifyAPITests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="monnify@example.com",
+            username="monnifyuser",
+            password="password123",
+            full_name="Monnify User",
+            bvn="12345678901"
+        )
+        self.wallet = Wallet.objects.get(user=self.user)
+
+    @patch('finance.utils.requests.post')
+    @patch('finance.utils.requests.get')
+    def test_create_virtual_account_fallback_v2_url(self, mock_get, mock_post):
+        """
+        When Monnify says the account already exists, we fall back to listing
+        reserved accounts. This test ensures the v2 URL is called and the
+        correct account data is returned.
+        """
+        auth_response = MagicMock()
+        auth_response.status_code = 200
+        auth_response.json.return_value = {
+            'requestSuccessful': True,
+            'responseBody': {'accessToken': 'test-token'}
+        }
+
+        create_response = MagicMock()
+        create_response.json.return_value = {
+            'requestSuccessful': False,
+            'responseMessage': 'Already exists'
+        }
+
+        # First GET: fetch by reference returns empty (no accounts)
+        fetch_response = MagicMock()
+        fetch_response.json.return_value = {
+            'requestSuccessful': False
+        }
+
+        # Second GET: v2 list fallback returns matching account
+        list_response = MagicMock()
+        list_response.json.return_value = {
+            'requestSuccessful': True,
+            'responseBody': {
+                'content': [
+                    {
+                        'customerEmail': 'monnify@example.com',
+                        'accounts': [
+                            {
+                                'bankName': 'Test Bank',
+                                'accountNumber': '1234567890',
+                                'bankCode': '999'
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+
+        # Auth call returns token
+        # Create call returns "already exists"
+        # Fetch-by-reference call returns empty
+        # List fallback call returns matching account
+        mock_post.return_value = auth_response
+        mock_get.side_effect = [fetch_response, list_response]
+
+        # Need two post calls: auth + create
+        # The first post returns auth, but we need to handle that create returns "already exists"
+        # Actually the create is also a post... Let me restructure.
+        # We need: post[0]=auth, post[1]=create("already exists")
+        # get[0]=fetch(empty), get[1]=list(match)
+        mock_post.side_effect = [auth_response, create_response]
+
+        result, error = MonnifyAPI.create_virtual_account(self.user)
+
+        self.assertIsNone(error)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['bank_name'], 'Test Bank')
+        self.assertEqual(result['account_number'], '1234567890')
+        self.assertEqual(result['bank_code'], '999')
+
+        # Verify the v2 URL was used for the listing fallback
+        list_call_args = mock_get.call_args_list[1][0][0]
+        self.assertIn('/api/v2/bank-transfer/reserved-accounts?page=0&size=50', list_call_args)
+
+    @patch('finance.utils.requests.post')
+    @patch('finance.utils.requests.get')
+    def test_create_virtual_account_fetch_by_reference_success(self, mock_get, mock_post):
+        """
+        When the account already exists, the first attempt fetches by reference.
+        If it succeeds, we return that data without hitting the v2 list fallback.
+        """
+        auth_response = MagicMock()
+        auth_response.status_code = 200
+        auth_response.json.return_value = {
+            'requestSuccessful': True,
+            'responseBody': {'accessToken': 'test-token'}
+        }
+
+        create_response = MagicMock()
+        create_response.json.return_value = {
+            'requestSuccessful': False,
+            'responseMessage': 'Duplicate reference'
+        }
+
+        fetch_response = MagicMock()
+        fetch_response.json.return_value = {
+            'requestSuccessful': True,
+            'responseBody': {
+                'accounts': [
+                    {
+                        'bankName': 'GTBank',
+                        'accountNumber': '0123456789',
+                        'bankCode': '058'
+                    }
+                ]
+            }
+        }
+
+        mock_post.side_effect = [auth_response, create_response]
+        mock_get.return_value = fetch_response
+
+        result, error = MonnifyAPI.create_virtual_account(self.user)
+
+        self.assertIsNone(error)
+        self.assertEqual(result['bank_name'], 'GTBank')
+        self.assertEqual(result['account_number'], '0123456789')
+
+        # Ensure the list fallback was NOT called
+        self.assertEqual(mock_get.call_count, 1)
+        fetch_url = mock_get.call_args[0][0]
+        self.assertIn('/api/v2/bank-transfer/reserved-accounts/', fetch_url)
+        self.assertNotIn('page=', fetch_url)
+
+    @patch('finance.utils.requests.post')
+    def test_create_virtual_account_auth_failure(self, mock_post):
+        """If auth fails, we return None and an error message."""
+        auth_response = MagicMock()
+        auth_response.status_code = 401
+        auth_response.json.return_value = {}
+
+        mock_post.return_value = auth_response
+
+        result, error = MonnifyAPI.create_virtual_account(self.user)
+        self.assertIsNone(result)
+        self.assertEqual(error, "Auth Failed")

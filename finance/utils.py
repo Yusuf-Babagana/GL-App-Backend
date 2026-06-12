@@ -131,7 +131,7 @@ class MonnifyAPI:
 
                 # 2) Fallback: list all reserved accounts and find by email
                 list_url = MonnifyAPI._get_url(
-                    "/api/v1/bank-transfer/reserved-accounts?page=0&size=50"
+                    "/api/v2/bank-transfer/reserved-accounts?page=0&size=50"
                 )
                 list_resp = requests.get(
                     list_url, headers={"Authorization": f"Bearer {token}"}
