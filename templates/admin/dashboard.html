@@ -417,7 +417,7 @@
       </a>
       <a href="#tab-kyc" class="nav-link" data-tab="tab-kyc">
         <i class="bi bi-shield-check"></i><span>KYC Reviews</span>
-        {% if pending_kyc_count %}<span class="badge-count">{{ pending_kyc_count }}</span>{% endif %}
+        {% if kyc_needs_action_count %}<span class="badge-count">{{ kyc_needs_action_count }}</span>{% endif %}
       </a>
       <a href="#tab-pricing" class="nav-link" data-tab="tab-pricing">
         <i class="bi bi-tags"></i><span>VTU Pricing</span>
@@ -716,21 +716,31 @@
       <div class="tab-pane fade" id="tab-kyc" role="tabpanel">
         <div class="panel">
           <div class="panel-header">
-            <h5><i class="bi bi-shield-check" style="color:#7c3aed"></i> Pending KYC Verifications</h5>
-            {% if pending_kyc_count %}
-            <span class="badge bg-danger" style="font-size:0.75rem;padding:0.3rem 0.75rem">{{ pending_kyc_count }} pending</span>
-            {% endif %}
+            <h5><i class="bi bi-shield-check" style="color:#7c3aed"></i> KYC Verifications</h5>
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+              <select class="form-select form-select-sm" id="kycStatusFilter" style="max-width:140px">
+                <option value="all">All Unverified/Pending</option>
+                <option value="unverified">Unverified</option>
+                <option value="pending">Pending</option>
+                <option value="verified">Verified</option>
+                <option value="rejected">Rejected</option>
+              </select>
+              {% if pending_kyc_count %}
+              <span class="badge bg-danger" style="font-size:0.75rem;padding:0.3rem 0.75rem">{{ pending_kyc_count }} pending</span>
+              {% endif %}
+            </div>
           </div>
           <div class="panel-body">
             {% if pending_kyc_users %}
             <div class="table-responsive">
-              <table class="table table-dashboard">
+              <table class="table table-dashboard" id="kycTable">
                 <thead>
                   <tr>
                     <th>Name</th>
                     <th>Email</th>
                     <th>Phone</th>
                     <th>ID Type</th>
+                    <th>KYC Status</th>
                     <th>Documents</th>
                     <th>Submitted</th>
                     <th class="text-end">Action</th>
@@ -738,11 +748,22 @@
                 </thead>
                 <tbody>
                   {% for u in pending_kyc_users %}
-                  <tr class="kyc-row" data-id="{{ u.pk }}">
+                  <tr class="kyc-row" data-id="{{ u.pk }}" data-kyc="{{ u.kyc_status }}">
                     <td class="fw-semibold">{{ u.full_name|default:'&mdash;' }}</td>
                     <td>{{ u.email }}</td>
                     <td>{{ u.phone_number|default:'&mdash;' }}</td>
                     <td><span class="badge badge-dashboard bg-secondary">{{ u.id_document_type|default:'Not specified' }}</span></td>
+                    <td>
+                      {% if u.kyc_status == 'verified' %}
+                      <span class="badge bg-success">Verified</span>
+                      {% elif u.kyc_status == 'rejected' %}
+                      <span class="badge bg-danger">Rejected</span>
+                      {% elif u.kyc_status == 'pending' %}
+                      <span class="badge bg-warning text-dark">Pending</span>
+                      {% else %}
+                      <span class="badge bg-secondary">Unverified</span>
+                      {% endif %}
+                    </td>
                     <td>
                       <div class="d-flex gap-1">
                         {% if u.id_document_image %}
@@ -763,7 +784,7 @@
                     <td><span class="text-muted">{{ u.date_joined|date:"M d, Y" }}</span></td>
                     <td class="text-end">
                       <button class="btn btn-soft-success btn-action me-1 btn-kyc-approve" data-id="{{ u.pk }}">
-                        <i class="bi bi-check-circle me-1"></i>Approve
+                        <i class="bi bi-check-circle me-1"></i>Verify
                       </button>
                       <button class="btn btn-soft-danger btn-action btn-kyc-reject" data-id="{{ u.pk }}">
                         <i class="bi bi-x-circle me-1"></i>Reject
@@ -1243,6 +1264,21 @@
       handleKYCAction(this.getAttribute('data-id'), 'reject');
     });
   });
+
+  /* --- KYC Status filter --- */
+  function applyKycFilter() {
+    var val = document.getElementById('kycStatusFilter').value;
+    document.querySelectorAll('.kyc-row').forEach(function(row) {
+      var kyc = row.getAttribute('data-kyc');
+      if (val === 'all') {
+        row.style.display = (kyc === 'verified' || kyc === 'rejected') ? 'none' : '';
+      } else {
+        row.style.display = kyc === val ? '' : 'none';
+      }
+    });
+  }
+  document.getElementById('kycStatusFilter').addEventListener('change', applyKycFilter);
+  applyKycFilter();
 
   /* --- Update selling price in the main table for a given row --- */
   function updateSellingPrice(row) {

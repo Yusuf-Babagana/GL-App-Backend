@@ -54,8 +54,11 @@ class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         platform_revenue = PlatformRevenue.get_singleton()
 
         total_orders = Order.objects.count()
-        pending_kyc_users = User.objects.filter(kyc_status='pending')
-        pending_kyc_count = pending_kyc_users.count()
+        pending_kyc_count = User.objects.filter(kyc_status='pending').count()
+        kyc_needs_action_count = User.objects.filter(kyc_status__in=['unverified', 'pending']).count()
+        pending_kyc_users = User.objects.filter(
+            kyc_status__in=['unverified', 'pending', 'verified', 'rejected']
+        ).order_by('-date_joined')[:60]
         total_active_shops = Shop.objects.filter(is_active=True).count()
 
         context['pending_tickets'] = pending_tickets
@@ -68,6 +71,7 @@ class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         context['total_orders'] = total_orders
         context['pending_kyc_users'] = pending_kyc_users
         context['pending_kyc_count'] = pending_kyc_count
+        context['kyc_needs_action_count'] = kyc_needs_action_count
         context['total_active_shops'] = total_active_shops
         try:
             context['data_markups'] = list(DataMarkup.objects.all().order_by('network'))
