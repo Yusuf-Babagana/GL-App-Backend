@@ -106,19 +106,47 @@ class MonnifyAPI:
 
             # SELF-HEALING CASE: Account already exists on Monnify
             response_msg = str(data.get('responseMessage', '')).lower()
-            if "already exists" in response_msg or "same reference" in response_msg:
-                # Manually fetch existing account details
-                fetch_url = MonnifyAPI._get_url(f"/api/v2/bank-transfer/reserved-accounts/{user.wallet.account_reference}")
-                fetch_resp = requests.get(fetch_url, headers={"Authorization": f"Bearer {token}"})
-                fetch_data = fetch_resp.json()
-                
-                if fetch_data.get('requestSuccessful'):
-                    accounts = fetch_data['responseBody']['accounts']
-                    return {
-                        "bank_name": accounts[0]['bankName'],
-                        "account_number": accounts[0]['accountNumber'],
-                        "bank_code": accounts[0]['bankCode']
-                    }, None
+            if any(phrase in response_msg for phrase in [
+                "already exists", "same reference", "can not reserve more",
+                "cannot reserve more", "duplicate"
+            ]):
+                # 1) Try fetching by wallet's account_reference first
+                ref = user.wallet.account_reference
+                if ref:
+                    fetch_url = MonnifyAPI._get_url(
+                        f"/api/v2/bank-transfer/reserved-accounts/{ref}"
+                    )
+                    fetch_resp = requests.get(
+                        fetch_url, headers={"Authorization": f"Bearer {token}"}
+                    )
+                    fetch_data = fetch_resp.json()
+
+                    if fetch_data.get('requestSuccessful'):
+                        accounts = fetch_data['responseBody']['accounts']
+                        return {
+                            "bank_name": accounts[0]['bankName'],
+                            "account_number": accounts[0]['accountNumber'],
+                            "bank_code": accounts[0]['bankCode'],
+                        }, None
+
+                # 2) Fallback: list all reserved accounts and find by email
+                list_url = MonnifyAPI._get_url(
+                    "/api/v1/bank-transfer/reserved-accounts?page=0&size=50"
+                )
+                list_resp = requests.get(
+                    list_url, headers={"Authorization": f"Bearer {token}"}
+                )
+                list_data = list_resp.json()
+                if list_data.get('requestSuccessful'):
+                    for acct in (list_data['responseBody'].get('content') or []):
+                        if acct.get('customerEmail', '').lower() == user.email.lower():
+                            accounts = acct.get('accounts', [])
+                            if accounts:
+                                return {
+                                    "bank_name": accounts[0]['bankName'],
+                                    "account_number": accounts[0]['accountNumber'],
+                                    "bank_code": accounts[0]['bankCode'],
+                                }, None
 
             return None, data.get('responseMessage', 'Unknown Error')
         except Exception as e:
