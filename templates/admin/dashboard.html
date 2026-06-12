@@ -109,7 +109,7 @@
     .sidebar-toggle { display: none; }
 
     /* Main */
-    .main-content { margin-left: var(--sidebar-width); padding: 1.5rem 2rem; min-height: 100vh; }
+    .main-content { margin-left: var(--sidebar-width); padding: 1.5rem 2rem; min-height: 100vh; overflow-x: auto; }
 
     /* Header */
     .page-header {
@@ -377,21 +377,46 @@
     .plan-modified { background: #fefce8 !important; }
     .plan-overridden td { background: #f0fdf4 !important; }
 
-    @media (max-width: 768px) {
+    @media (max-width: 1199.98px) {
       .sidebar { width: 60px; overflow: hidden; }
+      .sidebar .brand { padding: 1rem 0.6rem; }
       .sidebar .brand h4 span, .sidebar .brand small, .sidebar .nav-section,
       .sidebar .nav-link span, .sidebar .nav-link .badge-count { display: none; }
+      .sidebar .brand h4 { justify-content: center; }
       .sidebar .nav-link { justify-content: center; padding: 0.6rem; margin: 0.1rem 0.4rem; }
       .sidebar .nav-link i { margin: 0; }
       .sidebar-toggle { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: #fff; border: none; box-shadow: var(--card-shadow); cursor: pointer; color: #475569; }
       .sidebar-toggle:hover { background: #f1f5f9; }
-      .sidebar.expanded { width: var(--sidebar-width); }
+      .sidebar.expanded { width: 220px; }
       .sidebar.expanded .brand h4 span, .sidebar.expanded .brand small, .sidebar.expanded .nav-section,
       .sidebar.expanded .nav-link span, .sidebar.expanded .nav-link .badge-count { display: block; }
       .sidebar.expanded .nav-link { justify-content: flex-start; padding: 0.6rem 1.25rem; margin: 0.1rem 0.75rem; }
-      .main-content { margin-left: 60px; padding: 1rem; }
-      .main-content.shifted { margin-left: var(--sidebar-width); }
+      .sidebar.expanded .brand h4 { justify-content: flex-start; }
+      .main-content { margin-left: 60px; padding: 1.25rem; }
+      .main-content.shifted { margin-left: 220px; }
+    }
+
+    @media (max-width: 767.98px) {
+      .sidebar { width: 0; overflow: hidden; }
+      .sidebar .brand, .sidebar nav, .sidebar-footer { display: none; }
+      .sidebar.expanded { width: 260px; }
+      .sidebar.expanded .brand, .sidebar.expanded nav, .sidebar.expanded .sidebar-footer { display: flex; }
+      .main-content { margin-left: 0; padding: 1rem; }
+      .main-content.shifted { margin-left: 260px; }
+      .stat-card .card-body { flex-direction: column; text-align: center; gap: 0.5rem; }
+      .stat-card .icon-shape { margin: 0 auto; }
+      .panel-header { flex-direction: column; align-items: stretch; gap: 0.5rem; }
+      .table-dashboard thead th, .table-dashboard tbody td { padding: 0.5rem; font-size: 0.7rem; white-space: nowrap; }
+      .btn-action { min-width: auto; padding: 0.3rem 0.5rem; font-size: 0.65rem; }
+      .page-header { flex-direction: column; align-items: flex-start; }
       .page-header h3 { font-size: 1.1rem; }
+      .nav-tabs { overflow-x: auto; flex-wrap: nowrap; }
+      .nav-tabs .nav-link { white-space: nowrap; font-size: 0.7rem; padding: 0.4rem 0.7rem; }
+    }
+
+    /* Stat cards responsive */
+    @media (max-width: 991.98px) {
+      .stat-card .card-body { padding: 1rem; }
     }
   </style>
 </head>
@@ -732,27 +757,24 @@
           </div>
           <div class="panel-body">
             {% if pending_kyc_users %}
-            <div class="table-responsive">
-              <table class="table table-dashboard" id="kycTable">
+            <div class="table-responsive" style="overflow-x:auto">
+              <table class="table table-dashboard" id="kycTable" style="min-width:650px">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Phone</th>
-                    <th>ID Type</th>
+                    <th>User</th>
                     <th>KYC Status</th>
                     <th>Documents</th>
                     <th>Submitted</th>
-                    <th class="text-end">Action</th>
+                    <th class="text-end" style="min-width:110px">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for u in pending_kyc_users %}
                   <tr class="kyc-row" data-id="{{ u.pk }}" data-kyc="{{ u.kyc_status }}">
-                    <td class="fw-semibold">{{ u.full_name|default:'&mdash;' }}</td>
-                    <td>{{ u.email }}</td>
-                    <td>{{ u.phone_number|default:'&mdash;' }}</td>
-                    <td><span class="badge badge-dashboard bg-secondary">{{ u.id_document_type|default:'Not specified' }}</span></td>
+                    <td>
+                      <span class="fw-semibold">{{ u.full_name|default:'&mdash;' }}</span><br>
+                      <span class="text-muted" style="font-size:0.7rem">{{ u.email }}</span>
+                    </td>
                     <td>
                       {% if u.kyc_status == 'verified' %}
                       <span class="badge bg-success">Verified</span>
@@ -768,26 +790,26 @@
                       <div class="d-flex gap-1">
                         {% if u.id_document_image %}
                         <a href="{{ u.id_document_image.url }}" target="_blank" class="btn btn-soft-info btn-action-sm" title="View ID Document">
-                          <i class="bi bi-file-earmark"></i> ID
+                          <i class="bi bi-file-earmark"></i>
                         </a>
                         {% endif %}
                         {% if u.selfie_image %}
                         <a href="{{ u.selfie_image.url }}" target="_blank" class="btn btn-soft-info btn-action-sm" title="View Selfie">
-                          <i class="bi bi-camera"></i> Selfie
+                          <i class="bi bi-camera"></i>
                         </a>
                         {% endif %}
                         {% if not u.id_document_image and not u.selfie_image %}
-                        <span class="text-muted" style="font-size:0.75rem">No files</span>
+                        <span class="text-muted" style="font-size:0.7rem">—</span>
                         {% endif %}
                       </div>
                     </td>
-                    <td><span class="text-muted">{{ u.date_joined|date:"M d, Y" }}</span></td>
-                    <td class="text-end">
-                      <button class="btn btn-soft-success btn-action me-1 btn-kyc-approve" data-id="{{ u.pk }}">
-                        <i class="bi bi-check-circle me-1"></i>Verify
+                    <td><span class="text-muted" style="font-size:0.75rem">{{ u.date_joined|date:"M d, Y" }}</span></td>
+                    <td class="text-end text-nowrap">
+                      <button class="btn btn-soft-success btn-action-sm me-1 btn-kyc-approve" data-id="{{ u.pk }}" title="Verify">
+                        <i class="bi bi-check-circle"></i>
                       </button>
-                      <button class="btn btn-soft-danger btn-action btn-kyc-reject" data-id="{{ u.pk }}">
-                        <i class="bi bi-x-circle me-1"></i>Reject
+                      <button class="btn btn-soft-danger btn-action-sm btn-kyc-reject" data-id="{{ u.pk }}" title="Reject">
+                        <i class="bi bi-x-circle"></i>
                       </button>
                     </td>
                   </tr>
