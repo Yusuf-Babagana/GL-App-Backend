@@ -528,127 +528,6 @@ class BankListView(APIView):
             return Response({"error": "Could not load bank list"}, status=500)
 
 class WithdrawalView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        amount = request.data.get('amount')
-        bank_code = request.data.get('bank_code')
-        bank_name = request.data.get('bank_name', '')
-        account_number = request.data.get('account_number')
-        account_name = request.data.get('account_name', '')
-        pin = request.data.get('pin')
-
-        if not all([amount, bank_code, account_number, pin]):
-            return Response(
-                {"error": "Missing required fields: amount, bank_code, account_number, pin"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not request.user.transaction_pin:
-            return Response({"error": "No PIN set. Visit profile to set one."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if not request.user.check_transaction_pin(pin):
-            return Response({"error": "Invalid Transaction PIN"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            amount_dec = Decimal(str(amount))
-        except Exception:
-            return Response({"error": "Invalid amount format."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if amount_dec <= 0:
-            return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
-
-        wallet = Wallet.objects.select_for_update().get(user=request.user)
-        if wallet.available_balance < amount_dec:
-            return Response(
-                {"error": "Insufficient available balance. Locked funds cannot be withdrawn."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        from .utils import MonnifyAPI
-
-        resolved_name, resolve_error = MonnifyAPI.resolve_bank_account(account_number, bank_code)
-        if resolve_error:
-            logger.warning("Withdrawal: bank validation failed for user %s — %s", request.user.id, resolve_error)
-            return Response(
-                {"error": f"Bank account validation failed: {resolve_error}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        display_name = account_name or resolved_name or account_number
-
-        reference = f"WTH-{uuid.uuid4().hex[:12]}-{int(timezone.now().timestamp())}"
-
-        # Create the transaction record BEFORE calling Monnify so a
-        # DISBURSEMENT_FAILED webhook always finds a matching reference.
-        ledger = Transaction.objects.create(
-            wallet=request.user.wallet,
-            amount=Decimal('0.00'),
-            transaction_type=Transaction.TransactionType.WITHDRAWAL,
-            status=Transaction.Status.PENDING,
-            reference=reference,
-            description=f"Withdrawal to {display_name} - {account_number} ({bank_name})",
-        )
-
-        disburse_result = MonnifyAPI.disburse_funds(
-            amount=amount_dec,
-            reference=reference,
-            bank_code=bank_code,
-            account_number=account_number,
-            narration=f"Withdrawal to {display_name} - {account_number}",
-        )
-
-        if not disburse_result.get('requestSuccessful'):
-            error_msg = disburse_result.get('responseMessage', 'Payment processor rejected the request')
-            logger.warning("Withdrawal: Monnify rejected for user %s — %s", request.user.id, error_msg)
-            ledger.status = Transaction.Status.FAILED
-            ledger.description += f" (Rejected: {error_msg})"
-            ledger.save(update_fields=['status', 'description'])
-            return Response(
-                {"error": f"Withdrawal failed: {error_msg}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        with transaction.atomic():
-            wallet = Wallet.objects.select_for_update().get(user=request.user)
-            if wallet.available_balance < amount_dec:
-                ledger.status = Transaction.Status.FAILED
-                ledger.description += " (Cancelled: insufficient balance)"
-                ledger.amount = Decimal('0.00')
-                ledger.save(update_fields=['status', 'description', 'amount'])
-                return Response(
-                    {"error": "Insufficient available balance."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            wallet.available_balance -= amount_dec
-            wallet.save()
-
-            ledger.amount = -amount_dec
-            ledger.status = Transaction.Status.SUCCESS
-            ledger.save(update_fields=['amount', 'status'])
-
-            WithdrawalTicket.objects.create(
-                user=request.user,
-                amount=amount_dec,
-                bank_code=bank_code,
-                bank_name=bank_name,
-                account_number=account_number,
-                account_name=display_name,
-                status=WithdrawalTicket.StatusChoices.SUCCESSFUL,
-            )
-
-        logger.info("Withdrawal SUCCESS: user=%s amount=%s ref=%s", request.user.id, amount_dec, reference)
-        return Response(
-            {
-                "status": "success",
-                "message": "Withdrawal processed successfully.",
-                "reference": reference,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-class WithdrawalRequestView(APIView):
     """
     User-facing: submit bank details for admin-manual payout.
     Creates a PENDING WithdrawalTicket — NO money is disbursed.
@@ -709,7 +588,6 @@ class WithdrawalRequestView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
-
 
 class AdminPendingWithdrawalListView(generics.ListAPIView):
     """Admin-only: list all pending withdrawal tickets."""
