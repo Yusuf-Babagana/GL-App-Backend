@@ -1,0 +1,10 @@
+<en-US>
+What's New in v1.0.3:
+
+• Faster withdrawals – Money is sent instantly to your bank account on approval
+• Bank account verification – Validate your bank details before withdrawing
+• KYC improvements – New accounts can sign in immediately; admin can verify later from the dashboard
+• Order numbers – Every order now has a clear reference number for easier tracking
+• Wallet history – Manual payouts from admin now appear in your transaction history
+• Bug fixes and performance improvements
+</en-US>

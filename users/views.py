@@ -52,7 +52,7 @@ class CustomRegisterView(APIView):
                 full_name=full_name,
                 active_role='buyer',
                 roles=['buyer'],
-                kyc_status=User.KycStatus.PENDING,
+                kyc_status=User.KycStatus.UNVERIFIED,
             )
 
             refresh = RefreshToken.for_user(user)
@@ -179,7 +179,7 @@ class AdminKYCListView(generics.ListAPIView):
     serializer_class = AdminKYCSerializer
 
     def get_queryset(self):
-        return User.objects.filter(kyc_status='pending')
+        return User.objects.filter(kyc_status__in=['unverified', 'pending']).order_by('-date_joined')
 
 class AdminKYCActionView(APIView):
     """
@@ -358,12 +358,6 @@ class CustomLoginView(APIView):
 
         if user is not None:
             # Block unapproved accounts
-            if user.kyc_status == User.KycStatus.PENDING:
-                logger.warning("LOGIN denied: pending approval — email=%r", email)
-                return Response({
-                    "error": "Your account is pending admin approval. Please wait for an administrator to verify your account.",
-                }, status=status.HTTP_403_FORBIDDEN)
-
             if user.kyc_status == User.KycStatus.REJECTED:
                 logger.warning("LOGIN denied: rejected — email=%r", email)
                 return Response({
