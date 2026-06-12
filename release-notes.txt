@@ -1,10 +1,12 @@
 <en-US>
 What's New in v1.0.3:
 
-• Faster withdrawals – Money is sent instantly to your bank account on approval
-• Bank account verification – Validate your bank details before withdrawing
-• KYC improvements – New accounts can sign in immediately; admin can verify later from the dashboard
-• Order numbers – Every order now has a clear reference number for easier tracking
-• Wallet history – Manual payouts from admin now appear in your transaction history
-• Bug fixes and performance improvements
+• Instant withdrawals – Money is sent directly to your bank on approval
+• Bank account verification – Validate bank details before withdrawing
+• KYC improvements – Sign in immediately after registration; admin verifies you later from the dashboard
+• Order numbers – Every order has a clear sequential reference number
+• Wallet history – Admin payouts now appear in your transaction history
+• Bank list & verification endpoints for smoother onboarding
+• Admin dashboard overhaul – Responsive layout, KYC verification panel, payout confirmation, status filters
+• Bug fixes – Withdrawal crash when Monnify auth fails, webhook race condition, narration display issues
 </en-US>
