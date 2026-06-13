@@ -1888,6 +1888,8 @@
             return '<tr><td><code>#' + o.id + '</code></td><td class="fw-semibold small">' + (o.buyer_email || '') + '<br><span class="text-muted" style="font-size:0.7rem">' + (o.buyer_name || '') + '</span></td><td>' + (o.shop_name || '—') + '</td><td class="text-end fw-semibold">₦' + parseFloat(o.total_price).toFixed(2) + '</td><td><span class="badge badge-dashboard ' + dsBadge + '">' + ds.replace(/_/g, ' ') + '</span></td><td><span class="badge badge-dashboard ' + psBadge + '">' + ps + '</span></td><td class="text-center">' + (o.items_count || 0) + '</td><td><span class="text-muted small">' + created + '</span></td></tr>';
           }
         };
+        window.ordersContainer_data = orders_data;
+        window.ordersContainer_render = orders_render;
         renderPaginatedTable('ordersContainer', orders_data, orders_render, 1);
       })
       .catch(function() {
@@ -1934,6 +1936,8 @@
             return '<tr><td class="small">' + u.email + '</td><td class="fw-semibold">' + (u.full_name || '—') + '</td><td class="small text-muted">' + (u.phone_number || '—') + '</td><td><span class="badge badge-dashboard ' + roleBadge + '">' + u.active_role + '</span></td><td><span class="badge badge-dashboard ' + kycBadge + '">' + u.kyc_status + '</span></td><td><span class="badge badge-dashboard ' + activeBadge + '">' + (u.is_active ? 'Active' : 'Inactive') + '</span></td><td><span class="text-muted small">' + (u.date_joined ? u.date_joined.slice(0, 10) : '') + '</span></td><td class="text-end"><button class="btn btn-soft-info btn-action-sm btn-user-toggle" data-id="' + u.id + '" data-active="' + u.is_active + '"><i class="bi bi-' + (u.is_active ? 'pause' : 'play') + '"></i></button> <button class="btn btn-soft-primary btn-action-sm btn-user-role" data-id="' + u.id + '" data-role="' + u.active_role + '"><i class="bi bi-shuffle"></i></button></td></tr>';
           }
         };
+        window.usersContainer_data = users_data;
+        window.usersContainer_render = users_render;
         renderPaginatedTable('usersContainer', users_data, users_render, 1);
         // Bind user action buttons
         document.querySelectorAll('#usersContainer .btn-user-toggle').forEach(function(btn) {
@@ -2015,6 +2019,8 @@
             return '<tr><td class="small">' + (tx.user_email || '') + '<br><span class="text-muted" style="font-size:0.7rem">' + (tx.user_name || '') + '</span></td><td><span class="badge badge-dashboard ' + typeBadge + '">' + tx.transaction_type.replace(/_/g, ' ') + '</span></td><td class="text-end fw-semibold ' + (parseFloat(tx.amount) >= 0 ? 'text-success' : 'text-danger') + '">₦' + parseFloat(tx.amount).toFixed(2) + '</td><td><span class="badge badge-dashboard ' + stBadge + '">' + tx.status + '</span></td><td class="small text-muted" style="max-width:200px;white-space:normal">' + (tx.description || '—') + '</td><td class="small text-muted font-monospace">' + (tx.reference ? tx.reference.slice(0, 16) + '…' : '—') + '</td><td><span class="text-muted small">' + (tx.created_at ? tx.created_at.slice(0, 16).replace('T', ' ') : '') + '</span></td></tr>';
           }
         };
+        window.txContainer_data = tx_data;
+        window.txContainer_render = tx_render;
         renderPaginatedTable('txContainer', tx_data, tx_render, 1);
       })
       .catch(function() {
