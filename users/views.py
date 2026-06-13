@@ -40,7 +40,7 @@ class CustomRegisterView(APIView):
 
         if User.objects.filter(email=email).exists():
             logger.error("REGISTER 400: duplicate email=%r", email)
-            return Response({"status": "error", "message": "An account with this email address already exists."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"status": "error", "message": "This email is already taken."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             full_name = f"{first_name} {last_name}".strip() or "Globalink User"
