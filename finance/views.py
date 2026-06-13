@@ -229,6 +229,11 @@ class DataPurchaseView(APIView):
         if not matched:
             return None, f"Plan '{variation_code}' not found for {service_id}"
 
+        plan_type = str(matched.get('type') or matched.get('Type') or '').lower()
+        plan_name = str(matched.get('PRODUCT_NAME') or matched.get('name') or matched.get('Name') or '').lower()
+        if 'airtime' in plan_type or 'airtime' in plan_name:
+            return None, f"Plan '{variation_code}' is an airtime plan, not data"
+
         raw_price = None
         for key in ('PRODUCT_AMOUNT', 'price', 'Price', 'amount', 'Amount', 'variation_amount'):
             val = matched.get(key)
