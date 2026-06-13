@@ -132,6 +132,7 @@ class AdminTransactionSerializer(serializers.ModelSerializer):
 class AdminTransactionListView(generics.ListAPIView):
     permission_classes = [permissions.IsAdminUser]
     serializer_class = AdminTransactionSerializer
+    pagination_class = None
 
     def get_queryset(self):
         qs = Transaction.objects.select_related('wallet__user').order_by('-created_at')
