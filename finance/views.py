@@ -278,29 +278,16 @@ class DataPurchaseView(APIView):
 
         request_id = str(uuid.uuid4().hex)[:12]
 
+        # Check balance first (no deduction yet)
         try:
-            with transaction.atomic():
-                wallet = Wallet.objects.select_for_update().get(user=request.user)
-                if wallet.available_balance < amount:
-                    logger.error(f"Data Purchase 400: Insufficient Balance. Need {amount}, have {wallet.available_balance}")
-                    return Response({"error": "Insufficient wallet balance."}, status=400)
+            wallet = Wallet.objects.get(user=request.user)
+        except Wallet.DoesNotExist:
+            return Response({"error": "Wallet not found."}, status=400)
+        if wallet.available_balance < amount:
+            logger.error(f"Data Purchase 400: Insufficient Balance. Need {amount}, have {wallet.available_balance}")
+            return Response({"error": "Insufficient wallet balance."}, status=400)
 
-                wallet.available_balance -= amount
-                wallet.save()
-
-                ledger = Transaction.objects.create(
-                    wallet=wallet,
-                    amount=-amount,
-                    transaction_type=Transaction.TransactionType.BILL_PAYMENT,
-                    status=Transaction.Status.PENDING,
-                    description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone}",
-                    reference=request_id
-                )
-        except Exception as e:
-            logger.error(f"Data Purchase 500: Internal Wallet Error: {e}")
-            return Response({"error": f"Internal Wallet Error: {str(e)}"}, status=500)
-
-        # Call Nellobyte
+        # Call Nellobyte FIRST before touching wallet
         try:
             client = NellobyteClient()
             logger.info(f"Calling Nellobyte with req_id={request_id}, svc={service_id}, plan={data_plan}, ph={phone}")
@@ -309,23 +296,39 @@ class DataPurchaseView(APIView):
             status_code = str(resp.get('statuscode'))
 
             if status_code == '100':
-                ledger.status = Transaction.Status.SUCCESS
-                ledger.save()
+                with transaction.atomic():
+                    wallet = Wallet.objects.select_for_update().get(user=request.user)
+                    if wallet.available_balance < amount:
+                        return Response({"error": "Insufficient wallet balance."}, status=400)
+
+                    wallet.available_balance -= amount
+                    wallet.save()
+
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=-amount,
+                        transaction_type=Transaction.TransactionType.BILL_PAYMENT,
+                        status=Transaction.Status.SUCCESS,
+                        description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone}",
+                        reference=request_id
+                    )
+
                 return Response({
                     "message": "Data purchase successful!",
                     "order_id": resp.get('orderid'),
                     "new_balance": float(wallet.available_balance)
                 }, status=200)
             else:
+                error_msg = resp.get('status', 'Provider rejected request')
                 with transaction.atomic():
-                    w = Wallet.objects.select_for_update().get(user=request.user)
-                    w.available_balance += amount
-                    w.save()
-
-                    ledger.status = Transaction.Status.FAILED
-                    error_msg = resp.get('status', 'Provider rejected request')
-                    ledger.description += f" (Refunded: {error_msg})"
-                    ledger.save()
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=0,
+                        transaction_type=Transaction.TransactionType.BILL_PAYMENT,
+                        status=Transaction.Status.FAILED,
+                        description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone} (Failed: {error_msg})",
+                        reference=request_id
+                    )
 
                 logger.error(f"Data Purchase 400: Nellobyte Error: {error_msg} | Code: {status_code} | Raw: {resp}")
                 return Response({"error": f"Nellobyte Error: {error_msg}"}, status=400)
@@ -740,17 +743,26 @@ def webhook_data_callback(request):
         logger.error(f"Nellobyte callback: Transaction not found for orderid={orderid}")
         return HttpResponse("Transaction not found", status=404)
 
-    if orderremark:
-        txn.description = (txn.description or '') + f" | Remark: {orderremark}"
+    with transaction.atomic():
+        txn = Transaction.objects.select_for_update().get(pk=txn.pk)
 
-    if statuscode == '100':
-        txn.status = Transaction.Status.SUCCESS
-        txn.save()
-        logger.info(f"Nellobyte callback: Transaction {txn.id} marked SUCCESS (orderid={orderid})")
-        return HttpResponse("OK", status=200)
-    else:
-        txn.status = Transaction.Status.FAILED
-        txn.description += f" (Failed: code={statuscode})"
-        txn.save()
-        logger.warning(f"Nellobyte callback: Transaction {txn.id} marked FAILED (orderid={orderid}, code={statuscode})")
-        return HttpResponse("OK", status=200)
+        if orderremark:
+            txn.description = (txn.description or '') + f" | Remark: {orderremark}"
+
+        if statuscode == '100':
+            txn.status = Transaction.Status.SUCCESS
+            txn.description += f" (Completed: code={statuscode})"
+            txn.save()
+            logger.info(f"Nellobyte callback: Transaction {txn.id} marked SUCCESS (orderid={orderid})")
+            return HttpResponse("OK", status=200)
+        else:
+            txn.status = Transaction.Status.FAILED
+            txn.description += f" (Failed: code={statuscode})"
+            if txn.amount < 0 and 'Refunded' not in txn.description:
+                wallet = Wallet.objects.select_for_update().get(pk=txn.wallet_id)
+                wallet.available_balance += abs(txn.amount)
+                wallet.save()
+                txn.description += " (Wallet Refunded)"
+            txn.save()
+            logger.warning(f"Nellobyte callback: Transaction {txn.id} marked FAILED (orderid={orderid}, code={statuscode})")
+            return HttpResponse("OK", status=200)
