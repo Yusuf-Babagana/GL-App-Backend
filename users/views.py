@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Sum
 from .serializers import UserSerializer, RegistrationSerializer, KYCUploadSerializer, AdminKYCSerializer
 from django.shortcuts import get_object_or_404
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, login
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from finance.models import Wallet
@@ -54,6 +54,8 @@ class CustomRegisterView(APIView):
                 roles=['buyer'],
                 kyc_status=User.KycStatus.UNVERIFIED,
             )
+
+            login(request, user)
 
             refresh = RefreshToken.for_user(user)
 
@@ -370,6 +372,8 @@ class CustomLoginView(APIView):
                 return Response({
                     "error": "Your account has been rejected. Please contact support for assistance.",
                 }, status=status.HTTP_403_FORBIDDEN)
+
+            login(request, user)
 
             refresh = RefreshToken.for_user(user)
             token_string = str(refresh.access_token)
