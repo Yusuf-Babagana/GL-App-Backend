@@ -219,31 +219,50 @@ class MonnifyAPI:
             logger.error("resolve_bank_account: Auth token failed")
             return None, "Authentication with payment provider failed."
 
-        url = MonnifyAPI._get_url("/api/v1/disbursements/account/validate")
+        account_number = str(account_number).strip()
+        bank_code = str(bank_code).strip()
         headers = {"Authorization": f"Bearer {token}"}
-        params = {
-            "accountNumber": str(account_number).strip(),
-            "bankCode": str(bank_code).strip()
-        }
 
-        logger.info(f"Monnify resolve_bank_account — url={url} params={params}")
+        # Try V2 POST first (newer Monnify endpoint), fall back to V1 GET
+        endpoints = [
+            ("/api/v2/disbursements/account/validate", "POST"),
+            ("/api/v1/disbursements/account/validate", "GET"),
+        ]
 
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=15)
-            res_json = response.json()
-            logger.info(f"Monnify resolve_bank_account response — {res_json}")
-        except Exception as e:
-            logger.error(f"Monnify resolve_bank_account HTTP error: {e}")
-            return None, f"Payment provider unreachable: {e}"
+        for path, method in endpoints:
+            url = MonnifyAPI._get_url(path)
+            logger.info(f"Monnify resolve_bank_account — trying {method} {url}")
 
-        if res_json.get('requestSuccessful'):
-            response_body = res_json.get('responseBody', {})
-            account_name = response_body.get('accountName')
-            logger.info(f"Monnify resolve_bank_account success — {account_name}")
-            return account_name, None
+            try:
+                if method == "POST":
+                    resp = requests.post(
+                        url, headers={**headers, "Content-Type": "application/json"},
+                        json={"accountNumber": account_number, "bankCode": bank_code},
+                        timeout=15,
+                    )
+                else:
+                    resp = requests.get(
+                        url, headers=headers,
+                        params={"accountNumber": account_number, "bankCode": bank_code},
+                        timeout=15,
+                    )
 
-        msg = res_json.get('responseMessage', 'Invalid Account or Bank.')
-        logger.error(f"Monnify resolve_bank_account failed — {msg}")
+                res_json = resp.json()
+                logger.info(f"Monnify resolve_bank_account response ({method}) — {res_json}")
+            except Exception as e:
+                logger.error(f"Monnify resolve_bank_account HTTP error ({method}): {e}")
+                continue
+
+            if res_json.get('requestSuccessful'):
+                response_body = res_json.get('responseBody', {})
+                account_name = response_body.get('accountName')
+                logger.info(f"Monnify resolve_bank_account success — {account_name}")
+                return account_name, None
+
+            msg = res_json.get('responseMessage', 'Invalid Account or Bank.')
+            logger.warning(f"Monnify resolve_bank_account failed ({method}): {msg}")
+
+        logger.error(f"Monnify resolve_bank_account: all endpoints exhausted")
         return None, msg
 
     @staticmethod
