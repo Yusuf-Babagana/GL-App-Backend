@@ -283,6 +283,15 @@ class DataPurchaseView(APIView):
 
         request_id = str(uuid.uuid4().hex)[:12]
 
+        # Reject purchase if this plan has been disabled by the auto‑disable system
+        if DataPlanPrice.objects.filter(
+            network=service_id, variation_code=data_plan, is_active=False
+        ).exists():
+            logger.error(f"Data Purchase 400: Plan {service_id}/{data_plan} is currently unavailable")
+            return Response({
+                "error": "This data plan is temporarily unavailable. Please try another plan."
+            }, status=400)
+
         # Check balance first (no deduction yet)
         try:
             wallet = Wallet.objects.get(user=request.user)
