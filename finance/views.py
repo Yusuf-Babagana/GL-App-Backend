@@ -556,27 +556,26 @@ class VerifyBankAccountView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        # 1. Log what we received
-        print(f"DEBUG: Params received from App: {request.query_params}")
-        
-        account_number = request.query_params.get('account_number')
-        bank_code = request.query_params.get('bank_code')
+        account_number = request.query_params.get('account_number', '').strip()
+        bank_code = request.query_params.get('bank_code', '').strip()
+
+        logger.info(f"VerifyBankAccount — account_number={account_number!r} bank_code={bank_code!r}")
 
         if not account_number or not bank_code:
+            logger.error(f"VerifyBankAccount 400: Missing params — account_number={account_number!r} bank_code={bank_code!r}")
             return Response({
-                "error": f"Missing query params. Need account_number and bank_code."
+                "error": "Missing query params. Need account_number and bank_code."
             }, status=400)
 
         try:
-            # 2. Call the service and catch the specific error
             account_name, error_msg = MonnifyAPI.resolve_bank_account(account_number, bank_code)
             if account_name:
+                logger.info(f"VerifyBankAccount 200: {account_name}")
                 return Response({"account_name": account_name}, status=200)
+            logger.error(f"VerifyBankAccount 400: {error_msg}")
             return Response({"error": error_msg}, status=400)
         except Exception as e:
-            # 3. Print the EXACT error from Monnify to the console
-            print(f"🚨 MONNIFY API FAILURE: {str(e)}")
-            # 4. Return the ACTUAL error to your React Native app
+            logger.error(f"VerifyBankAccount Exception: {e}")
             return Response({"error": f"Monnify says: {str(e)}"}, status=400)
 
 class BankListView(APIView):

@@ -216,24 +216,35 @@ class MonnifyAPI:
         """Verifies the account number and returns the account name"""
         token = MonnifyAPI.get_auth_token()
         if not token:
+            logger.error("resolve_bank_account: Auth token failed")
             return None, "Authentication with payment provider failed."
 
         url = MonnifyAPI._get_url("/api/v1/disbursements/account/validate")
         headers = {"Authorization": f"Bearer {token}"}
         params = {
-            "accountNumber": account_number,
-            "bankCode": bank_code
+            "accountNumber": str(account_number).strip(),
+            "bankCode": str(bank_code).strip()
         }
 
-        response = requests.get(url, headers=headers, params=params)
-        res_json = response.json()
-        
-        # If Monnify returns a success but requestSuccessful is false
+        logger.info(f"Monnify resolve_bank_account — url={url} params={params}")
+
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+            res_json = response.json()
+            logger.info(f"Monnify resolve_bank_account response — {res_json}")
+        except Exception as e:
+            logger.error(f"Monnify resolve_bank_account HTTP error: {e}")
+            return None, f"Payment provider unreachable: {e}"
+
         if res_json.get('requestSuccessful'):
             response_body = res_json.get('responseBody', {})
-            return response_body.get('accountName'), None
-            
-        return None, res_json.get('responseMessage', 'Invalid Account or Bank.')
+            account_name = response_body.get('accountName')
+            logger.info(f"Monnify resolve_bank_account success — {account_name}")
+            return account_name, None
+
+        msg = res_json.get('responseMessage', 'Invalid Account or Bank.')
+        logger.error(f"Monnify resolve_bank_account failed — {msg}")
+        return None, msg
 
     @staticmethod
     def disburse_funds(amount, reference, bank_code, account_number, narration):
