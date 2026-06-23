@@ -801,7 +801,13 @@ def webhook_data_callback(request):
         if orderremark:
             txn.description = (txn.description or '') + f" | Remark: {orderremark}"
 
-        if statuscode == '100':
+        # Some Nellobyte callbacks return non-100 codes even when the
+        # data was successfully delivered (e.g. "successfully sold").
+        # Check the remark text — if it indicates success, honour it.
+        remark_lower = (orderremark or '').lower()
+        succeeded = any(kw in remark_lower for kw in ['successfully sold', 'successful', 'completed successfully'])
+
+        if statuscode == '100' or succeeded:
             txn.status = Transaction.Status.SUCCESS
             txn.description += f" (Completed: code={statuscode})"
             txn.save()
@@ -818,7 +824,7 @@ def webhook_data_callback(request):
             txn.save()
 
             # Auto-disable plans that fail with provider-side errors
-            if orderremark and any(kw in orderremark.lower() for kw in ['no active sim', 'inactive sim', 'not have an active sim']):
+            if any(kw in remark_lower for kw in ['no active sim', 'inactive sim', 'not have an active sim']):
                 match = re.search(r'([A-Z]+-DATA)\s*\(([^)]+)\)', txn.description)
                 if match:
                     raw_service = match.group(1).lower()
