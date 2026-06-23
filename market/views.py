@@ -23,6 +23,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 import requests
 
 logger = logging.getLogger(__name__)
+User = get_user_model()
 
 # ---------------------------------------------------------------------------
 # Financial Constants
