@@ -1,11 +1,15 @@
+import logging
 import requests
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 class NellobyteClient:
     def __init__(self):
         self.user_id = settings.NELLOBYTE_USER_ID
         self.api_key = settings.NELLOBYTE_API_KEY
-        self.base_url = "https://www.nellobytesystems.com"
+        self.base_url = getattr(settings, 'NELLOBYTE_BASE_URL', 'https://www.nellobytesystems.com')
+        self.callback_url = getattr(settings, 'NELLOBYTE_CALLBACK_URL', 'https://glappbackend.pythonanywhere.com/api/finance/nellobyte-callback/')
 
     def _get_network_code(self, service_id):
         """Maps your app strings to Nellobyte numeric codes"""
@@ -74,11 +78,14 @@ class NellobyteClient:
             "DataPlan": data_plan,
             "MobileNumber": phone,
             "RequestID": request_id,
-            "CallBackURL": "https://glappbackend.pythonanywhere.com/api/finance/nellobyte-callback/"
+            "CallBackURL": self.callback_url,
         }
+
+        masked = {k: (v[:-4] + '****' if k == 'APIKey' else v) for k, v in params.items()}
+        logger.info(f"Nellobyte purchase_data — url={url} params={masked}")
         
-        # Nellobyte uses HTTPS GET
         response = requests.get(url, params=params, timeout=30)
+        logger.info(f"Nellobyte purchase_data response — {response.json()}")
         return response.json()
 
     def query_transaction(self, order_id=None, request_id=None):

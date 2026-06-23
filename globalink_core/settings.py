@@ -25,6 +25,7 @@ AUTH_USER_MODEL = 'users.User'
 NELLOBYTE_USER_ID = env('NELLOBYTE_USER_ID', default='')
 NELLOBYTE_API_KEY = env('NELLOBYTE_API_KEY', default='')
 NELLOBYTE_BASE_URL = env('NELLOBYTE_BASE_URL', default='https://www.nellobytesystems.com')
+NELLOBYTE_CALLBACK_URL = env('NELLOBYTE_CALLBACK_URL', default='https://glappbackend.pythonanywhere.com/api/finance/nellobyte-callback/')
 
 # PAYSTACK CONFIGURATION
 PAYSTACK_PUBLIC_KEY = env('PAYSTACK_PUBLIC_KEY', default='')
