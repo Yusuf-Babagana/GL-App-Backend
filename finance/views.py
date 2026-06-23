@@ -393,6 +393,17 @@ class DataVariationsView(APIView):
 
     _markup_cache = {}
     _plan_override_cache = None
+    _disabled_plans_cache = None
+
+    def _load_disabled_plans(self):
+        if self._disabled_plans_cache is None:
+            self._disabled_plans_cache = set()
+            try:
+                for dpp in DataPlanPrice.objects.filter(is_active=False):
+                    self._disabled_plans_cache.add((dpp.network, dpp.variation_code))
+            except Exception:
+                pass
+        return self._disabled_plans_cache
 
     def _load_plan_overrides(self):
         if self._plan_override_cache is None:
@@ -427,12 +438,19 @@ class DataVariationsView(APIView):
 
         Nellobyte V2 fields:  PRODUCT_ID, PRODUCT_NAME, PRODUCT_AMOUNT, PRODUCT_CODE
         Fallbacks for older / alternative field conventions are kept.
+        Returns None if the plan has been disabled via DataPlanPrice.is_active=False.
         """
         variation_code = str(self._get_plan_field(
             plan,
             'PRODUCT_ID', 'ID', 'variation_code', 'id',
             default=''
         ))
+
+        if service_id:
+            disabled = self._load_disabled_plans()
+            if (service_id, variation_code) in disabled:
+                logger.info(f"Skipping disabled plan: {service_id}/{variation_code}")
+                return None
         name = str(self._get_plan_field(
             plan,
             'PRODUCT_NAME', 'name', 'Name', 'plan_name', 'PlanName',
@@ -477,8 +495,9 @@ class DataVariationsView(APIView):
                 for plan in raw:
                     try:
                         formatted = self._format_plan(plan, provider_label=label, service_id=svc)
-                        formatted['service_id'] = svc
-                        all_plans.append(formatted)
+                        if formatted is not None:
+                            formatted['service_id'] = svc
+                            all_plans.append(formatted)
                     except Exception as e:
                         logger.error(f"Failed to format plan for {svc}: {e}")
                         continue
@@ -494,8 +513,9 @@ class DataVariationsView(APIView):
         for plan in raw:
             try:
                 formatted = self._format_plan(plan, provider_label=provider_label, service_id=service_id)
-                formatted['service_id'] = service_id
-                formatted_plans.append(formatted)
+                if formatted is not None:
+                    formatted['service_id'] = service_id
+                    formatted_plans.append(formatted)
             except Exception as e:
                 logger.error(f"Failed to format plan for {provider_label}: {e}")
                 continue
@@ -796,5 +816,27 @@ def webhook_data_callback(request):
                 wallet.save()
                 txn.description += " (Wallet Refunded)"
             txn.save()
+
+            # Auto-disable plans that fail with provider-side errors
+            if orderremark and any(kw in orderremark.lower() for kw in ['no active sim', 'inactive sim', 'not have an active sim']):
+                match = re.search(r'([A-Z]+-DATA)\s*\(([^)]+)\)', txn.description)
+                if match:
+                    raw_service = match.group(1).lower()
+                    variation_code = match.group(2)
+                    service_map = {
+                        'mtn-data': 'mtn-data',
+                        'glo-data': 'glo-data',
+                        '9mobile-data': '9mobile-data',
+                        'airtel-data': 'airtel-data',
+                    }
+                    service_id = service_map.get(raw_service)
+                    if service_id:
+                        DataPlanPrice.objects.update_or_create(
+                            network=service_id,
+                            variation_code=variation_code,
+                            defaults={'is_active': False, 'plan_name': f'Auto-disabled: {orderremark}'}
+                        )
+                        logger.info(f"Auto-disabled plan {service_id}/{variation_code} due to provider error")
+
             logger.warning(f"Nellobyte callback: Transaction {txn.id} marked FAILED (orderid={orderid}, code={statuscode})")
             return HttpResponse("OK", status=200)
