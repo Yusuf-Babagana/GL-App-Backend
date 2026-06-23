@@ -299,6 +299,7 @@ class DataPurchaseView(APIView):
             resp = client.purchase_data(request_id, service_id, data_plan, phone)
 
             status_code = str(resp.get('statuscode'))
+            order_status = resp.get('status', '')
 
             if status_code == '100':
                 with transaction.atomic():
@@ -315,7 +316,7 @@ class DataPurchaseView(APIView):
                         transaction_type=Transaction.TransactionType.BILL_PAYMENT,
                         status=Transaction.Status.SUCCESS,
                         description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone}",
-                        reference=request_id
+                        reference=resp.get('orderid', request_id)
                     )
 
                 return Response({
@@ -323,6 +324,32 @@ class DataPurchaseView(APIView):
                     "order_id": resp.get('orderid'),
                     "new_balance": float(wallet.available_balance)
                 }, status=200)
+
+            elif 'ORDER_RECEIVED' in order_status or status_code in ('', '101', '102'):
+                with transaction.atomic():
+                    wallet = Wallet.objects.select_for_update().get(user=request.user)
+                    if wallet.available_balance < amount:
+                        return Response({"error": "Insufficient wallet balance."}, status=400)
+
+                    wallet.available_balance -= amount
+                    wallet.save()
+
+                    Transaction.objects.create(
+                        wallet=wallet,
+                        amount=-amount,
+                        transaction_type=Transaction.TransactionType.BILL_PAYMENT,
+                        status=Transaction.Status.PENDING,
+                        description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone} (Pending)",
+                        reference=resp.get('orderid', request_id)
+                    )
+
+                logger.info(f"Data Purchase 202: Order queued — orderid={resp.get('orderid')} status={order_status}")
+                return Response({
+                    "message": "Order submitted for processing. Check history for status updates.",
+                    "order_id": resp.get('orderid'),
+                    "new_balance": float(wallet.available_balance)
+                }, status=202)
+
             else:
                 error_msg = resp.get('status', 'Provider rejected request')
                 with transaction.atomic():
@@ -332,7 +359,7 @@ class DataPurchaseView(APIView):
                         transaction_type=Transaction.TransactionType.BILL_PAYMENT,
                         status=Transaction.Status.FAILED,
                         description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone} (Failed: {error_msg})",
-                        reference=request_id
+                        reference=resp.get('orderid', request_id)
                     )
 
                 logger.error(f"Data Purchase 400: Nellobyte Error: {error_msg} | Code: {status_code} | Raw: {resp}")
