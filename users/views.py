@@ -5,6 +5,8 @@ from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth import get_user_model
 from django.db.models import Sum
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from .serializers import UserSerializer, RegistrationSerializer, KYCUploadSerializer, AdminKYCSerializer
 from django.shortcuts import get_object_or_404
 from django.contrib.auth import authenticate, login
@@ -16,6 +18,7 @@ from market.models import Order
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
+@method_decorator(csrf_exempt, name='dispatch')
 class CustomRegisterView(APIView):
     permission_classes = [permissions.AllowAny]
 
