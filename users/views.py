@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 class CustomRegisterView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -347,6 +348,7 @@ class CancelAccountDeletionView(APIView):
 
 
 class CustomLoginView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny] # Allow public access to log in
 
     def post(self, request):
