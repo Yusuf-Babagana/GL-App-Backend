@@ -6,7 +6,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 urlpatterns = [
     # Auth
     path('register/', csrf_exempt(CustomRegisterView.as_view()), name='register'),
-    path('login/', CustomLoginView.as_view(), name='login'), # Custom login returning user metadata
+    path('login/', csrf_exempt(CustomLoginView.as_view()), name='login'), # Custom login returning user metadata
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
     # Profile & Roles
