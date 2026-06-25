@@ -58,7 +58,7 @@ class ProductSerializer(serializers.ModelSerializer):
     )
 
     # Receive URL from mobile app
-    cloudinary_url = serializers.URLField(write_only=True, required=False)
+    cloudinary_url = serializers.URLField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = Product
@@ -92,10 +92,26 @@ class ProductSerializer(serializers.ModelSerializer):
         if cloudinary_url:
             ProductImage.objects.create(
                 product=product, 
-                image=cloudinary_url, # Store full URL string
+                image=cloudinary_url,
                 is_primary=True
             )
         return product
+
+    def update(self, instance, validated_data):
+        cloudinary_url = validated_data.pop('cloudinary_url', None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if cloudinary_url:
+            ProductImage.objects.update_or_create(
+                product=instance,
+                is_primary=True,
+                defaults={'image': cloudinary_url}
+            )
+
+        return instance
 
 
 class CartItemSerializer(serializers.ModelSerializer):
