@@ -74,6 +74,7 @@ class Transaction(models.Model):
         WITHDRAWAL = 'withdrawal', _('Withdrawal to Bank')
         FEE = 'fee', _('Platform Fee')
         BILL_PAYMENT = 'bill_payment', _('VTpass Bill Payment')
+        PROMOTION = 'promotion', _('Promoted Post Fee')
 
     class Status(models.TextChoices):
         PENDING = 'pending', _('Pending')

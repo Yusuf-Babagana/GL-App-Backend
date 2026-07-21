@@ -1,9 +1,14 @@
+import logging
 import uuid
 from decimal import Decimal
+from datetime import timedelta
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from finance.utils import MonnifyAPI
+
+logger = logging.getLogger(__name__)
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -92,7 +97,7 @@ class Shop(models.Model):
                             self.monnify_sub_account_code = sub_code
         except Exception as e:
             # Log any quiet runtime background catch events cleanly without stopping the master save transaction
-            print(f"⚠️ Non-breaking background finance sync check failed: {str(e)}")
+            logger.warning("Non-breaking background finance sync check failed: %s", e)
 
         # 🚀 CRITICAL: Run the parent save sequence so the entry writes to db.sqlite3!
         super().save(*args, **kwargs)
@@ -255,6 +260,46 @@ class CartItem(models.Model):
     def total_price(self):
         return self.product.price * self.quantity
 
+
+
+class PromotedPost(models.Model):
+    """
+    A paid announcement/ticker slot. Payment tiers are fixed and mirrored
+    in PromotedPostSerializer/the creation view — keep both in sync.
+    """
+    class DurationType(models.TextChoices):
+        ONE_DAY = '24h', _('24 Hours')
+        THREE_DAYS = '3days', _('3 Days')
+        ONE_WEEK = '1wk', _('1 Week')
+
+    PRICING = {
+        DurationType.ONE_DAY: Decimal('1000.00'),
+        DurationType.THREE_DAYS: Decimal('2000.00'),
+        DurationType.ONE_WEEK: Decimal('4000.00'),
+    }
+
+    DURATION_TIMEDELTAS = {
+        DurationType.ONE_DAY: timedelta(hours=24),
+        DurationType.THREE_DAYS: timedelta(days=3),
+        DurationType.ONE_WEEK: timedelta(weeks=1),
+    }
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='promoted_posts')
+    text_content = models.CharField(max_length=300)
+    target_link = models.URLField()
+    duration_type = models.CharField(max_length=10, choices=DurationType.choices)
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2)
+    is_active = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"PromotedPost({self.user.email}, {self.duration_type})"
+
+    def save(self, *args, **kwargs):
+        if self.is_active and not self.expires_at:
+            self.expires_at = timezone.now() + self.DURATION_TIMEDELTAS[self.duration_type]
+        super().save(*args, **kwargs)
 
 
 # Deprecated: Chat models moved to chat app. See chat/models.py.

@@ -14,6 +14,7 @@ from .views import (
     AdminReviewShopView, MerchantAnalyticsView, MyShopStatusView,
     InternalWalletCheckoutView, MerchantWithdrawalView,
     CheckoutView, BuyNowView, CheckoutSummaryView,
+    PromotedPostCreateView, ActivePromotedPostListView,
 )
 from chat.views import ConversationListView
 
@@ -79,4 +80,8 @@ urlpatterns = [
 
     # --- CHAT (alias for frontend compatibility) ---
     path('conversations/', ConversationListView.as_view(), name='market-conversations'),
+
+    # --- PROMOTED POSTS / TICKER ---
+    path('promoted-posts/', PromotedPostCreateView.as_view(), name='promoted-post-create'),
+    path('promoted-posts/active/', ActivePromotedPostListView.as_view(), name='promoted-post-active-list'),
 ]

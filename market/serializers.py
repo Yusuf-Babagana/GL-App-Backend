@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Category, Shop, Product, ProductImage, Order, OrderItem, Cart, CartItem
+from .models import Category, Shop, Product, ProductImage, Order, OrderItem, Cart, CartItem, PromotedPost
 from users.serializers import UserSerializer
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -261,4 +261,24 @@ class BuyNowInputSerializer(serializers.Serializer):
     payment_method = serializers.ChoiceField(
         choices=['wallet'], required=False, default=None
     )
-    shipping_address = serializers.JSONField(required=False)
+    shipping_address = serializers.JSONField(required=False)
+
+
+class PromotedPostSerializer(serializers.ModelSerializer):
+    """Read-only representation, used by the active-ticker list endpoint."""
+    user_name = serializers.ReadOnlyField(source='user.full_name')
+
+    class Meta:
+        model = PromotedPost
+        fields = [
+            'id', 'user_name', 'text_content', 'target_link',
+            'duration_type', 'created_at', 'expires_at',
+        ]
+
+
+class PromotedPostCreateSerializer(serializers.ModelSerializer):
+    """Input serializer for creating a promoted post. Payment/activation is handled in the view."""
+
+    class Meta:
+        model = PromotedPost
+        fields = ['text_content', 'target_link', 'duration_type']
