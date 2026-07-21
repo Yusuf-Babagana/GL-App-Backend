@@ -355,7 +355,7 @@ class CustomLoginView(APIView):
         email = request.data.get('email')
         password = request.data.get('password')
 
-        print(f"📥 LOGIN INCOMING: email={email!r}, password={'***' if password else None}")
+        logger.info("LOGIN INCOMING: email=%r, password=%s", email, '***' if password else None)
 
         # Django's ModelBackend expects the identifier in the 'username' keyword argument
         # even when USERNAME_FIELD is 'email'. We check both to be completely bulletproof.
@@ -365,7 +365,7 @@ class CustomLoginView(APIView):
 
         if user is None:
             reason = "inactive" if User.objects.filter(email=email, is_active=False).exists() else "invalid credentials or nonexistent email"
-            print(f"❌ LOGIN FAIL: {reason} — email={email!r}")
+            logger.info("LOGIN FAIL: %s - email=%r", reason, email)
 
         if user is not None:
             # Block unapproved accounts

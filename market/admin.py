@@ -1,6 +1,6 @@
 # market/admin.py
 from django.contrib import admin
-from market.models import Shop, Product, Category, Order, OrderItem
+from market.models import Shop, Product, Category, Order, OrderItem, PromotedPost
 
 @admin.register(Shop)
 class ShopAdmin(admin.ModelAdmin):
@@ -60,3 +60,9 @@ class ProductAdmin(admin.ModelAdmin):
 admin.site.register(Category)
 admin.site.register(Order)
 admin.site.register(OrderItem)
+
+@admin.register(PromotedPost)
+class PromotedPostAdmin(admin.ModelAdmin):
+    list_display = ('user', 'duration_type', 'amount_paid', 'is_active', 'created_at', 'expires_at')
+    list_filter = ('is_active', 'duration_type')
+    search_fields = ('user__email', 'text_content')

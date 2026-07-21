@@ -33,15 +33,17 @@ GLAPP_COMMISSION_CAP  = Decimal('2500.00')
 # ---------------------------------------------------------------------------
 
 # Local Imports
-from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile
+from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile, PromotedPost
 from .serializers import (
-    CategorySerializer, ShopSerializer, ProductSerializer, 
+    CategorySerializer, ShopSerializer, ProductSerializer,
     OrderSerializer, BuyerOrderSerializer, SellerOrderSerializer,
     CartSerializer, CartSyncInputSerializer,
     CartSyncItemSerializer, CartSyncResponseSerializer,
     CheckoutInputSerializer, BuyNowInputSerializer,
+    PromotedPostSerializer, PromotedPostCreateSerializer,
 )
 from finance.models import Wallet, Transaction, PlatformRevenue
+from finance.utils import WalletManager
 
 
 # --- SELLER / STORE VIEWS ---
@@ -1635,3 +1637,61 @@ class MerchantWithdrawalView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# --- PROMOTED POST / ANNOUNCEMENT TICKER ---
+
+class PromotedPostCreateView(APIView):
+    """Buys a promoted-post/ticker slot, deducting the tier price from the user's wallet."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = PromotedPostCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        duration_type = serializer.validated_data['duration_type']
+        amount = PromotedPost.PRICING[duration_type]
+
+        post = PromotedPost.objects.create(
+            user=request.user,
+            text_content=serializer.validated_data['text_content'],
+            target_link=serializer.validated_data['target_link'],
+            duration_type=duration_type,
+            amount_paid=amount,
+        )
+
+        payment_success, message = WalletManager.process_payment(
+            user=request.user,
+            amount=amount,
+            transaction_type=Transaction.TransactionType.PROMOTION,
+            description=f"Promoted post ({post.get_duration_type_display()}) #{post.id}",
+            related_id=str(post.id),
+        )
+
+        if not payment_success:
+            post.delete()
+            return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+
+        post.is_active = True
+        post.save()
+
+        return Response(
+            {
+                "message": "Promoted post is now live.",
+                "data": PromotedPostSerializer(post).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ActivePromotedPostListView(generics.ListAPIView):
+    """Lightweight public feed of currently-live promoted posts/tickers."""
+    serializer_class = PromotedPostSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    pagination_class = None
+
+    def get_queryset(self):
+        return PromotedPost.objects.filter(
+            is_active=True, expires_at__gt=timezone.now()
+        ).order_by('-created_at')
