@@ -286,7 +286,7 @@ class PromotedPost(models.Model):
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='promoted_posts')
     text_content = models.CharField(max_length=300)
-    target_link = models.URLField()
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='promoted_posts')
     duration_type = models.CharField(max_length=10, choices=DurationType.choices)
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2)
     is_active = models.BooleanField(default=False)

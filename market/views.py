@@ -1646,7 +1646,7 @@ class PromotedPostCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        serializer = PromotedPostCreateSerializer(data=request.data)
+        serializer = PromotedPostCreateSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
 
         duration_type = serializer.validated_data['duration_type']
@@ -1655,7 +1655,7 @@ class PromotedPostCreateView(APIView):
         post = PromotedPost.objects.create(
             user=request.user,
             text_content=serializer.validated_data['text_content'],
-            target_link=serializer.validated_data['target_link'],
+            product=serializer.validated_data['product'],
             duration_type=duration_type,
             amount_paid=amount,
         )
