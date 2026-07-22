@@ -152,9 +152,14 @@ if os.path.exists(os.path.join(BASE_DIR, 'staticfiles')):
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# 11. Email Configuration
+# 11. Email Configuration (Brevo SMTP relay)
+# EMAIL_HOST_USER / EMAIL_HOST_PASSWORD are the SMTP login + SMTP key from
+# Brevo dashboard -> Senders, Domains & Dedicated IPs -> SMTP & API -> SMTP tab
+# (the SMTP key is NOT your Brevo account password). DEFAULT_FROM_EMAIL must
+# be an address verified as a sender in that same Brevo dashboard section,
+# or Brevo will reject/bounce outgoing mail.
 EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
-EMAIL_HOST = env('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_HOST = env('EMAIL_HOST', default='smtp-relay.brevo.com')
 EMAIL_PORT = env.int('EMAIL_PORT', default=587)
 EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
 EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
