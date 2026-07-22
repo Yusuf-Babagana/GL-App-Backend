@@ -45,20 +45,35 @@ class NellobyteClient:
             }
         }
         Each PRODUCT item has: PRODUCT_ID, PRODUCT_NAME, PRODUCT_AMOUNT, PRODUCT_CODE
+
+        NOTE: this endpoint does NOT take a UserID. Passing one (even a valid one)
+        makes Nellobyte's server misroute the request into an unrelated
+        purchase-flow handler, which responds with a generic error status
+        (e.g. "MISSING_PHONE_NUMBER" / "INVALID_CREDENTIALS") instead of the
+        plan catalog. Confirmed by direct testing — do not add UserID back here.
         """
-        url = f"{self.base_url}/APIDatabundlePlansV2.asp?UserID={self.user_id}"
+        url = f"{self.base_url}/APIDatabundlePlansV2.asp"
 
         try:
             response = requests.get(url, timeout=20)
             data = response.json()
 
-            mobile_networks = data.get('MOBILE_NETWORK', {})
+            mobile_networks = data.get('MOBILE_NETWORK')
+            if mobile_networks is None:
+                logger.error(
+                    f"[Nellobyte] Unexpected plans response shape for '{network_key}' — "
+                    f"no MOBILE_NETWORK key. Raw response: {response.text[:500]}"
+                )
+                return []
+
             api_key = self.NETWORK_KEY_MAP.get(network_key, network_key)
             network_entries = mobile_networks.get(api_key, [])
 
             if not network_entries:
-                print(f"[Nellobyte] No entries found for network '{network_key}' (api_key='{api_key}'). "
-                      f"Available keys: {list(mobile_networks.keys())}")
+                logger.warning(
+                    f"[Nellobyte] No entries found for network '{network_key}' (api_key='{api_key}'). "
+                    f"Available keys: {list(mobile_networks.keys())}"
+                )
                 return []
 
             # Each entry is { "ID": "01", "PRODUCT": [...] }
@@ -66,7 +81,7 @@ class NellobyteClient:
             return products
 
         except Exception as e:
-            print(f"[Nellobyte] fetch_all_variations error for '{network_key}': {e}")
+            logger.error(f"[Nellobyte] fetch_all_variations error for '{network_key}': {e}")
             return []
 
     def purchase_data(self, request_id, service_id, data_plan, phone):
