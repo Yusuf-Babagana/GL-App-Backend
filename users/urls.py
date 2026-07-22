@@ -1,6 +1,6 @@
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
-from .views import AdminDashboardStatsView, CustomRegisterView, AdminKYCListView, AdminKYCActionView, UserProfileView, AddRoleView, KYCSubmissionView, SetTransactionPINView, UpdateBVNView, CustomLoginView, RequestAccountDeletionView, CancelAccountDeletionView
+from .views import AdminDashboardStatsView, CustomRegisterView, AdminKYCListView, AdminKYCActionView, UserProfileView, AddRoleView, KYCSubmissionView, SetTransactionPINView, UpdateBVNView, CustomLoginView, RequestAccountDeletionView, CancelAccountDeletionView, RequestPasswordResetView, ConfirmPasswordResetView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
@@ -8,6 +8,8 @@ urlpatterns = [
     path('register/', csrf_exempt(CustomRegisterView.as_view()), name='register'),
     path('login/', csrf_exempt(CustomLoginView.as_view()), name='login'), # Custom login returning user metadata
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('password-reset/request/', csrf_exempt(RequestPasswordResetView.as_view()), name='password-reset-request'),
+    path('password-reset/confirm/', csrf_exempt(ConfirmPasswordResetView.as_view()), name='password-reset-confirm'),
     
     # Profile & Roles
     path('profile/', UserProfileView.as_view(), name='profile'),

@@ -1,5 +1,7 @@
+from datetime import timedelta
 from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 class UserManager(BaseUserManager):
@@ -144,3 +146,20 @@ class Address(models.Model):
         if self.is_default:
             Address.objects.filter(user=self.user).update(is_default=False)
         super().save(*args, **kwargs)
+
+
+class PasswordResetOTP(models.Model):
+    VALIDITY_MINUTES = 15
+    MAX_ATTEMPTS = 5
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_otps')
+    code = models.CharField(max_length=6)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def is_expired(self):
+        return timezone.now() > self.created_at + timedelta(minutes=self.VALIDITY_MINUTES)
+
+    def __str__(self):
+        return f"OTP for {self.user.email} ({'used' if self.is_used else 'active'})"

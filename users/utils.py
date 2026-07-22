@@ -51,6 +51,19 @@ def send_deletion_requested_email(user):
     send_email(subject, message, [user.email], html_message=html_message)
 
 
+def send_password_reset_email(user, code):
+    from .models import PasswordResetOTP
+    subject = "Your Globalink Password Reset Code"
+    message = (
+        f"Hi {user.full_name or user.email},\n\n"
+        f"Your password reset code is: {code}\n\n"
+        f"This code expires in {PasswordResetOTP.VALIDITY_MINUTES} minutes. "
+        f"If you did not request this, you can safely ignore this email.\n\n"
+        f"Thank you,\nGlobalink Team"
+    )
+    send_email(subject, message, [user.email])
+
+
 def send_deletion_cancelled_email(user):
     subject = "Account Deletion Cancelled"
     message = (
