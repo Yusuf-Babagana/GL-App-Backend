@@ -267,11 +267,15 @@ class BuyNowInputSerializer(serializers.Serializer):
 class PromotedPostSerializer(serializers.ModelSerializer):
     """Read-only representation, used by the active-ticker list endpoint."""
     user_name = serializers.ReadOnlyField(source='user.full_name')
+    product_id = serializers.ReadOnlyField(source='product.id')
+    product_name = serializers.ReadOnlyField(source='product.name')
+    product_image = serializers.ReadOnlyField(source='product.image')
 
     class Meta:
         model = PromotedPost
         fields = [
-            'id', 'user_name', 'text_content', 'target_link',
+            'id', 'user_name', 'text_content',
+            'product_id', 'product_name', 'product_image',
             'duration_type', 'created_at', 'expires_at',
         ]
 
@@ -281,4 +285,10 @@ class PromotedPostCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PromotedPost
-        fields = ['text_content', 'target_link', 'duration_type']
+        fields = ['text_content', 'product', 'duration_type']
+
+    def validate_product(self, product):
+        request = self.context.get('request')
+        if not request or product.shop is None or product.shop.owner_id != request.user.id:
+            raise serializers.ValidationError("You can only promote your own products.")
+        return product
