@@ -398,5 +398,87 @@ class CustomLoginView(APIView):
             }
             logger.info("LOGIN 200: email=%r role=%s", email, user_role)
             return Response(payload, status=status.HTTP_200_OK)
-            
+
         return Response({"error": "Invalid email or password credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+class RequestPasswordResetView(APIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        import random
+        from django.utils import timezone
+        from datetime import timedelta
+        from .models import PasswordResetOTP
+        from .utils import send_password_reset_email
+
+        email = (request.data.get('email') or '').strip().lower()
+        if not email:
+            return Response({"error": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        generic_response = Response({
+            "message": "If an account exists for this email, a reset code has been sent."
+        }, status=status.HTTP_200_OK)
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            # Don't reveal whether the email is registered.
+            return generic_response
+
+        recent_cutoff = timezone.now() - timedelta(seconds=60)
+        if PasswordResetOTP.objects.filter(user=user, created_at__gt=recent_cutoff).exists():
+            return generic_response
+
+        code = f"{random.randint(0, 999999):06d}"
+        PasswordResetOTP.objects.create(user=user, code=code)
+        send_password_reset_email(user, code)
+
+        logger.info("PASSWORD RESET requested: email=%r", email)
+        return generic_response
+
+
+class ConfirmPasswordResetView(APIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        from .models import PasswordResetOTP
+
+        email = (request.data.get('email') or '').strip().lower()
+        code = (request.data.get('otp') or '').strip()
+        new_password = request.data.get('new_password') or ''
+
+        if not email or not code or not new_password:
+            return Response({"error": "Email, OTP, and new password are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(new_password) < 8:
+            return Response({"error": "Password must be at least 8 characters."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return Response({"error": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        otp = PasswordResetOTP.objects.filter(user=user, is_used=False).order_by('-created_at').first()
+        if not otp or otp.is_expired():
+            return Response({"error": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if otp.attempts >= PasswordResetOTP.MAX_ATTEMPTS:
+            return Response({"error": "Too many attempts. Please request a new code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if otp.code != code:
+            otp.attempts += 1
+            otp.save()
+            return Response({"error": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save()
+
+        otp.is_used = True
+        otp.save()
+        PasswordResetOTP.objects.filter(user=user, is_used=False).exclude(id=otp.id).update(is_used=True)
+
+        logger.info("PASSWORD RESET completed: email=%r", email)
+        return Response({"message": "Password reset successful. You can now log in with your new password."}, status=status.HTTP_200_OK)
