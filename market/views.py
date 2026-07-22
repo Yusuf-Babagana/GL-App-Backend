@@ -33,7 +33,7 @@ GLAPP_COMMISSION_CAP  = Decimal('2500.00')
 # ---------------------------------------------------------------------------
 
 # Local Imports
-from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile, PromotedPost
+from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile, PromotedPost, PromotedPostPricing
 from .serializers import (
     CategorySerializer, ShopSerializer, ProductSerializer,
     OrderSerializer, BuyerOrderSerializer, SellerOrderSerializer,
@@ -1650,7 +1650,7 @@ class PromotedPostCreateView(APIView):
         serializer.is_valid(raise_exception=True)
 
         duration_type = serializer.validated_data['duration_type']
-        amount = PromotedPost.PRICING[duration_type]
+        amount = PromotedPost.get_price(duration_type)
 
         post = PromotedPost.objects.create(
             user=request.user,
@@ -1695,3 +1695,24 @@ class ActivePromotedPostListView(generics.ListAPIView):
         return PromotedPost.objects.filter(
             is_active=True, expires_at__gt=timezone.now()
         ).order_by('-created_at')
+
+
+class PromotedPostPricingView(APIView):
+    """Public: current admin-configured (or default) price for each duration tier."""
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        overrides = {
+            p.duration_type: p.price
+            for p in PromotedPostPricing.objects.filter(is_active=True)
+        }
+        data = [
+            {
+                "duration_type": value,
+                "label": label,
+                "price": str(overrides.get(value, PromotedPost.PRICING[value])),
+            }
+            for value, label in PromotedPost.DurationType.choices
+        ]
+        return Response(data)

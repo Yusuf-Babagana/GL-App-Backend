@@ -301,5 +301,35 @@ class PromotedPost(models.Model):
             self.expires_at = timezone.now() + self.DURATION_TIMEDELTAS[self.duration_type]
         super().save(*args, **kwargs)
 
+    @classmethod
+    def get_price(cls, duration_type):
+        """Admin-configurable price for a tier, falling back to the hardcoded default."""
+        override = PromotedPostPricing.objects.filter(
+            duration_type=duration_type, is_active=True
+        ).first()
+        if override:
+            return override.price
+        return cls.PRICING[duration_type]
+
+
+class PromotedPostPricing(models.Model):
+    """
+    Optional admin override for a PromotedPost duration tier's price.
+    Leave a tier unconfigured (or inactive) to keep using PromotedPost.PRICING.
+    """
+    duration_type = models.CharField(
+        max_length=10, choices=PromotedPost.DurationType.choices, unique=True
+    )
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    is_active = models.BooleanField(default=True, help_text="Uncheck to fall back to the default price")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Promoted Post Pricing"
+        verbose_name_plural = "Promoted Post Pricing"
+
+    def __str__(self):
+        return f"{self.get_duration_type_display()} — ₦{self.price}"
+
 
 # Deprecated: Chat models moved to chat app. See chat/models.py.

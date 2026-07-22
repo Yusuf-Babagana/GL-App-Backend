@@ -976,6 +976,65 @@
             </div>
           </div>
         </div>
+
+        <!-- Promoted Post / Ticker Pricing panel -->
+        <div class="panel mt-3">
+          <div class="panel-header">
+            <h5><i class="bi bi-megaphone" style="color:#329629"></i> Promoted Post / Ticker Pricing</h5>
+            <span class="text-muted" style="font-size:0.78rem"><i class="bi bi-info-circle me-1"></i>Charged from wallet when a user promotes a message</span>
+          </div>
+          <div class="panel-body">
+            {% if promoted_post_pricing %}
+            <div class="table-responsive">
+              <table class="table table-dashboard" id="promoPricingTable">
+                <thead>
+                  <tr>
+                    <th>Duration</th>
+                    <th>Price (&#8355;)</th>
+                    <th>Status</th>
+                    <th>Last Updated</th>
+                    <th class="text-end">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for p in promoted_post_pricing %}
+                  <tr class="promo-pricing-row" data-id="{{ p.id }}">
+                    <td class="fw-semibold">{{ p.get_duration_type_display }}</td>
+                    <td>
+                      <div class="input-group input-group-sm" style="max-width:140px">
+                        <span class="input-group-text bg-light fw-bold">&#8355;</span>
+                        <input type="number" step="0.01" min="0.01"
+                          class="form-control promo-price-input"
+                          value="{{ p.price|floatformat:2 }}"
+                          data-original="{{ p.price|floatformat:2 }}">
+                      </div>
+                    </td>
+                    <td>
+                      <div class="form-check form-switch" style="padding-left:2.5rem">
+                        <input class="form-check-input promo-status-toggle" type="checkbox" role="switch"
+                          {% if p.is_active %}checked{% endif %}
+                          data-id="{{ p.id }}">
+                      </div>
+                    </td>
+                    <td><span class="text-muted small">{{ p.updated_at|date:"M d, H:i" }}</span></td>
+                    <td class="text-end">
+                      <button class="btn btn-soft-primary btn-action btn-save-promo-price" data-id="{{ p.id }}">
+                        <i class="bi bi-check-lg me-1"></i>Save
+                      </button>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+              <i class="bi bi-megaphone"></i>
+              <p>No pricing tiers found. Run <code>python manage.py migrate market</code> to initialize.</p>
+            </div>
+            {% endif %}
+          </div>
+        </div>
       </div>
 
       <!-- TAB 5: ORDERS -->
@@ -1389,6 +1448,78 @@
       var row = this.closest('.pricing-row');
       var btn = row.querySelector('.btn-save-price');
       handleSavePrice(btn);
+    });
+  });
+
+  /* --- Promoted Post pricing save --- */
+  function handleSavePromoPrice(btn) {
+    var row = btn.closest('.promo-pricing-row');
+    var id = btn.getAttribute('data-id');
+    var input = row.querySelector('.promo-price-input');
+    var toggle = row.querySelector('.promo-status-toggle');
+    var price = parseFloat(input.value);
+    var isActive = toggle.checked;
+
+    if (isNaN(price) || price <= 0) {
+      showToast('Please enter a valid price.', 'danger');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
+
+    fetch('/api/admin/promoted-post-pricing/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+      body: JSON.stringify({ id: id, price: price, is_active: isActive })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === 'success') {
+        input.setAttribute('data-original', data.pricing.price);
+        input.value = parseFloat(data.pricing.price).toFixed(2);
+        showToast(data.pricing.label + ' price set to ₦' + data.pricing.price, 'success');
+      } else {
+        showToast('Error: ' + (data.error || 'Unknown error'), 'danger');
+      }
+    })
+    .catch(function() {
+      showToast('Network error. Please try again.', 'danger');
+    })
+    .finally(function() {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save';
+    });
+  }
+
+  document.querySelectorAll('.btn-save-promo-price').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      handleSavePromoPrice(this);
+    });
+  });
+
+  document.querySelectorAll('.promo-price-input').forEach(function(input) {
+    input.addEventListener('input', function() {
+      var row = this.closest('.promo-pricing-row');
+      var btn = row.querySelector('.btn-save-promo-price');
+      var original = parseFloat(this.getAttribute('data-original'));
+      var current = parseFloat(this.value);
+      if (Math.abs(current - original) > 0.001) {
+        btn.classList.remove('btn-soft-primary');
+        btn.classList.add('btn-primary');
+      } else {
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-soft-primary');
+      }
+    });
+  });
+
+  document.querySelectorAll('.promo-status-toggle').forEach(function(toggle) {
+    toggle.addEventListener('change', function() {
+      var row = this.closest('.promo-pricing-row');
+      var btn = row.querySelector('.btn-save-promo-price');
+      handleSavePromoPrice(btn);
     });
   });
 

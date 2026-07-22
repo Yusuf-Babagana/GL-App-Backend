@@ -3,7 +3,7 @@ from django.urls import path, include
 from django.contrib.auth import views as auth_views
 from django.conf import settings
 from django.conf.urls.static import static
-from .views import AdminDashboardView, MonnifyBatchCsvExportView, WithdrawalTicketUpdateStatusView, AdminShopVerificationView, AdminDataPricingView, AdminDataPlansView
+from .views import AdminDashboardView, MonnifyBatchCsvExportView, WithdrawalTicketUpdateStatusView, AdminShopVerificationView, AdminDataPricingView, AdminDataPlansView, AdminPromotedPostPricingView
 from .admin_views import AdminOrderListView, AdminTransactionListView, AdminUserManageListView, AdminUserToggleActiveView, AdminUserChangeRoleView, AdminChartDataView
 from market.views import SellerOrderListView, SellerOrderDetailView, SellerUpdateOrderStatusView, MarkOrderDispatchedView, BuyerOrderListView, BuyerOrderDetailView, BuyerConfirmReceiptView
 
@@ -62,6 +62,11 @@ urlpatterns = [
         'api/admin/data-plans/',
         AdminDataPlansView.as_view(),
         name='admin-data-plans',
+    ),
+    path(
+        'api/admin/promoted-post-pricing/',
+        AdminPromotedPostPricingView.as_view(),
+        name='admin-promoted-post-pricing',
     ),
     path(
         'api/admin/orders/',
