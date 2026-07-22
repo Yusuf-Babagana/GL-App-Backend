@@ -1,7 +1,7 @@
 import csv
 import uuid
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from django.http import HttpResponse, JsonResponse
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -16,7 +16,7 @@ from django.utils.decorators import method_decorator
 import json
 from finance.models import Wallet, Transaction, WithdrawalTicket, PlatformRevenue, DataMarkup, DataPlanPrice
 from finance.nellobyte import NellobyteClient
-from market.models import Shop, Order
+from market.models import Shop, Order, PromotedPostPricing
 
 User = get_user_model()
 
@@ -77,6 +77,13 @@ class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
             context['data_markups'] = list(DataMarkup.objects.all().order_by('network'))
         except OperationalError:
             context['data_markups'] = []
+
+        try:
+            context['promoted_post_pricing'] = list(
+                PromotedPostPricing.objects.all().order_by('duration_type')
+            )
+        except OperationalError:
+            context['promoted_post_pricing'] = []
         return context
 
 
@@ -308,6 +315,73 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
                 'network_label': markup.network_label,
                 'price_factor': str(markup.price_factor),
                 'is_active': markup.is_active,
+            }
+        })
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class AdminPromotedPostPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
+    login_url = 'admin_login'
+
+    def test_func(self):
+        return self.request.user.is_staff or self.request.user.is_superuser
+
+    def get(self, request):
+        try:
+            rows = PromotedPostPricing.objects.all().order_by('duration_type')
+            data = [{
+                'id': p.id,
+                'duration_type': p.duration_type,
+                'label': p.get_duration_type_display(),
+                'price': str(p.price),
+                'is_active': p.is_active,
+            } for p in rows]
+        except OperationalError:
+            data = []
+        return JsonResponse({'pricing': data})
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+        pricing_id = body.get('id')
+        price = body.get('price')
+        is_active = body.get('is_active')
+
+        if not pricing_id:
+            return JsonResponse({'error': 'Missing pricing id'}, status=400)
+
+        try:
+            pricing = PromotedPostPricing.objects.get(id=pricing_id)
+        except OperationalError:
+            return JsonResponse({'error': 'Database table not ready. Run migrations.'}, status=503)
+        except PromotedPostPricing.DoesNotExist:
+            return JsonResponse({'error': 'Pricing tier not found'}, status=404)
+
+        if price is not None:
+            try:
+                p = Decimal(str(price))
+                if p <= 0:
+                    raise ValueError
+                pricing.price = p
+            except (TypeError, ValueError, InvalidOperation):
+                return JsonResponse({'error': 'Invalid price (must be a positive number)'}, status=400)
+
+        if is_active is not None:
+            pricing.is_active = bool(is_active)
+
+        pricing.save()
+
+        return JsonResponse({
+            'status': 'success',
+            'pricing': {
+                'id': pricing.id,
+                'duration_type': pricing.duration_type,
+                'label': pricing.get_duration_type_display(),
+                'price': str(pricing.price),
+                'is_active': pricing.is_active,
             }
         })
 
