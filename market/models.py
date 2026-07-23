@@ -7,6 +7,7 @@ from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from finance.utils import MonnifyAPI
+from globalink_core.upload_paths import kyc_upload_path
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,8 @@ class Shop(models.Model):
     owner_phone = models.CharField(max_length=30, null=True, blank=True)
     id_type = models.CharField(max_length=30, choices=ID_TYPE_CHOICES, null=True, blank=True)
     id_number = models.CharField(max_length=100, null=True, blank=True)
-    id_image = models.ImageField(upload_to='kyc_docs/ids/', null=True, blank=True)
-    id_document = models.ImageField(upload_to='kyc_docs/', blank=True, null=True) # Backward compatibility
+    id_image = models.ImageField(upload_to=kyc_upload_path, null=True, blank=True)
+    id_document = models.ImageField(upload_to=kyc_upload_path, blank=True, null=True) # Backward compatibility
     
     # Shop Info Context (Step 2)
     name = models.CharField(max_length=255, unique=True)
@@ -119,8 +120,8 @@ class MerchantProfile(models.Model):
     business_phone = models.CharField(max_length=20, blank=True, null=True)
     id_type = models.CharField(max_length=50, blank=True, null=True)
     id_number = models.CharField(max_length=100, blank=True, null=True)
-    id_document_image = models.ImageField(upload_to='kyc_docs/', blank=True, null=True)
-    
+    id_document_image = models.ImageField(upload_to=kyc_upload_path, blank=True, null=True)
+
     def __str__(self):
         return f"MerchantProfile for {self.user.email}"
 

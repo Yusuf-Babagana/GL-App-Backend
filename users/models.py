@@ -3,6 +3,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from globalink_core.upload_paths import kyc_upload_path
 
 class UserManager(BaseUserManager):
     """
@@ -85,8 +86,8 @@ class User(AbstractUser):
     )
     
     id_document_type = models.CharField(max_length=50, blank=True, null=True) 
-    id_document_image = models.ImageField(upload_to='kyc_docs/', blank=True, null=True)
-    selfie_image = models.ImageField(upload_to='kyc_docs/', blank=True, null=True)
+    id_document_image = models.ImageField(upload_to=kyc_upload_path, blank=True, null=True)
+    selfie_image = models.ImageField(upload_to=kyc_upload_path, blank=True, null=True)
     rejection_reason = models.TextField(blank=True, null=True)
 
     # Localization
