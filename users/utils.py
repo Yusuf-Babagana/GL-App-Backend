@@ -9,6 +9,13 @@ logger = logging.getLogger(__name__)
 
 def _send_email_async(subject, message, recipient_list, html_message=None):
     try:
+        import requests
+        try:
+            egress_ip = requests.get('https://api.ipify.org', timeout=5).text
+            logger.info(f"DEBUG: web app egress IP is {egress_ip}")
+        except Exception as ip_err:
+            logger.error(f"DEBUG: failed to fetch egress IP: {ip_err}")
+
         send_mail(
             subject=subject,
             message=message,
