@@ -32,20 +32,23 @@ def send_email(subject, message, recipient_list, html_message=None):
 
 
 def send_deletion_requested_email(user):
+    # NOTE: deliberately no web "cancel" link here. That would need either a
+    # hosted frontend page (none exists) or a plaintext-email "token" (not a
+    # real secure token), which could let anyone who knows a user's email
+    # cancel their deletion request. Cancelling is authenticated and only
+    # done from inside the app, where the user's real JWT applies.
     subject = "Account Deletion Request Confirmed"
-    cancel_url = f"{settings.FRONTEND_URL}/cancel-deletion/?token={user.email}"
     message = (
         f"Hi {user.full_name or user.email},\n\n"
         f"We received a request to delete your Globalink account.\n"
         f"Your account will be permanently deleted in {settings.ACCOUNT_DELETION_GRACE_PERIOD_DAYS} days.\n\n"
-        f"If you did not make this request, you can cancel it here:\n"
-        f"{cancel_url}\n\n"
+        f"If you did not make this request, open the Globalink app and go to "
+        f"Profile > Privacy & Security to cancel it before the deadline.\n\n"
         f"If you do not cancel, your account will be anonymized after {settings.ACCOUNT_DELETION_GRACE_PERIOD_DAYS} days.\n\n"
         f"Thank you,\nGlobalink Team"
     )
     html_message = render_to_string("emails/deletion_requested.html", {
         "user": user,
-        "cancel_url": cancel_url,
         "grace_period_days": settings.ACCOUNT_DELETION_GRACE_PERIOD_DAYS,
     })
     send_email(subject, message, [user.email], html_message=html_message)

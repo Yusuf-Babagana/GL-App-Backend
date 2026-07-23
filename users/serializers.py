@@ -11,10 +11,11 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'email', 'full_name', 'phone_number', 'profile_image', 
-            'roles', 'active_role', 'kyc_status', 'language_preference','is_staff','push_token','is_online','last_seen'
+            'id', 'email', 'full_name', 'phone_number', 'profile_image',
+            'roles', 'active_role', 'kyc_status', 'language_preference','is_staff','push_token','is_online','last_seen',
+            'is_deactivation_pending', 'deletion_requested_at',
         ]
-        read_only_fields = ['id', 'roles', 'kyc_status']
+        read_only_fields = ['id', 'roles', 'kyc_status', 'is_deactivation_pending', 'deletion_requested_at']
 
 class RegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
