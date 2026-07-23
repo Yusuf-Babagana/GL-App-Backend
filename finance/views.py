@@ -745,44 +745,93 @@ class DepositNotificationView(APIView):
 def clubkonnect_deposit_webhook(request):
     # Clubkonnect typically sends: orderid, statuscode, amount, and orderremark
     # The 'orderremark' usually contains the account name we set up: "NELLOBYTE-YUS (username)"
+    #
+    # SECURITY: Clubkonnect callbacks are not signed, so the incoming statuscode/amount
+    # query params must never be trusted directly (anyone can call this URL with any
+    # amount/remark). We independently requery Clubkonnect's own API for the order
+    # before crediting anything, and dedupe on orderid so a replayed callback can't
+    # credit twice.
     User = get_user_model()
-    
-    remark = request.query_params.get('orderremark', '')
-    amount = request.query_params.get('amount', 0)
-    status_code = request.query_params.get('statuscode')
 
-    if status_code == '200': # 200 usually means success in their callbacks
-        # 1. Extract username from the remark "NELLOBYTE-YUS (username)"
-        try:
-            match = re.search(r'\((.*?)\)', remark)
-            if not match:
-                return Response("Username not found in remark", status=400)
-            
-            username = match.group(1)
-            
-            # 2. Find the user and their wallet
+    orderid = request.query_params.get('orderid')
+    remark = request.query_params.get('orderremark', '')
+
+    if not orderid:
+        logger.warning(f"Clubkonnect deposit webhook missing orderid: {request.query_params.dict()}")
+        return Response("Missing orderid", status=400)
+
+    if Transaction.objects.filter(reference=orderid, transaction_type='deposit').exists():
+        logger.info(f"Clubkonnect deposit webhook: orderid={orderid} already processed, ignoring replay")
+        return Response("Already processed", status=200)
+
+    try:
+        verify_resp = NellobyteClient().query_transaction(order_id=orderid)
+    except Exception as e:
+        logger.error(f"Clubkonnect deposit webhook: query_transaction failed for orderid={orderid}: {e}")
+        return Response("Verification request failed", status=502)
+
+    logger.info(f"Clubkonnect deposit webhook: orderid={orderid} verify_resp={verify_resp}")
+
+    # Be conservative: only proceed if the requery response clearly confirms success.
+    # NOTE: Clubkonnect's exact field names for this query type aren't confirmed from
+    # docs — the raw response is logged above so this matching can be tightened once
+    # a real response has been inspected in production logs.
+    status_fields = [
+        str(verify_resp.get(k, '')).strip().lower()
+        for k in ('status', 'orderstatus', 'ORDER_STATUS', 'statuscode')
+        if isinstance(verify_resp, dict)
+    ]
+    is_verified_success = any(v in ('success', 'successful', 'completed', '200', '100') for v in status_fields)
+
+    if not is_verified_success:
+        logger.warning(f"Clubkonnect deposit webhook: orderid={orderid} could not be verified as successful, rejecting. Response: {verify_resp}")
+        return Response("Could not verify transaction", status=400)
+
+    verified_amount_raw = None
+    for k in ('amount', 'amount_paid', 'AMOUNT', 'Amount'):
+        if isinstance(verify_resp, dict) and verify_resp.get(k) is not None:
+            verified_amount_raw = verify_resp.get(k)
+            break
+
+    if verified_amount_raw is None:
+        logger.warning(f"Clubkonnect deposit webhook: orderid={orderid} verified but no amount found in response: {verify_resp}")
+        return Response("Could not verify amount", status=400)
+
+    try:
+        verified_amount = Decimal(str(verified_amount_raw))
+    except Exception:
+        logger.error(f"Clubkonnect deposit webhook: orderid={orderid} unparseable amount {verified_amount_raw!r}")
+        return Response("Invalid amount", status=400)
+
+    match = re.search(r'\((.*?)\)', remark)
+    if not match:
+        return Response("Username not found in remark", status=400)
+    username = match.group(1)
+
+    try:
+        with transaction.atomic():
             user = User.objects.get(username=username)
             wallet, _ = Wallet.objects.get_or_create(user=user)
-            
-            # 3. Credit the wallet
-            wallet.available_balance += Decimal(str(amount))
+            wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+
+            wallet.available_balance += verified_amount
             wallet.save()
-            
-            # 4. Record the transaction
+
             Transaction.objects.create(
-                wallet=wallet, 
-                amount=Decimal(str(amount)), 
-                transaction_type='deposit', 
+                wallet=wallet,
+                amount=verified_amount,
+                transaction_type='deposit',
                 status='success',
+                reference=orderid,
                 description=f"Auto-Fund: {remark}"
             )
-            return Response("Wallet Updated", status=200)
-        except User.DoesNotExist:
-            return Response(f"User {username} not found", status=404)
-        except Exception as e:
-            return Response(f"Error: {str(e)}", status=400)
-
-    return Response("Invalid Status", status=400)
+        logger.info(f"Clubkonnect deposit webhook: credited user={username} amount={verified_amount} orderid={orderid}")
+        return Response("Wallet Updated", status=200)
+    except User.DoesNotExist:
+        return Response(f"User {username} not found", status=404)
+    except Exception as e:
+        logger.error(f"Clubkonnect deposit webhook: error crediting orderid={orderid}: {e}")
+        return Response(f"Error: {str(e)}", status=400)
 
 
 @csrf_exempt

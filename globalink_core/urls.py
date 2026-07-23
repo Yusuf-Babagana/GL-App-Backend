@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include
 from django.contrib.auth import views as auth_views
+from django.views.generic import TemplateView
 from django.conf import settings
 from django.conf.urls.static import static
 from .views import AdminDashboardView, MonnifyBatchCsvExportView, WithdrawalTicketUpdateStatusView, AdminShopVerificationView, AdminDataPricingView, AdminDataPlansView, AdminPromotedPostPricingView
@@ -26,6 +27,8 @@ urlpatterns = [
     ),
 
     path('admin/', admin.site.urls),
+
+    path('account-deletion/', TemplateView.as_view(template_name='account_deletion.html'), name='account-deletion'),
 
     path('api/logistics/', include('logistics.urls')),
     path('api/chat/', include('chat.urls')),

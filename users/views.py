@@ -350,6 +350,7 @@ class CancelAccountDeletionView(APIView):
 class CustomLoginView(APIView):
     authentication_classes = []
     permission_classes = [permissions.AllowAny] # Allow public access to log in
+    throttle_scope = 'login' # 10/min per IP — brute-force protection
 
     def post(self, request):
         email = request.data.get('email')

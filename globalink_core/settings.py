@@ -181,6 +181,13 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PAGINATION_CLASS': 'market.pagination.MarketPageNumberPagination',
     'PAGE_SIZE': 20,
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        # Only views that set throttle_scope are actually throttled by ScopedRateThrottle.
+        'login': '10/min',
+    },
 }
 
 SIMPLE_JWT = {
@@ -191,7 +198,26 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = False
+# No browser-based frontend consumes this API (mobile app uses native HTTP,
+# not subject to CORS; the Django admin is server-rendered/same-origin).
+CORS_ALLOWED_ORIGINS = []
+
+# Cookie hardening — only enforced outside local DEBUG dev. This only affects
+# the Django admin's session/CSRF cookies (the mobile app uses JWT bearer
+# tokens, not cookies, so this has zero effect on it).
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
+# NOTE: deliberately NOT setting SECURE_SSL_REDIRECT / SECURE_HSTS_* here.
+# PythonAnywhere terminates TLS at its own proxy in front of Django, so
+# request.is_secure() needs SECURE_PROXY_SSL_HEADER pointed at whatever
+# header PythonAnywhere forwards (e.g. X-Forwarded-Proto) for this to work
+# correctly. Enabling SECURE_SSL_REDIRECT without confirming that first can
+# cause an infinite redirect loop and take the whole API down. Verify the
+# proxy header behavior in a PythonAnywhere console first, then enable both
+# together.
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Logging
