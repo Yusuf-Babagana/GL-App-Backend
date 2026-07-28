@@ -196,7 +196,8 @@ class MerchantGlobalOnboardingView(APIView):
                 shop_type=data.get('shop_type') or data.get('shopType'),
                 business_phone=data.get('business_phone') or data.get('businessPhone'),
                 address=data.get('shop_address') or data.get('shopAddress'),
-                state=data.get('state', 'Kano'),
+                country=data.get('country') or 'Nigeria',
+                state=data.get('state') or 'Kano',
                 logo=request.FILES.get('logo'),
 
                 # Legal registry data
