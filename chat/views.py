@@ -112,22 +112,20 @@ class StartConversationView(generics.GenericAPIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        sender_id = request.data.get('sender_id')
-        receiver_id = request.data.get('receiver_id')
+        # The app has shipped this call under a few different key names over time.
+        receiver_id = (
+            request.data.get('user_id')
+            or request.data.get('receiver_id')
+            or request.data.get('seller_id')
+        )
 
-        if not sender_id or not receiver_id:
+        if not receiver_id:
             return Response(
-                {'error': 'sender_id and receiver_id are required'},
+                {'error': 'user_id is required'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if int(sender_id) != request.user.id:
-            return Response(
-                {'error': 'sender_id must match the authenticated user'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if int(sender_id) == int(receiver_id):
+        if int(receiver_id) == request.user.id:
             return Response(
                 {'error': 'You cannot chat with yourself'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -141,11 +139,32 @@ class StartConversationView(generics.GenericAPIView):
         ).first()
 
         if not conversation:
+            product_id = request.data.get('product_id')
             conversation = Conversation.objects.create(
                 buyer=request.user,
                 seller=receiver,
+                product_id=product_id or None,
             )
+
+        other_user = conversation.seller if conversation.buyer == request.user else conversation.buyer
+
+        Message.objects.filter(
+            conversation=conversation, is_read=False
+        ).exclude(sender=request.user).update(is_read=True)
+
+        messages = [
+            {
+                'id': m.id,
+                'text': m.text,
+                'sender__id': m.sender_id,
+                'created_at': m.created_at.isoformat(),
+            }
+            for m in conversation.messages.order_by('created_at')
+        ]
 
         return Response({
             'conversation_id': conversation.id,
+            'partner_name': other_user.full_name or other_user.email,
+            'other_user_name': other_user.full_name or other_user.email,
+            'messages': messages,
         }, status=status.HTTP_200_OK)
