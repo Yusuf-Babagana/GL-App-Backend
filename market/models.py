@@ -162,6 +162,37 @@ class ProductImage(models.Model):
     def __str__(self):
         return f"Image for {self.product.name}"
 
+
+class StandaloneAd(models.Model):
+    """
+    An item a user wants to sell that isn't a marketplace Product
+    (e.g. a phone, car, land). Only ever exists attached to a PromotedPost —
+    there is no independent "listing" page for it outside of promotion.
+    """
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='standalone_ads')
+    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name='standalone_ads')
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    location = models.CharField(max_length=255, blank=True)
+    phone_number = models.CharField(max_length=20)
+    whatsapp_number = models.CharField(max_length=20, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title
+
+
+class StandaloneAdImage(models.Model):
+    ad = models.ForeignKey(StandaloneAd, on_delete=models.CASCADE, related_name='images')
+    # Cloudinary URL string, same convention as ProductImage.
+    image = models.CharField(max_length=500)
+    is_primary = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Image for {self.ad.title}"
+
+
 class Order(models.Model):
     class DeliveryStatus(models.TextChoices):
         PENDING = 'pending', _('Pending')
@@ -273,6 +304,16 @@ class PromotedPost(models.Model):
         THREE_DAYS = '3days', _('3 Days')
         ONE_WEEK = '1wk', _('1 Week')
 
+    class PromotionType(models.TextChoices):
+        PRODUCT = 'product', _('Existing Product')
+        STANDALONE = 'standalone', _('Sell an Item')
+
+    class ContactPreference(models.TextChoices):
+        WHATSAPP = 'whatsapp', _('WhatsApp Only')
+        PHONE = 'phone', _('Phone Call Only')
+        BOTH = 'both', _('WhatsApp + Phone Call')
+        CHAT = 'chat', _('In-app Chat')
+
     PRICING = {
         DurationType.ONE_DAY: Decimal('1000.00'),
         DurationType.THREE_DAYS: Decimal('2000.00'),
@@ -287,7 +328,10 @@ class PromotedPost(models.Model):
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='promoted_posts')
     text_content = models.CharField(max_length=300)
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='promoted_posts')
+    promotion_type = models.CharField(max_length=12, choices=PromotionType.choices, default=PromotionType.PRODUCT)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='promoted_posts', null=True, blank=True)
+    standalone_ad = models.ForeignKey(StandaloneAd, on_delete=models.CASCADE, related_name='promoted_posts', null=True, blank=True)
+    contact_preference = models.CharField(max_length=10, choices=ContactPreference.choices, default=ContactPreference.CHAT)
     duration_type = models.CharField(max_length=10, choices=DurationType.choices)
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2)
     is_active = models.BooleanField(default=False)
@@ -301,6 +345,10 @@ class PromotedPost(models.Model):
         if self.is_active and not self.expires_at:
             self.expires_at = timezone.now() + self.DURATION_TIMEDELTAS[self.duration_type]
         super().save(*args, **kwargs)
+
+    @property
+    def is_expired(self):
+        return bool(self.expires_at and self.expires_at <= timezone.now())
 
     @classmethod
     def get_price(cls, duration_type):
