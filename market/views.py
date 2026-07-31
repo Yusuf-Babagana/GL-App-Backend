@@ -33,7 +33,7 @@ GLAPP_COMMISSION_CAP  = Decimal('2500.00')
 # ---------------------------------------------------------------------------
 
 # Local Imports
-from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile, PromotedPost, PromotedPostPricing
+from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile, PromotedPost, PromotedPostPricing, StandaloneAd, StandaloneAdImage
 from .serializers import (
     CategorySerializer, ShopSerializer, ProductSerializer,
     OrderSerializer, BuyerOrderSerializer, SellerOrderSerializer,
@@ -1643,42 +1643,70 @@ class MerchantWithdrawalView(APIView):
 # --- PROMOTED POST / ANNOUNCEMENT TICKER ---
 
 class PromotedPostCreateView(APIView):
-    """Buys a promoted-post/ticker slot, deducting the tier price from the user's wallet."""
+    """
+    Buys a promoted-post/banner slot, deducting the tier price from the user's
+    wallet. Supports promoting an existing Product (promotion_type='product')
+    or a standalone item with no marketplace listing (promotion_type='standalone'),
+    in which case a StandaloneAd + its images are created first.
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         serializer = PromotedPostCreateSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
-        duration_type = serializer.validated_data['duration_type']
+        duration_type = data['duration_type']
         amount = PromotedPost.get_price(duration_type)
+        promotion_type = data['promotion_type']
 
-        post = PromotedPost.objects.create(
-            user=request.user,
-            text_content=serializer.validated_data['text_content'],
-            product=serializer.validated_data['product'],
-            duration_type=duration_type,
-            amount_paid=amount,
-        )
+        with transaction.atomic():
+            standalone_ad = None
+            if promotion_type == PromotedPost.PromotionType.STANDALONE:
+                standalone_ad = StandaloneAd.objects.create(
+                    owner=request.user,
+                    category=data.get('category'),
+                    title=data['title'],
+                    description=data.get('description', ''),
+                    price=data.get('price'),
+                    location=data.get('location', ''),
+                    phone_number=data['phone_number'],
+                    whatsapp_number=data.get('whatsapp_number') or None,
+                )
+                StandaloneAdImage.objects.bulk_create([
+                    StandaloneAdImage(ad=standalone_ad, image=url, is_primary=(i == 0))
+                    for i, url in enumerate(data['images'])
+                ])
 
-        payment_success, message = WalletManager.process_payment(
-            user=request.user,
-            amount=amount,
-            transaction_type=Transaction.TransactionType.PROMOTION,
-            description=f"Promoted post ({post.get_duration_type_display()}) #{post.id}",
-            related_id=str(post.id),
-        )
+            post = PromotedPost.objects.create(
+                user=request.user,
+                text_content=data['text_content'],
+                promotion_type=promotion_type,
+                product=data.get('product'),
+                standalone_ad=standalone_ad,
+                contact_preference=data['contact_preference'],
+                duration_type=duration_type,
+                amount_paid=amount,
+            )
 
-        if not payment_success:
-            post.delete()
-            return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+            payment_success, message = WalletManager.process_payment(
+                user=request.user,
+                amount=amount,
+                transaction_type=Transaction.TransactionType.PROMOTION,
+                description=f"Promoted post ({post.get_duration_type_display()}) #{post.id}",
+                related_id=str(post.id),
+            )
 
-        post.is_active = True
-        post.save()
+            if not payment_success:
+                transaction.set_rollback(True)
+                return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+
+            post.is_active = True
+            post.save()
 
         return Response(
             {
-                "message": "Promoted post is now live.",
+                "message": "Your promotion is now live.",
                 "data": PromotedPostSerializer(post).data,
             },
             status=status.HTTP_201_CREATED,
@@ -1686,7 +1714,7 @@ class PromotedPostCreateView(APIView):
 
 
 class ActivePromotedPostListView(generics.ListAPIView):
-    """Lightweight public feed of currently-live promoted posts/tickers."""
+    """Lightweight public feed of currently-live promotions, for the home banner/ticker."""
     serializer_class = PromotedPostSerializer
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
@@ -1695,7 +1723,15 @@ class ActivePromotedPostListView(generics.ListAPIView):
     def get_queryset(self):
         return PromotedPost.objects.filter(
             is_active=True, expires_at__gt=timezone.now()
-        ).order_by('-created_at')
+        ).select_related('product', 'product__shop', 'standalone_ad', 'user').order_by('-created_at')
+
+
+class PromotedPostDetailView(generics.RetrieveAPIView):
+    """Public detail view — backs the standalone-ad details screen."""
+    queryset = PromotedPost.objects.filter(is_active=True)
+    serializer_class = PromotedPostSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
 
 class PromotedPostPricingView(APIView):

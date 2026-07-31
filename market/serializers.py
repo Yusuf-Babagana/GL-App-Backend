@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 from .models import Category, Shop, Product, ProductImage, Order, OrderItem, Cart, CartItem, PromotedPost
 from users.serializers import UserSerializer
@@ -265,30 +266,142 @@ class BuyNowInputSerializer(serializers.Serializer):
 
 
 class PromotedPostSerializer(serializers.ModelSerializer):
-    """Read-only representation, used by the active-ticker list endpoint."""
+    """
+    Read-only representation, used by the active-ticker/banner list and detail
+    endpoints. Denormalizes a single unified shape for both promotion_type values
+    (product-linked vs. standalone item) so the client doesn't need to branch.
+    """
     user_name = serializers.ReadOnlyField(source='user.full_name')
     product_id = serializers.ReadOnlyField(source='product.id')
     product_name = serializers.ReadOnlyField(source='product.name')
     product_image = serializers.ReadOnlyField(source='product.image')
+    title = serializers.SerializerMethodField()
+    image = serializers.SerializerMethodField()
+    images = serializers.SerializerMethodField()
+    price = serializers.SerializerMethodField()
+    location = serializers.SerializerMethodField()
+    seller_name = serializers.SerializerMethodField()
+    phone_number = serializers.SerializerMethodField()
+    whatsapp_number = serializers.SerializerMethodField()
+    time_remaining_seconds = serializers.SerializerMethodField()
 
     class Meta:
         model = PromotedPost
         fields = [
-            'id', 'user_name', 'text_content',
+            'id', 'user_name', 'text_content', 'promotion_type', 'contact_preference',
             'product_id', 'product_name', 'product_image',
-            'duration_type', 'created_at', 'expires_at',
+            'title', 'image', 'images', 'price', 'location',
+            'seller_name', 'phone_number', 'whatsapp_number',
+            'duration_type', 'created_at', 'expires_at', 'time_remaining_seconds',
         ]
+
+    def _is_standalone(self, obj):
+        return obj.promotion_type == PromotedPost.PromotionType.STANDALONE and obj.standalone_ad_id
+
+    def get_title(self, obj):
+        if self._is_standalone(obj):
+            return obj.standalone_ad.title
+        return obj.product.name if obj.product else None
+
+    def get_image(self, obj):
+        if self._is_standalone(obj):
+            images = list(obj.standalone_ad.images.all())
+            primary = next((img for img in images if img.is_primary), images[0] if images else None)
+            return primary.image if primary else None
+        return obj.product.image if obj.product else None
+
+    def get_images(self, obj):
+        if self._is_standalone(obj):
+            return [img.image for img in obj.standalone_ad.images.all()]
+        if obj.product:
+            urls = [img.image for img in obj.product.images.all()]
+            return urls or ([obj.product.image] if obj.product.image else [])
+        return []
+
+    def get_price(self, obj):
+        if self._is_standalone(obj):
+            return obj.standalone_ad.price
+        return obj.product.price if obj.product else None
+
+    def get_location(self, obj):
+        return obj.standalone_ad.location if self._is_standalone(obj) else None
+
+    def get_seller_name(self, obj):
+        if self._is_standalone(obj):
+            return obj.standalone_ad.owner.full_name
+        if obj.product and obj.product.shop:
+            return obj.product.shop.name
+        return obj.user.full_name
+
+    def get_phone_number(self, obj):
+        if self._is_standalone(obj):
+            return obj.standalone_ad.phone_number
+        if obj.product and obj.product.shop:
+            return obj.product.shop.business_phone
+        return None
+
+    def get_whatsapp_number(self, obj):
+        if self._is_standalone(obj):
+            return obj.standalone_ad.whatsapp_number or obj.standalone_ad.phone_number
+        if obj.product and obj.product.shop:
+            return obj.product.shop.business_phone
+        return None
+
+    def get_time_remaining_seconds(self, obj):
+        if not obj.expires_at:
+            return None
+        return max(0, int((obj.expires_at - timezone.now()).total_seconds()))
 
 
 class PromotedPostCreateSerializer(serializers.ModelSerializer):
-    """Input serializer for creating a promoted post. Payment/activation is handled in the view."""
+    """
+    Input serializer for creating a promoted post — either for an existing
+    Product the user owns, or a standalone item they're selling with no
+    marketplace listing. Payment/activation and StandaloneAd creation are
+    handled in the view (validated_data is read directly, not .save()'d here).
+    """
+    promotion_type = serializers.ChoiceField(
+        choices=PromotedPost.PromotionType.choices, default=PromotedPost.PromotionType.PRODUCT
+    )
+    contact_preference = serializers.ChoiceField(
+        choices=PromotedPost.ContactPreference.choices, default=PromotedPost.ContactPreference.CHAT
+    )
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all(), required=False, allow_null=True)
+
+    # Standalone-item fields — only required when promotion_type == 'standalone'.
+    title = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True)
+    price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    location = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    phone_number = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    whatsapp_number = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all(), required=False, allow_null=True)
+    images = serializers.ListField(child=serializers.URLField(), required=False, allow_empty=True)
 
     class Meta:
         model = PromotedPost
-        fields = ['text_content', 'product', 'duration_type']
+        fields = [
+            'text_content', 'promotion_type', 'contact_preference', 'duration_type', 'product',
+            'title', 'description', 'price', 'location', 'phone_number', 'whatsapp_number',
+            'category', 'images',
+        ]
 
-    def validate_product(self, product):
+    def validate(self, data):
         request = self.context.get('request')
-        if not request or product.shop is None or product.shop.owner_id != request.user.id:
-            raise serializers.ValidationError("You can only promote your own products.")
-        return product
+        promotion_type = data.get('promotion_type', PromotedPost.PromotionType.PRODUCT)
+
+        if promotion_type == PromotedPost.PromotionType.PRODUCT:
+            product = data.get('product')
+            if not product:
+                raise serializers.ValidationError({"product": "Select a product to promote."})
+            if not request or product.shop is None or product.shop.owner_id != request.user.id:
+                raise serializers.ValidationError({"product": "You can only promote your own products."})
+        else:
+            if not data.get('title'):
+                raise serializers.ValidationError({"title": "Give your item a title."})
+            if not data.get('phone_number'):
+                raise serializers.ValidationError({"phone_number": "A contact phone number is required."})
+            if not data.get('images'):
+                raise serializers.ValidationError({"images": "Add at least one photo."})
+
+        return data
