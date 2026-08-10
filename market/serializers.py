@@ -376,7 +376,7 @@ class PromotedPostCreateSerializer(serializers.ModelSerializer):
     phone_number = serializers.CharField(required=False, allow_blank=True, max_length=20)
     whatsapp_number = serializers.CharField(required=False, allow_blank=True, max_length=20)
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all(), required=False, allow_null=True)
-    images = serializers.ListField(child=serializers.URLField(), required=False, allow_empty=True)
+    images = serializers.ListField(child=serializers.URLField(), required=False, allow_empty=True, default=list)
 
     class Meta:
         model = PromotedPost
@@ -401,7 +401,5 @@ class PromotedPostCreateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"title": "Give your item a title."})
             if not data.get('phone_number'):
                 raise serializers.ValidationError({"phone_number": "A contact phone number is required."})
-            if not data.get('images'):
-                raise serializers.ValidationError({"images": "Add at least one photo."})
 
         return data
