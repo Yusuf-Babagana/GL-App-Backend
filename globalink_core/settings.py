@@ -187,6 +187,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         # Only views that set throttle_scope are actually throttled by ScopedRateThrottle.
         'login': '10/min',
+        'password_reset': '5/min',
     },
 }
 
