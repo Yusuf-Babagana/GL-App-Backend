@@ -343,13 +343,22 @@ class CategoryListView(generics.ListAPIView):
 @method_decorator(cache_page(300), name='dispatch')
 @method_decorator(vary_on_headers('Authorization'), name='dispatch')
 class ProductListView(generics.ListAPIView):
-    queryset = Product.objects.select_related('shop', 'category').prefetch_related('images')
     serializer_class = ProductSerializer
     permission_classes = [AllowAny]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description', 'category__name']
     ordering_fields = ['price', '-price', 'created_at', '-created_at', 'name']
     ordering = ['-created_at']
+
+    def get_queryset(self):
+        queryset = Product.objects.select_related('shop', 'category').prefetch_related('images')
+        shop_id = self.request.query_params.get('shop') or self.request.query_params.get('store')
+        if shop_id:
+            queryset = queryset.filter(shop_id=shop_id)
+        category_id = self.request.query_params.get('category')
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+        return queryset
 
 class ProductDetailView(generics.RetrieveAPIView):
     queryset = Product.objects.all()
@@ -1670,7 +1679,7 @@ class PromotedPostCreateView(APIView):
                     description=data.get('description', ''),
                     price=data.get('price'),
                     location=data.get('location', ''),
-                    phone_number=data['phone_number'],
+                    phone_number=data.get('phone_number', ''),
                     whatsapp_number=data.get('whatsapp_number') or None,
                 )
                 StandaloneAdImage.objects.bulk_create([
@@ -1684,7 +1693,7 @@ class PromotedPostCreateView(APIView):
                 promotion_type=promotion_type,
                 product=data.get('product'),
                 standalone_ad=standalone_ad,
-                contact_preference=data['contact_preference'],
+                contact_preference=PromotedPost.ContactPreference.CHAT,
                 duration_type=duration_type,
                 amount_paid=amount,
             )
@@ -1732,6 +1741,34 @@ class PromotedPostDetailView(generics.RetrieveAPIView):
     serializer_class = PromotedPostSerializer
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
+
+
+class PromotionByCodeView(generics.RetrieveAPIView):
+    """
+    Public detail view keyed by the shareable short code. Backs the deep link
+    GLAPP://promotion/<code> and the https fallback. Returns 404 for an unknown
+    code and 410 (Gone) for a promotion that has expired or been deactivated, so
+    the client can show a "Promotion Unavailable" screen.
+    """
+    serializer_class = PromotedPostSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    lookup_field = 'code'
+    lookup_url_kwarg = 'code'
+
+    def get_queryset(self):
+        return PromotedPost.objects.select_related(
+            'product', 'product__shop', 'standalone_ad', 'user'
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not instance.is_active or instance.is_expired:
+            return Response(
+                {'detail': 'This promotion is no longer available.', 'code': 'unavailable'},
+                status=status.HTTP_410_GONE,
+            )
+        return Response(self.get_serializer(instance).data)
 
 
 class PromotedPostPricingView(APIView):
