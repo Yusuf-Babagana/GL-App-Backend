@@ -4,7 +4,7 @@ from django.contrib.auth import views as auth_views
 from django.views.generic import TemplateView
 from django.conf import settings
 from django.conf.urls.static import static
-from .views import AdminDashboardView, MonnifyBatchCsvExportView, WithdrawalTicketUpdateStatusView, AdminShopVerificationView, AdminDataPricingView, AdminDataPlansView, AdminPromotedPostPricingView
+from .views import AdminDashboardView, MonnifyBatchCsvExportView, WithdrawalTicketUpdateStatusView, AdminShopVerificationView, AdminDataPricingView, AdminDataPlansView, AdminPromotedPostPricingView, PromotionShareLandingView
 from .admin_views import AdminOrderListView, AdminTransactionListView, AdminUserManageListView, AdminUserToggleActiveView, AdminUserChangeRoleView, AdminChartDataView
 from market.views import SellerOrderListView, SellerOrderDetailView, SellerUpdateOrderStatusView, MarkOrderDispatchedView, BuyerOrderListView, BuyerOrderDetailView, BuyerConfirmReceiptView
 
@@ -29,6 +29,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
 
     path('account-deletion/', TemplateView.as_view(template_name='account_deletion.html'), name='account-deletion'),
+
+    # Public web fallback for shared promotion links (deep-link target + OG preview)
+    path('promotion/<str:code>/', PromotionShareLandingView.as_view(), name='promotion-share-landing'),
 
     path('api/logistics/', include('logistics.urls')),
     path('api/chat/', include('chat.urls')),

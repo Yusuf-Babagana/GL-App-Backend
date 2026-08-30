@@ -2,6 +2,7 @@ import csv
 import uuid
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -16,9 +17,58 @@ from django.utils.decorators import method_decorator
 import json
 from finance.models import Wallet, Transaction, WithdrawalTicket, PlatformRevenue, DataMarkup, DataPlanPrice
 from finance.nellobyte import NellobyteClient
-from market.models import Shop, Order, PromotedPostPricing
+from market.models import Shop, Order, PromotedPostPricing, PromotedPost
 
 User = get_user_model()
+
+
+class PromotionShareLandingView(TemplateView):
+    """
+    Public web fallback for a shared promotion link
+    (https://<host>/promotion/<code>). Renders OpenGraph tags for link previews
+    plus buttons to open the promotion in the app or install it. Shows a
+    "Promotion Unavailable" state when the code is unknown/expired/inactive.
+    """
+    template_name = 'promotion_share.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        code = (kwargs.get('code') or '').strip()
+
+        post = (
+            PromotedPost.objects
+            .select_related('product', 'product__shop', 'standalone_ad', 'user')
+            .filter(code=code)
+            .first()
+        )
+        available = bool(
+            post and post.is_active and not post.is_expired
+        )
+
+        title = None
+        description = None
+        image = None
+        if available:
+            if post.promotion_type == PromotedPost.PromotionType.STANDALONE and post.standalone_ad_id:
+                title = post.standalone_ad.title
+                imgs = list(post.standalone_ad.images.all())
+                primary = next((i for i in imgs if i.is_primary), imgs[0] if imgs else None)
+                image = primary.image if primary else None
+            elif post.product_id:
+                title = post.product.name
+                image = post.product.image
+            description = post.text_content
+
+        context.update({
+            'code': code,
+            'available': available,
+            'promo_title': title or 'GLAPP Promotion',
+            'promo_description': description or 'Check out this promotion on GLAPP.',
+            'promo_image': image,
+            'deep_link': f'GLAPP://promotion/{code}' if code else 'GLAPP://',
+            'play_store_url': settings.PLAY_STORE_URL,
+        })
+        return context
 
 
 class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
