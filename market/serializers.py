@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
 from .models import Category, Shop, Product, ProductImage, Order, OrderItem, Cart, CartItem, PromotedPost
@@ -272,9 +273,11 @@ class PromotedPostSerializer(serializers.ModelSerializer):
     (product-linked vs. standalone item) so the client doesn't need to branch.
     """
     user_name = serializers.ReadOnlyField(source='user.full_name')
+    seller_id = serializers.ReadOnlyField(source='user.id')
     product_id = serializers.ReadOnlyField(source='product.id')
     product_name = serializers.ReadOnlyField(source='product.name')
     product_image = serializers.ReadOnlyField(source='product.image')
+    share_url = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
     images = serializers.SerializerMethodField()
@@ -288,12 +291,17 @@ class PromotedPostSerializer(serializers.ModelSerializer):
     class Meta:
         model = PromotedPost
         fields = [
-            'id', 'user_name', 'text_content', 'promotion_type', 'contact_preference',
+            'id', 'code', 'share_url', 'user_name', 'seller_id',
+            'text_content', 'promotion_type', 'contact_preference',
             'product_id', 'product_name', 'product_image',
             'title', 'image', 'images', 'price', 'location',
             'seller_name', 'phone_number', 'whatsapp_number',
             'duration_type', 'created_at', 'expires_at', 'time_remaining_seconds',
         ]
+
+    def get_share_url(self, obj):
+        base = getattr(settings, 'PROMO_SHARE_BASE_URL', '').rstrip('/')
+        return f"{base}/promotion/{obj.code}" if obj.code else None
 
     def _is_standalone(self, obj):
         return obj.promotion_type == PromotedPost.PromotionType.STANDALONE and obj.standalone_ad_id
@@ -363,9 +371,7 @@ class PromotedPostCreateSerializer(serializers.ModelSerializer):
     promotion_type = serializers.ChoiceField(
         choices=PromotedPost.PromotionType.choices, default=PromotedPost.PromotionType.PRODUCT
     )
-    contact_preference = serializers.ChoiceField(
-        choices=PromotedPost.ContactPreference.choices, default=PromotedPost.ContactPreference.CHAT
-    )
+    # Contact is always in-app chat now; any client-sent value is ignored.
     product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all(), required=False, allow_null=True)
 
     # Standalone-item fields — only required when promotion_type == 'standalone'.
@@ -381,7 +387,7 @@ class PromotedPostCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = PromotedPost
         fields = [
-            'text_content', 'promotion_type', 'contact_preference', 'duration_type', 'product',
+            'text_content', 'promotion_type', 'duration_type', 'product',
             'title', 'description', 'price', 'location', 'phone_number', 'whatsapp_number',
             'category', 'images',
         ]
@@ -399,7 +405,5 @@ class PromotedPostCreateSerializer(serializers.ModelSerializer):
         else:
             if not data.get('title'):
                 raise serializers.ValidationError({"title": "Give your item a title."})
-            if not data.get('phone_number'):
-                raise serializers.ValidationError({"phone_number": "A contact phone number is required."})
 
         return data
