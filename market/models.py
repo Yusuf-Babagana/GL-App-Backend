@@ -1,4 +1,5 @@
 import logging
+import secrets
 import uuid
 from decimal import Decimal
 from datetime import timedelta
@@ -294,6 +295,14 @@ class CartItem(models.Model):
 
 
 
+# Unambiguous alphabet for shareable promotion codes — no 0/O/1/I/L.
+_PROMO_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+
+
+def _generate_promo_code(length=6):
+    return ''.join(secrets.choice(_PROMO_CODE_ALPHABET) for _ in range(length))
+
+
 class PromotedPost(models.Model):
     """
     A paid announcement/ticker slot. Payment tiers are fixed and mirrored
@@ -327,6 +336,9 @@ class PromotedPost(models.Model):
     }
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='promoted_posts')
+    # Short, unguessable identifier for the public shareable/deep link
+    # (https://<host>/promotion/<code> and GLAPP://promotion/<code>).
+    code = models.CharField(max_length=12, unique=True, editable=False, db_index=True, blank=True)
     text_content = models.CharField(max_length=300)
     promotion_type = models.CharField(max_length=12, choices=PromotionType.choices, default=PromotionType.PRODUCT)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='promoted_posts', null=True, blank=True)
@@ -342,6 +354,11 @@ class PromotedPost(models.Model):
         return f"PromotedPost({self.user.email}, {self.duration_type})"
 
     def save(self, *args, **kwargs):
+        if not self.code:
+            code = _generate_promo_code()
+            while PromotedPost.objects.filter(code=code).exists():
+                code = _generate_promo_code()
+            self.code = code
         if self.is_active and not self.expires_at:
             self.expires_at = timezone.now() + self.DURATION_TIMEDELTAS[self.duration_type]
         super().save(*args, **kwargs)
