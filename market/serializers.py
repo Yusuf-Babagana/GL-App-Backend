@@ -284,18 +284,18 @@ class PromotedPostSerializer(serializers.ModelSerializer):
     price = serializers.SerializerMethodField()
     location = serializers.SerializerMethodField()
     seller_name = serializers.SerializerMethodField()
-    phone_number = serializers.SerializerMethodField()
-    whatsapp_number = serializers.SerializerMethodField()
     time_remaining_seconds = serializers.SerializerMethodField()
 
     class Meta:
         model = PromotedPost
+        # Contact is in-app chat only, so the seller's phone/WhatsApp are
+        # deliberately NOT exposed on these public, unauthenticated endpoints.
         fields = [
             'id', 'code', 'share_url', 'user_name', 'seller_id',
             'text_content', 'promotion_type', 'contact_preference',
             'product_id', 'product_name', 'product_image',
             'title', 'image', 'images', 'price', 'location',
-            'seller_name', 'phone_number', 'whatsapp_number',
+            'seller_name',
             'duration_type', 'created_at', 'expires_at', 'time_remaining_seconds',
         ]
 
@@ -340,20 +340,6 @@ class PromotedPostSerializer(serializers.ModelSerializer):
         if obj.product and obj.product.shop:
             return obj.product.shop.name
         return obj.user.full_name
-
-    def get_phone_number(self, obj):
-        if self._is_standalone(obj):
-            return obj.standalone_ad.phone_number
-        if obj.product and obj.product.shop:
-            return obj.product.shop.business_phone
-        return None
-
-    def get_whatsapp_number(self, obj):
-        if self._is_standalone(obj):
-            return obj.standalone_ad.whatsapp_number or obj.standalone_ad.phone_number
-        if obj.product and obj.product.shop:
-            return obj.product.shop.business_phone
-        return None
 
     def get_time_remaining_seconds(self, obj):
         if not obj.expires_at:
