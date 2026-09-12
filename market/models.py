@@ -54,7 +54,7 @@ class Shop(models.Model):
     id_document = models.ImageField(upload_to=kyc_upload_path, blank=True, null=True) # Backward compatibility
     
     # Shop Info Context (Step 2)
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     shop_type = models.CharField(max_length=30, choices=SHOP_TYPE_CHOICES, null=True, blank=True)
     business_phone = models.CharField(max_length=30, null=True, blank=True)
