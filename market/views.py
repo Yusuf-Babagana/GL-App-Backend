@@ -79,7 +79,7 @@ class ShopCreateView(generics.CreateAPIView):
         self.request.user.save()
 
 
-class ShopUpdateView(generics.UpdateAPIView):
+class ShopUpdateView(generics.RetrieveUpdateAPIView):
     serializer_class = ShopSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -144,6 +144,41 @@ class MerchantOnboardingView(APIView):
             return Response({"status": "error", "message": str(e)}, status=400)
 
 
+class ShopNameCheckView(APIView):
+    """
+    Checks whether a requested shop name is available.
+    Accessible to authenticated users during the onboarding process.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        raw_name = request.query_params.get('name', '')
+        name = raw_name.strip()
+        if not name:
+            return Response({
+                "available": False,
+                "message": "Shop name cannot be empty."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(name) < 2:
+            return Response({
+                "available": False,
+                "message": "Shop name must be at least 2 characters long."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        existing = Shop.objects.filter(name__iexact=name).exclude(owner=request.user).exists()
+        if existing:
+            return Response({
+                "available": False,
+                "message": f"The shop name '{name}' is already registered. Please choose a different name."
+            }, status=status.HTTP_200_OK)
+
+        return Response({
+            "available": True,
+            "message": "Shop name is available."
+        }, status=status.HTTP_200_OK)
+
+
 class MerchantGlobalOnboardingView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser] # Enforce multi-part parser so binary images parse cleanly
@@ -152,7 +187,7 @@ class MerchantGlobalOnboardingView(APIView):
         user = request.user
         data = request.data
 
-        # 🛡️ If user already has a shop, return existing data instead of blocking
+        # If user already has a shop, return existing data instead of blocking
         if Shop.objects.filter(owner=user).exists():
             shop = Shop.objects.get(owner=user)
             return Response({
@@ -167,55 +202,102 @@ class MerchantGlobalOnboardingView(APIView):
                     "status": "approved" if shop.is_active else "pending",
                     "created_at": shop.created_at.isoformat() if shop.created_at else None,
                 }
-            }, status=200)
+            }, status=status.HTTP_200_OK)
+
+        # Sanitize and validate shop name
+        shop_name = (data.get('shop_name') or data.get('shopName') or '').strip()
+        if not shop_name:
+            return Response({
+                "status": "error",
+                "message": "Shop name is required. Please provide a valid store name."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check for existing shop with the exact name under another owner
+        duplicate_shop = Shop.objects.filter(name__iexact=shop_name).exclude(owner=user).first()
+        if duplicate_shop:
+            return Response({
+                "status": "error",
+                "message": f"A shop named '{shop_name}' is already registered. Please choose a different name or add your city/branch."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Sanitize text inputs
+        owner_name = (data.get('owner_name') or data.get('name') or user.get_full_name() or '').strip()
+        owner_email = (data.get('owner_email') or data.get('email') or user.email or '').strip()
+        owner_phone = (data.get('owner_phone') or data.get('phone') or '').strip()
+        id_type = (data.get('id_type') or data.get('idType') or '').strip()
+        id_number = (data.get('id_number') or data.get('idNumber') or '').strip()
+        shop_type = (data.get('shop_type') or data.get('shopType') or 'retailer').strip()
+        business_phone = (data.get('business_phone') or data.get('businessPhone') or owner_phone).strip()
+        address = (data.get('shop_address') or data.get('shopAddress') or '').strip()
+        country = (data.get('country') or 'Nigeria').strip()
+        state = (data.get('state') or 'Kano').strip()
+        cac_number = (data.get('cac_number') or '').strip()
+        is_registered = str(data.get('registered', 'no')).strip().lower() in ('yes', 'true', '1')
 
         try:
-            # 🌟 CORE ARCHITECTURAL RULE COMPLIANCE:
-            # Change their platform system role identity profile state to 'seller' immediately
-            user.active_role = 'seller'
-            if not user.roles:
-                user.roles = []
-            if 'seller' not in user.roles:
-                user.roles.append('seller')
-            user.save()
+            with transaction.atomic():
+                # Elevate user role to 'seller'
+                user.active_role = 'seller'
+                if not user.roles:
+                    user.roles = []
+                if 'seller' not in user.roles:
+                    user.roles.append('seller')
+                user.save()
 
-            # Create the record matching the exact multi-part keys shipped by Axios/FormData
-            shop = Shop.objects.create(
-                owner=user,
-                # Step 1 Personal Info keys fallback map
-                owner_full_name=data.get('owner_name') or data.get('name'),
-                owner_email=data.get('owner_email') or data.get('email') or user.email,
-                owner_phone=data.get('owner_phone') or data.get('phone'),
-                id_type=data.get('id_type') or data.get('idType'),
-                id_number=data.get('id_number') or data.get('idNumber'),
-                id_image=request.FILES.get('id_image'),
-                id_document=request.FILES.get('id_image'),   # Backward compatibility fallback
+                # Create the Shop
+                shop = Shop.objects.create(
+                    owner=user,
+                    owner_full_name=owner_name or None,
+                    owner_email=owner_email or None,
+                    owner_phone=owner_phone or None,
+                    id_type=id_type or None,
+                    id_number=id_number or None,
+                    id_image=request.FILES.get('id_image'),
+                    id_document=request.FILES.get('id_image'),
 
-                # Step 2 Shop Info keys fallback map
-                name=data.get('shop_name') or data.get('shopName'),
-                shop_type=data.get('shop_type') or data.get('shopType'),
-                business_phone=data.get('business_phone') or data.get('businessPhone'),
-                address=data.get('shop_address') or data.get('shopAddress'),
-                country=data.get('country') or 'Nigeria',
-                state=data.get('state') or 'Kano',
-                logo=request.FILES.get('logo'),
+                    name=shop_name,
+                    shop_type=shop_type or None,
+                    business_phone=business_phone or None,
+                    address=address or None,
+                    country=country,
+                    state=state,
+                    logo=request.FILES.get('logo'),
 
-                # Legal registry data
-                is_registered=str(data.get('registered', 'no')).lower() == 'yes',
-                cac_number=data.get('cac_number', ''),
-                is_active=False # Keep pending until approved!
-            )
+                    is_registered=is_registered,
+                    cac_number=cac_number,
+                    is_active=False
+                )
 
             return Response({
-                "status": "success", 
+                "status": "success",
                 "message": "Application file received and locked for administrative verification."
-            }, status=201)
+            }, status=status.HTTP_201_CREATED)
+
+        except IntegrityError as ie:
+            logger.error("Shop registration IntegrityError: %s", str(ie))
+            err_msg = str(ie).lower()
+            if "unique constraint" in err_msg and "name" in err_msg:
+                return Response({
+                    "status": "error",
+                    "message": f"A shop named '{shop_name}' is already registered. Please choose a different name."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            elif "owner" in err_msg or "unique" in err_msg:
+                return Response({
+                    "status": "error",
+                    "message": "You already have a shop application registered with this account."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({
+                    "status": "error",
+                    "message": "Unable to save shop details due to a database constraint. Please check your details."
+                }, status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
+            logger.error("Shop registration error: %s", str(e), exc_info=True)
             return Response({
-                "status": "error", 
-                "message": f"Database parsing failed structural rules: {str(e)}"
-            }, status=400)
+                "status": "error",
+                "message": "Submission error occurred. Please verify your details and try again."
+            }, status=status.HTTP_400_BAD_REQUEST)
 
 
 class AdminOverviewTelemetryView(APIView):
