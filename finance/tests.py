@@ -5,7 +5,7 @@ from django.conf import settings
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 from rest_framework.test import APIClient
-from rest_framework.authtoken.models import Token
+from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Wallet, Transaction
 from .nellobyte import NellobyteClient
 from .utils import MonnifyAPI
@@ -24,8 +24,11 @@ class DataPurchaseTests(TestCase):
         self.wallet = Wallet.objects.get(user=self.user)
         self.wallet.available_balance = Decimal('1000.00')
         self.wallet.save()
-        token, _ = Token.objects.get_or_create(user=self.user)
-        self.headers = {'HTTP_AUTHORIZATION': f'Token {token.key}'}
+        # DEFAULT_AUTHENTICATION_CLASSES only registers JWTAuthentication and
+        # SessionAuthentication — TokenAuthentication (DRF's `Token` model) is
+        # never actually wired in, so a "Token <key>" header always 401s.
+        access_token = RefreshToken.for_user(self.user).access_token
+        self.headers = {'HTTP_AUTHORIZATION': f'Bearer {access_token}'}
 
     @patch('finance.views.NellobyteClient.purchase_data')
     def test_data_purchase_success(self, mock_purchase):

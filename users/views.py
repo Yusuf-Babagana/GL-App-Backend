@@ -107,11 +107,15 @@ class AddRoleView(APIView):
     """
     permission_classes = (permissions.IsAuthenticated,)
 
+    # Self-service roles only — admin is granted separately by another admin
+    # (AdminUpdateUserRoleView), never by the user themselves.
+    SELF_SERVICE_ROLES = [r for r in User.Roles.values if r != User.Roles.ADMIN]
+
     def post(self, request):
         role_to_add = request.data.get('role')
-        if role_to_add not in User.Roles.values:
+        if role_to_add not in self.SELF_SERVICE_ROLES:
             return Response({"error": "Invalid role"}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         user = request.user
         if role_to_add not in user.roles:
             user.roles.append(role_to_add)

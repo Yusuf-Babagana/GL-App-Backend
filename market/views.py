@@ -244,6 +244,20 @@ class MerchantGlobalOnboardingView(APIView):
                     user.roles.append('seller')
                 user.save()
 
+                # Shop.logo is a URLField (the rest of the app stores a
+                # Cloudinary URL string there) — an uploaded file can't be
+                # assigned to it directly, that just stores the object's
+                # repr as garbage text. Save it to media storage ourselves
+                # and store the resulting URL string instead.
+                logo_file = request.FILES.get('logo')
+                logo_url = None
+                if logo_file:
+                    from django.core.files.storage import default_storage
+                    saved_path = default_storage.save(
+                        f"shop_logos/{uuid_lib.uuid4().hex}_{logo_file.name}", logo_file
+                    )
+                    logo_url = default_storage.url(saved_path)
+
                 # Create the Shop
                 shop = Shop.objects.create(
                     owner=user,
@@ -261,7 +275,7 @@ class MerchantGlobalOnboardingView(APIView):
                     address=address or None,
                     country=country,
                     state=state,
-                    logo=request.FILES.get('logo'),
+                    logo=logo_url,
 
                     is_registered=is_registered,
                     cac_number=cac_number,
@@ -564,12 +578,11 @@ class CheckoutView(APIView):
     def _process_checkout(self, user, raw_items, payment_method, shipping_address):
         total_price = Decimal('0.00')
         order_items_data = []
-        shop = None
 
         # Pre-validate stock before any DB writes
         for item in raw_items:
             try:
-                product = Product.objects.get(id=item['product_id'])
+                product = Product.objects.select_related('shop').get(id=item['product_id'])
             except Product.DoesNotExist:
                 return Response({
                     "status": "error",
@@ -588,8 +601,6 @@ class CheckoutView(APIView):
 
             total_price += product.price * qty
             order_items_data.append((product, qty))
-            if not shop:
-                shop = product.shop
 
         # Pre-validate wallet balance if paying via wallet
         if payment_method == 'wallet':
@@ -602,49 +613,66 @@ class CheckoutView(APIView):
                     "message": f"Insufficient wallet balance. Required: ₦{total_price:,.0f}, Available: ₦{buyer_wallet.available_balance:,.0f}."
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+        # An Order has a single `shop` FK, but a cart can span multiple
+        # sellers. Split the cart into one Order per shop so each seller's
+        # order-list/dispatch views and escrow release see exactly (and
+        # only) their own items — a single combined Order used to make
+        # non-primary sellers' items invisible to them and their share of
+        # the payment permanently stuck in escrow.
+        items_by_shop = defaultdict(list)
+        for product, qty in order_items_data:
+            items_by_shop[product.shop_id].append((product, qty))
+
         # All validations passed — execute the transaction
         try:
             with transaction.atomic():
-                order = Order.objects.create(
-                    buyer=user,
-                    shop=shop,
-                    total_price=total_price,
-                    delivery_status=Order.DeliveryStatus.PENDING,
-                    payment_status=Order.PaymentStatus.PENDING,
-                    shipping_address_json=shipping_address
-                )
-
-                for product, qty in order_items_data:
-                    product = Product.objects.select_for_update().get(id=product.id)
-                    if product.stock < qty:
-                        raise ValueError(f"Stock changed for {product.name}")
-                    OrderItem.objects.create(
-                        order=order,
-                        product=product,
-                        quantity=qty,
-                        price_at_purchase=product.price
+                orders = []
+                for shop_id, items in items_by_shop.items():
+                    shop_total = sum((p.price * q for p, q in items), Decimal('0.00'))
+                    order = Order.objects.create(
+                        buyer=user,
+                        shop_id=shop_id,
+                        total_price=shop_total,
+                        delivery_status=Order.DeliveryStatus.PENDING,
+                        payment_status=Order.PaymentStatus.PENDING,
+                        shipping_address_json=shipping_address
                     )
-                    product.stock -= qty
-                    product.save()
+
+                    for product, qty in items:
+                        product = Product.objects.select_for_update().get(id=product.id)
+                        if product.stock < qty:
+                            raise ValueError(f"Stock changed for {product.name}")
+                        OrderItem.objects.create(
+                            order=order,
+                            product=product,
+                            quantity=qty,
+                            price_at_purchase=product.price
+                        )
+                        product.stock -= qty
+                        product.save()
+
+                    orders.append(order)
 
                 if payment_method == 'wallet':
-                    self._process_wallet_payment(user, order, total_price)
+                    self._process_wallet_payment(user, orders, total_price)
 
-                    order_serializer = OrderSerializer(order)
+                    orders_data = OrderSerializer(orders, many=True).data
                     return Response({
                         "status": "success",
                         "message": "Order placed and paid successfully.",
                         "payment_method": "wallet",
-                        "order": order_serializer.data
+                        "order": orders_data[0] if orders_data else None,
+                        "orders": orders_data
                     }, status=status.HTTP_201_CREATED)
 
-                order_serializer = OrderSerializer(order)
+                orders_data = OrderSerializer(orders, many=True).data
                 return Response({
                     "status": "success",
                     "message": "Order created successfully. Proceed to payment.",
-                    "order_id": order.id,
+                    "order_id": orders[0].id if orders else None,
                     "amount_to_pay": str(total_price),
-                    "order": order_serializer.data
+                    "order": orders_data[0] if orders_data else None,
+                    "orders": orders_data
                 }, status=status.HTTP_201_CREATED)
 
         except ValueError as e:
@@ -659,7 +687,13 @@ class CheckoutView(APIView):
                 "message": "Checkout failed. Please try again."
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    def _process_wallet_payment(self, user, order, total_price):
+    def _process_wallet_payment(self, user, orders, total_price):
+        """
+        orders: list of single-shop Order instances covering the whole
+        checkout. Buyer is debited once for the combined total; each
+        order's own shop owner is credited that order's total_price into
+        locked_balance (net of commission, released on buyer confirmation).
+        """
         buyer_wallet, _ = Wallet.objects.select_for_update().get_or_create(
             user=user, defaults={'available_balance': Decimal('0.00')}
         )
@@ -670,14 +704,10 @@ class CheckoutView(APIView):
         buyer_wallet.available_balance -= total_price
         buyer_wallet.save()
 
-        order_items = OrderItem.objects.filter(order=order).select_related('product__shop__owner')
-        merchant_shares = {}
-        for oi in order_items:
-            owner = oi.product.shop.owner
-            amount = oi.quantity * oi.price_at_purchase
-            merchant_shares[owner] = merchant_shares.get(owner, Decimal('0.00')) + amount
+        for order in orders:
+            owner = order.shop.owner
+            amount = order.total_price
 
-        for owner, amount in merchant_shares.items():
             seller_wallet, _ = Wallet.objects.select_for_update().get_or_create(
                 user=owner, defaults={'available_balance': Decimal('0.00')}
             )
@@ -693,17 +723,18 @@ class CheckoutView(APIView):
                 description=f"Sales earnings (locked) for Order #{order.order_number or order.id}"
             )
 
+            order.payment_status = Order.PaymentStatus.PAID
+            order.save()
+
+        order_refs = ", ".join(f"#{o.order_number or o.id}" for o in orders)
         Transaction.objects.create(
             wallet=buyer_wallet,
             amount=-total_price,
             transaction_type=Transaction.TransactionType.PAYMENT,
             status=Transaction.Status.SUCCESS,
-            related_order_id=str(order.id),
-            description=f"Payment for Order #{order.order_number or order.id}"
+            related_order_id=",".join(str(o.id) for o in orders),
+            description=f"Payment for Order(s) {order_refs}"
         )
-
-        order.payment_status = Order.PaymentStatus.PAID
-        order.save()
 
 
 class BuyNowView(APIView):
@@ -771,6 +802,11 @@ class CartAPIView(APIView):
         return Response({"message": "Item added to cart"}, status=status.HTTP_200_OK)
 
     def delete(self, request):
+        if request.data.get('clear_all'):
+            cart = self.get_cart(request)
+            CartItem.objects.filter(cart=cart).delete()
+            return Response({"message": "Cart cleared"}, status=status.HTTP_200_OK)
+
         item_id = request.data.get('item_id')
         if not item_id:
              return Response({"error": "Item ID required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -887,9 +923,9 @@ class CreateOrderView(APIView):
 
             with transaction.atomic():
                 for item in cart_items:
-                    product = Product.objects.select_for_update().get(id=item['product_id'])
+                    product = Product.objects.select_for_update().select_related('shop').get(id=item['product_id'])
                     qty = int(item['quantity'])
-                    
+
                     if product.stock < qty:
                         return Response({
                             "status": "out_of_stock",
@@ -897,34 +933,44 @@ class CreateOrderView(APIView):
                             "available_stock": product.stock,
                             "message": f"Only {product.stock} unit(s) of \"{product.name}\" are available."
                         }, status=400)
-                    
+
                     total_calculated_price += (product.price * qty)
                     order_items_to_create.append((product, qty))
 
-                new_order = Order.objects.create(
-                    buyer=request.user,
-                    shop=order_items_to_create[0][0].shop if order_items_to_create else None,
-                    total_price=total_calculated_price,
-                    delivery_status=Order.DeliveryStatus.PENDING,
-                    payment_status=Order.PaymentStatus.PENDING,
-                    shipping_address_json=request.data.get('shipping_address', {})
-                )
-
+                # Split by shop — see CheckoutView._process_checkout for why
+                # a single combined Order across sellers is wrong.
+                items_by_shop = defaultdict(list)
                 for product, qty in order_items_to_create:
-                    OrderItem.objects.create(
-                        order=new_order, 
-                        product=product, 
-                        quantity=qty, 
-                        price_at_purchase=product.price
+                    items_by_shop[product.shop_id].append((product, qty))
+
+                new_orders = []
+                for shop_id, items in items_by_shop.items():
+                    shop_total = sum((p.price * q for p, q in items), Decimal('0.00'))
+                    new_order = Order.objects.create(
+                        buyer=request.user,
+                        shop_id=shop_id,
+                        total_price=shop_total,
+                        delivery_status=Order.DeliveryStatus.PENDING,
+                        payment_status=Order.PaymentStatus.PENDING,
+                        shipping_address_json=request.data.get('shipping_address', {})
                     )
-                    product.stock -= qty
-                    product.save()
+                    for product, qty in items:
+                        OrderItem.objects.create(
+                            order=new_order,
+                            product=product,
+                            quantity=qty,
+                            price_at_purchase=product.price
+                        )
+                        product.stock -= qty
+                        product.save()
+                    new_orders.append(new_order)
 
             return Response({
                 "status": "success",
                 "message": "Order created successfully.",
-                "order_id": new_order.id,
-                "amount_to_pay": str(total_calculated_price)
+                "order_id": new_orders[0].id if new_orders else None,
+                "amount_to_pay": str(total_calculated_price),
+                "order_ids": [o.id for o in new_orders]
             }, status=201)
 
         except Product.DoesNotExist:
