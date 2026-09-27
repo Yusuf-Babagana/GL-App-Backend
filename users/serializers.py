@@ -70,6 +70,21 @@ class AdminKYCSerializer(serializers.ModelSerializer):
         ]
 
 class AddressSerializer(serializers.ModelSerializer):
+    """
+    Field names here are camelCase to match what the mobile app's
+    useAddresses hook / AddressFormModal actually send and read (the model
+    itself, like the rest of Django, is snake_case).
+    """
+    _id = serializers.CharField(source='id', read_only=True)
+    fullName = serializers.CharField(source='full_name')
+    streetAddress = serializers.CharField(source='street_address')
+    zipCode = serializers.CharField(source='zip_code', required=False, allow_blank=True)
+    phoneNumber = serializers.CharField(source='phone_number')
+    isDefault = serializers.BooleanField(source='is_default', required=False, default=False)
+
     class Meta:
         model = Address
-        exclude = ['user'] # User is inferred from request
+        fields = [
+            '_id', 'label', 'fullName', 'streetAddress', 'city', 'state',
+            'country', 'zipCode', 'phoneNumber', 'isDefault',
+        ]

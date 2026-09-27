@@ -377,6 +377,26 @@ class DataPurchaseView(APIView):
 
         except Exception as e:
             logger.error(f"Nellobyte Network/Critical Failure: {e}")
+            # We genuinely don't know whether Nellobyte processed this before
+            # the exception (timeout, connection drop, etc). This used to
+            # tell the user to "check history" while creating no record at
+            # all to check -- reserve the funds and leave a PENDING
+            # transaction so support/the callback can reconcile it later,
+            # same as the ORDER_RECEIVED branch above.
+            with transaction.atomic():
+                wallet = Wallet.objects.select_for_update().get(user=request.user)
+                if wallet.available_balance >= amount:
+                    wallet.available_balance -= amount
+                    wallet.save()
+
+                Transaction.objects.create(
+                    wallet=wallet,
+                    amount=-amount,
+                    transaction_type=Transaction.TransactionType.BILL_PAYMENT,
+                    status=Transaction.Status.PENDING,
+                    description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone} (Pending: connection error, needs reconciliation)",
+                    reference=request_id
+                )
             return Response({"message": "Transaction submitted. Check history for status updates."}, status=202)
 
 class DataHistoryView(generics.ListAPIView):

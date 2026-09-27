@@ -31,7 +31,14 @@ class DataPurchaseTests(TestCase):
         self.headers = {'HTTP_AUTHORIZATION': f'Bearer {access_token}'}
 
     @patch('finance.views.NellobyteClient.purchase_data')
-    def test_data_purchase_success(self, mock_purchase):
+    @patch('finance.views.NellobyteClient.fetch_all_variations')
+    def test_data_purchase_success(self, mock_fetch, mock_purchase):
+        # DataPurchaseView prices the purchase itself via fetch_all_variations
+        # (it never trusts a client-supplied `amount`) -- this must be mocked
+        # too, or _fetch_live_price makes a real outbound call to Nellobyte.
+        mock_fetch.return_value = [
+            {"PRODUCT_ID": "MTN500", "PRODUCT_NAME": "500MB", "PRODUCT_AMOUNT": "500.00"},
+        ]
         # Mock successful Nellobyte response
         mock_purchase.return_value = {
             'statuscode': '100',
@@ -44,21 +51,25 @@ class DataPurchaseTests(TestCase):
             'service_id': 'mtn-data',
             'variation_code': 'MTN500',
             'phone': '08012345678',
-            'amount': '500.00'
         }
 
         response = self.client.post(url, data, content_type='application/json', **self.headers)
-        
+
         self.assertEqual(response.status_code, 200)
         self.wallet.refresh_from_db()
-        self.assertEqual(self.wallet.available_balance, Decimal('500.00'))
-        
+        # 500.00 plan price with the default 1.10x markup factor -> 550.00 charged
+        self.assertEqual(self.wallet.available_balance, Decimal('450.00'))
+
         transaction = Transaction.objects.get(wallet=self.wallet)
         self.assertEqual(transaction.status, Transaction.Status.SUCCESS)
-        self.assertEqual(transaction.amount, Decimal('-500.00'))
+        self.assertEqual(transaction.amount, Decimal('-550.00'))
 
     @patch('finance.views.NellobyteClient.purchase_data')
-    def test_data_purchase_api_failure_auto_refund(self, mock_purchase):
+    @patch('finance.views.NellobyteClient.fetch_all_variations')
+    def test_data_purchase_api_failure_auto_refund(self, mock_fetch, mock_purchase):
+        mock_fetch.return_value = [
+            {"PRODUCT_ID": "INVALID", "PRODUCT_NAME": "Test Plan", "PRODUCT_AMOUNT": "200.00"},
+        ]
         # Mock failed Nellobyte response
         mock_purchase.return_value = {
             'statuscode': '201',
@@ -70,21 +81,24 @@ class DataPurchaseTests(TestCase):
             'service_id': 'mtn-data',
             'variation_code': 'INVALID',
             'phone': '08012345678',
-            'amount': '200.00'
         }
 
         response = self.client.post(url, data, content_type='application/json', **self.headers)
-        
+
         self.assertEqual(response.status_code, 400)
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.available_balance, Decimal('1000.00'))
-        
+
         transaction = Transaction.objects.get(wallet=self.wallet)
         self.assertEqual(transaction.status, Transaction.Status.FAILED)
-        self.assertIn("(Refunded: INVALID_DATA_PLAN)", transaction.description)
+        self.assertIn("(Failed: INVALID_DATA_PLAN)", transaction.description)
 
     @patch('finance.views.NellobyteClient.purchase_data')
-    def test_data_purchase_critical_failure_pending(self, mock_purchase):
+    @patch('finance.views.NellobyteClient.fetch_all_variations')
+    def test_data_purchase_critical_failure_pending(self, mock_fetch, mock_purchase):
+        mock_fetch.return_value = [
+            {"PRODUCT_ID": "MTN500", "PRODUCT_NAME": "500MB", "PRODUCT_AMOUNT": "500.00"},
+        ]
         # Mock network error
         mock_purchase.side_effect = Exception("Connection Timeout")
 
@@ -93,15 +107,14 @@ class DataPurchaseTests(TestCase):
             'service_id': 'mtn-data',
             'variation_code': 'MTN500',
             'phone': '08012345678',
-            'amount': '500.00'
         }
 
         response = self.client.post(url, data, content_type='application/json', **self.headers)
-        
+
         self.assertEqual(response.status_code, 202)
         self.wallet.refresh_from_db()
-        self.assertEqual(self.wallet.available_balance, Decimal('500.00'))
-        
+        self.assertEqual(self.wallet.available_balance, Decimal('450.00'))
+
         transaction = Transaction.objects.get(wallet=self.wallet)
         self.assertEqual(transaction.status, Transaction.Status.PENDING)
 
@@ -124,7 +137,7 @@ class DataPurchaseTests(TestCase):
         self.assertEqual(len(data['results']), 2)
         self.assertEqual(data['results'][0]['variation_code'], "1")
         self.assertEqual(data['results'][0]['name'], "500MB")
-        self.assertEqual(data['results'][0]['variation_amount'], "150.0")  # 100 + 50 profit
+        self.assertEqual(data['results'][0]['variation_amount'], "110.0")  # 100 * 1.10x default markup
         self.assertEqual(data['results'][0]['type'], "Standard")
 
     @patch('finance.views.NellobyteClient.fetch_all_variations')
