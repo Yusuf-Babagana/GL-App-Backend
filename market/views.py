@@ -33,7 +33,7 @@ GLAPP_COMMISSION_CAP  = Decimal('2500.00')
 # ---------------------------------------------------------------------------
 
 # Local Imports
-from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile, PromotedPost, PromotedPostPricing, StandaloneAd, StandaloneAdImage
+from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile, PromotedPost, PromotedPostPricing, StandaloneAd, StandaloneAdImage, WishlistItem
 from .serializers import (
     CategorySerializer, ShopSerializer, ProductSerializer,
     OrderSerializer, BuyerOrderSerializer, SellerOrderSerializer,
@@ -41,6 +41,7 @@ from .serializers import (
     CartSyncItemSerializer, CartSyncResponseSerializer,
     CheckoutInputSerializer, BuyNowInputSerializer,
     PromotedPostSerializer, PromotedPostCreateSerializer,
+    WishlistProductSerializer,
 )
 from finance.models import Wallet, Transaction, PlatformRevenue
 from finance.utils import WalletManager
@@ -769,6 +770,43 @@ class BuyNowView(APIView):
 
 
 # --- CART & ORDERING ---
+
+class WishlistView(APIView):
+    """
+    Backs the mobile app's wishlist (hooks/useWishlist.ts). Every response
+    returns the user's full wishlist as a product list, matching what that
+    hook expects back from every mutation.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _products(self, user):
+        items = WishlistItem.objects.filter(user=user).select_related('product').prefetch_related('product__images')
+        return [item.product for item in items]
+
+    def get(self, request):
+        return Response({"wishlist": WishlistProductSerializer(self._products(request.user), many=True).data})
+
+    def post(self, request):
+        product_id = request.data.get('productId') or request.data.get('product_id')
+        if not product_id:
+            return Response({"error": "productId is required"}, status=status.HTTP_400_BAD_REQUEST)
+        product = get_object_or_404(Product, id=product_id)
+        WishlistItem.objects.get_or_create(user=request.user, product=product)
+        return Response(
+            {"wishlist": WishlistProductSerializer(self._products(request.user), many=True).data},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WishlistItemDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, product_id):
+        WishlistItem.objects.filter(user=request.user, product_id=product_id).delete()
+        items = WishlistItem.objects.filter(user=request.user).select_related('product').prefetch_related('product__images')
+        products = [item.product for item in items]
+        return Response({"wishlist": WishlistProductSerializer(products, many=True).data})
+
 
 class CartAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]

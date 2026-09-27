@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from finance.models import Wallet
-from .models import Shop, Product, Order
+from .models import Shop, Product, Order, WishlistItem
 
 User = get_user_model()
 
@@ -125,3 +125,62 @@ class MultiShopCheckoutTests(TestCase):
 
         order_b.refresh_from_db()
         self.assertEqual(order_b.payment_status, Order.PaymentStatus.PAID)
+
+
+class WishlistTests(TestCase):
+    """
+    Covers /api/users/wishlist and /api/users/wishlist/<product_id>, backing
+    hooks/useWishlist.ts -- there was previously no backend for this at all
+    (every call from the live wishlist screen 404'd).
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="buyer@example.com", password="pw12345!", full_name="Buyer One",
+        )
+        seller = User.objects.create_user(
+            email="seller@example.com", password="pw12345!", full_name="Seller One",
+        )
+        shop = Shop.objects.create(owner=seller, name="Shop A", is_active=True)
+        self.product = Product.objects.create(
+            shop=shop, name="Widget", description="x", price=Decimal("1500.50"), stock=5,
+        )
+        self.client = _auth_client(self.user)
+
+    def test_add_and_list_wishlist(self):
+        response = self.client.post("/api/users/wishlist", {"productId": self.product.id}, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        wishlist = response.data["wishlist"]
+        self.assertEqual(len(wishlist), 1)
+        self.assertEqual(wishlist[0]["_id"], str(self.product.id))
+        self.assertEqual(wishlist[0]["name"], "Widget")
+        self.assertEqual(wishlist[0]["price"], 1500.5)
+        self.assertEqual(wishlist[0]["stock"], 5)
+
+        get_response = self.client.get("/api/users/wishlist")
+        self.assertEqual(get_response.status_code, 200)
+        self.assertEqual(len(get_response.data["wishlist"]), 1)
+
+    def test_adding_same_product_twice_is_idempotent(self):
+        self.client.post("/api/users/wishlist", {"productId": self.product.id}, format="json")
+        response = self.client.post("/api/users/wishlist", {"productId": self.product.id}, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(len(response.data["wishlist"]), 1)
+        self.assertEqual(WishlistItem.objects.filter(user=self.user).count(), 1)
+
+    def test_remove_from_wishlist(self):
+        WishlistItem.objects.create(user=self.user, product=self.product)
+        response = self.client.delete(f"/api/users/wishlist/{self.product.id}")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["wishlist"], [])
+        self.assertEqual(WishlistItem.objects.filter(user=self.user).count(), 0)
+
+    def test_wishlist_is_per_user(self):
+        other_user = User.objects.create_user(
+            email="other@example.com", password="pw12345!", full_name="Other",
+        )
+        WishlistItem.objects.create(user=other_user, product=self.product)
+
+        response = self.client.get("/api/users/wishlist")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["wishlist"], [])

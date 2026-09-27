@@ -2,6 +2,7 @@ from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 from .views import AdminDashboardStatsView, CustomRegisterView, AdminKYCListView, AdminKYCActionView, UserProfileView, AddRoleView, KYCSubmissionView, SetTransactionPINView, UpdateBVNView, CustomLoginView, RequestAccountDeletionView, CancelAccountDeletionView, RequestPasswordResetView, ConfirmPasswordResetView, AddressListCreateView, AddressDetailView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from market.views import WishlistView, WishlistItemDetailView
 
 urlpatterns = [
     # Auth
@@ -21,6 +22,10 @@ urlpatterns = [
     # which doesn't reliably redirect POST/PUT/DELETE).
     path('addresses', AddressListCreateView.as_view(), name='address-list-create'),
     path('addresses/<int:pk>', AddressDetailView.as_view(), name='address-detail'),
+
+    # Wishlist (hooks/useWishlist.ts calls these WITHOUT a trailing slash)
+    path('wishlist', WishlistView.as_view(), name='wishlist-list-create'),
+    path('wishlist/<int:product_id>', WishlistItemDetailView.as_view(), name='wishlist-detail'),
 
     # KYC
     path('kyc/upload/', KYCSubmissionView.as_view(), name='kyc_upload'),

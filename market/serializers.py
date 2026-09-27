@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
-from .models import Category, Shop, Product, ProductImage, Order, OrderItem, Cart, CartItem, PromotedPost
+from .models import Category, Shop, Product, ProductImage, Order, OrderItem, Cart, CartItem, PromotedPost, WishlistItem
 from users.serializers import UserSerializer
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -38,6 +38,24 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = ['id', 'image', 'is_primary']
 
         
+class WishlistProductSerializer(serializers.ModelSerializer):
+    """
+    Shape matches what hooks/useWishlist.ts and app/(profile)/wishlist.tsx
+    actually read (_id, numeric price, plain image URL strings) -- this is
+    deliberately not the general-purpose ProductSerializer's shape.
+    """
+    _id = serializers.CharField(source='id', read_only=True)
+    price = serializers.FloatField()
+    images = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = ['_id', 'name', 'price', 'stock', 'images']
+
+    def get_images(self, obj):
+        return [img.image for img in obj.images.all()]
+
+
 class ProductSerializer(serializers.ModelSerializer):
     shop = ShopSerializer(read_only=True) 
     images = ProductImageSerializer(many=True, read_only=True)
