@@ -15,7 +15,10 @@ class UserSerializer(serializers.ModelSerializer):
             'roles', 'active_role', 'kyc_status', 'rejection_reason', 'language_preference','is_staff','push_token','is_online','last_seen',
             'is_deactivation_pending', 'deletion_requested_at',
         ]
-        read_only_fields = ['id', 'roles', 'kyc_status', 'rejection_reason', 'is_deactivation_pending', 'deletion_requested_at']
+        read_only_fields = [
+            'id', 'roles', 'active_role', 'kyc_status', 'rejection_reason', 'is_staff',
+            'is_deactivation_pending', 'deletion_requested_at',
+        ]
 
 class RegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)

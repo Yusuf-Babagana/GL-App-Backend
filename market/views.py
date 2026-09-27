@@ -5,7 +5,7 @@ from decimal import Decimal
 from collections import defaultdict
 from django.shortcuts import get_object_or_404
 from django.conf import settings
-from django.db import transaction, models
+from django.db import transaction, models, IntegrityError
 from django.db.models import Q, Sum
 from rest_framework import generics, permissions, status, filters
 from rest_framework.response import Response
@@ -521,6 +521,7 @@ class CheckoutView(APIView):
         raw_items = data.get('items')
         payment_method = data.get('payment_method')
         shipping_address = data.get('shipping_address', {})
+        pin = data.get('pin')
 
         if not raw_items:
             try:
@@ -538,7 +539,27 @@ class CheckoutView(APIView):
                 "message": "Your cart is empty. Add items before checking out."
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        if payment_method == 'wallet':
+            pin_error = self._check_pin(user=request.user, pin=pin)
+            if pin_error:
+                return pin_error
+
         return self._process_checkout(request.user, raw_items, payment_method, shipping_address)
+
+    def _check_pin(self, user, pin):
+        """Verify the wallet transaction PIN before a wallet payment. Returns
+        a Response on failure, or None if the PIN is valid."""
+        if not user.transaction_pin:
+            return Response({
+                "status": "error",
+                "message": "No transaction PIN set. Set one in your profile first."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        if not pin or not user.check_transaction_pin(pin):
+            return Response({
+                "status": "error",
+                "message": "Invalid transaction PIN."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        return None
 
     def _process_checkout(self, user, raw_items, payment_method, shipping_address):
         total_price = Decimal('0.00')
@@ -705,8 +726,15 @@ class BuyNowView(APIView):
         }]
         payment_method = data.get('payment_method')
         shipping_address = data.get('shipping_address', {})
+        pin = data.get('pin')
 
-        return CheckoutView()._process_checkout(request.user, raw_items, payment_method, shipping_address)
+        checkout_view = CheckoutView()
+        if payment_method == 'wallet':
+            pin_error = checkout_view._check_pin(user=request.user, pin=pin)
+            if pin_error:
+                return pin_error
+
+        return checkout_view._process_checkout(request.user, raw_items, payment_method, shipping_address)
 
 
 # --- CART & ORDERING ---
@@ -911,10 +939,22 @@ class InternalWalletCheckoutView(APIView):
 
     def post(self, request):
         order_id = request.data.get('order_id')
+        pin = request.data.get('pin')
         if not order_id:
             return Response({
                 "status": "error",
                 "message": "Order ID is required."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if not request.user.transaction_pin:
+            return Response({
+                "status": "error",
+                "message": "No transaction PIN set. Set one in your profile first."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        if not pin or not request.user.check_transaction_pin(pin):
+            return Response({
+                "status": "error",
+                "message": "Invalid transaction PIN."
             }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
@@ -1657,14 +1697,49 @@ class MerchantWithdrawalView(APIView):
         if amount_dec <= 0:
             return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Reserve funds BEFORE contacting Monnify. Real money must never be
+        # disbursed unless it has already been deducted from the wallet —
+        # calling the payment processor first (as this used to do) let a
+        # withdrawal succeed against a balance that was never verified.
+        reference = f"WTH-{uuid_lib.uuid4().hex[:12]}-{int(timezone.now().timestamp())}"
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=request.user)
+
+            if wallet.available_balance < amount_dec:
+                return Response(
+                    {"error": "Insufficient available balance. Locked funds cannot be withdrawn."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            wallet.available_balance -= amount_dec
+            wallet.save()
+
+            txn = Transaction.objects.create(
+                wallet=wallet,
+                amount=-amount_dec,
+                transaction_type=Transaction.TransactionType.WITHDRAWAL,
+                status=Transaction.Status.PENDING,
+                reference=reference,
+                description=f"Withdrawal to {account_number}",
+            )
+
+        def _refund_and_fail(reason):
+            with transaction.atomic():
+                w = Wallet.objects.select_for_update().get(pk=wallet.pk)
+                w.available_balance += amount_dec
+                w.save()
+                txn.status = Transaction.Status.FAILED
+                txn.description += f" (Failed: {reason} — refunded)"
+                txn.save(update_fields=['status', 'description'])
+
         token = self._monnify_auth_token()
         if not token:
+            _refund_and_fail("could not authenticate with payment processor")
             return Response(
                 {"error": "Could not authenticate with payment processor. Try again."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        reference = f"WTH-{uuid_lib.uuid4().hex[:12]}-{int(timezone.now().timestamp())}"
         disbursement_url = settings.MONNIFY_BASE_URL.rstrip('/') + '/api/v2/disbursements/single'
         payload = {
             "amount": float(amount_dec),
@@ -1689,6 +1764,7 @@ class MerchantWithdrawalView(APIView):
             result = disburse_resp.json()
         except requests.RequestException as e:
             logger.error(f"Monnify disbursement connection failure: {e}")
+            _refund_and_fail("could not reach payment processor")
             return Response(
                 {"error": "Could not reach payment processor. Try again."},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -1696,31 +1772,18 @@ class MerchantWithdrawalView(APIView):
 
         if not (result.get("requestSuccessful") and disburse_resp.status_code in (200, 201)):
             error_msg = result.get("responseMessage", "Payment processor rejected the request")
+            _refund_and_fail(error_msg)
             return Response(
                 {"error": f"Verification error: {error_msg}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        with transaction.atomic():
-            wallet = Wallet.objects.select_for_update().get(user=request.user)
-
-            if wallet.available_balance < amount_dec:
-                return Response(
-                    {"error": "Insufficient available balance. Locked funds cannot be withdrawn."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            wallet.available_balance -= amount_dec
-            wallet.save()
-
-            Transaction.objects.create(
-                wallet=wallet,
-                amount=-amount_dec,
-                transaction_type=Transaction.TransactionType.WITHDRAWAL,
-                status=Transaction.Status.SUCCESS,
-                reference=reference,
-                description=f"Withdrawal to {account_number}",
-            )
+        # Monnify has accepted the disbursement request — the wallet stays
+        # deducted. Final settlement is confirmed asynchronously via
+        # MonnifyWebhookView's DISBURSEMENT_SUCCESS/DISBURSEMENT_FAILED events,
+        # which mark this transaction SUCCESS or refund it on failure.
+        txn.status = Transaction.Status.SUCCESS
+        txn.save(update_fields=['status'])
 
         return Response(
             {

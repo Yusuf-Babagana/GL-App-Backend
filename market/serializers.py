@@ -256,6 +256,7 @@ class CheckoutInputSerializer(serializers.Serializer):
         choices=['wallet'], required=False, default=None
     )
     shipping_address = serializers.JSONField(required=False)
+    pin = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
 
 class BuyNowInputSerializer(serializers.Serializer):
     product_id = serializers.IntegerField()
@@ -264,6 +265,7 @@ class BuyNowInputSerializer(serializers.Serializer):
         choices=['wallet'], required=False, default=None
     )
     shipping_address = serializers.JSONField(required=False)
+    pin = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
 
 
 class PromotedPostSerializer(serializers.ModelSerializer):

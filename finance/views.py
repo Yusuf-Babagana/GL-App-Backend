@@ -15,6 +15,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework import permissions, status, generics
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from .models import Wallet, Transaction, BankAccount, WithdrawalTicket, PlatformRevenue, DataMarkup, DataPlanPrice, MONNIFY_DEPOSIT_RATE, MONNIFY_DEPOSIT_CAP
 from market.models import Order
 from .serializers import WalletSerializer, TransactionSerializer, DataHistorySerializer, WithdrawalTicketSerializer
@@ -622,22 +623,23 @@ class WithdrawalView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        wallet = Wallet.objects.select_for_update().get(user=request.user)
-        if wallet.available_balance < amount_dec:
-            return Response(
-                {"error": "Insufficient available balance."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=request.user)
+            if wallet.available_balance < amount_dec:
+                return Response(
+                    {"error": "Insufficient available balance."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        ticket = WithdrawalTicket.objects.create(
-            user=request.user,
-            amount=amount_dec,
-            bank_code=bank_code,
-            bank_name=bank_name,
-            account_number=account_number,
-            account_name=account_name,
-            status=WithdrawalTicket.StatusChoices.PENDING,
-        )
+            ticket = WithdrawalTicket.objects.create(
+                user=request.user,
+                amount=amount_dec,
+                bank_code=bank_code,
+                bank_name=bank_name,
+                account_number=account_number,
+                account_name=account_name,
+                status=WithdrawalTicket.StatusChoices.PENDING,
+            )
 
         logger.info(
             "Withdrawal request created: user=%s amount=%s ticket=%s",

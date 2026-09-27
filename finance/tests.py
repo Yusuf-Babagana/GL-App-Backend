@@ -14,7 +14,7 @@ User = get_user_model()
 
 class DataPurchaseTests(TestCase):
     def setUp(self):
-        self.client = Client()
+        self.client = APIClient()
         self.user = User.objects.create_user(
             email="test@example.com",
             username="testuser",
