@@ -38,6 +38,7 @@ urlpatterns = [
     path('api/users/', include('users.urls')),
     path('api/finance/', include('finance.urls')),
     path('api/market/', include('market.urls')),
+    path('api/jobs/', include('jobs.urls')),
 
     # Root-level aliases for frontend compatibility (some paths called without /api/market/ prefix)
     path('api/seller/orders/', SellerOrderListView.as_view(), name='root-seller-orders'),
