@@ -1208,6 +1208,93 @@ class BuyerConfirmReceiptView(APIView):
             return Response({"status": "error", "message": "An error occurred. Please try again."}, status=400)
 
 
+class BuyerCancelOrderView(APIView):
+    """
+    Buyer cancels an order that hasn't been dispatched yet.
+    Only allowed while delivery_status is PENDING — once a seller has
+    marked it shipped, the buyer can no longer unilaterally cancel.
+    Atomically reverses the payment: moves the order total out of the
+    seller's locked_balance and back into the buyer's available_balance,
+    and restores the purchased quantities to product stock.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, order_id):
+        try:
+            with transaction.atomic():
+                order = Order.objects.select_for_update().get(id=order_id, buyer=request.user)
+
+                if order.delivery_status != Order.DeliveryStatus.PENDING:
+                    return Response({
+                        "status": "error",
+                        "message": f"This order can no longer be cancelled (status: {order.delivery_status})."
+                    }, status=400)
+
+                if order.payment_status != Order.PaymentStatus.PAID:
+                    return Response({
+                        "status": "error",
+                        "message": "This order isn't in a cancellable payment state."
+                    }, status=400)
+
+                seller_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
+                buyer_wallet = Wallet.objects.select_for_update().get(user=request.user)
+
+                order_total = order.total_price
+
+                if seller_wallet.locked_balance < order_total:
+                    return Response({
+                        "status": "error",
+                        "message": "Unable to process cancellation. Please contact support."
+                    }, status=400)
+
+                seller_wallet.locked_balance -= order_total
+                seller_wallet.save()
+
+                buyer_wallet.available_balance += order_total
+                buyer_wallet.save()
+
+                for order_item in order.items.select_related('product'):
+                    product = Product.objects.select_for_update().get(id=order_item.product_id)
+                    product.stock += order_item.quantity
+                    product.save()
+
+                Transaction.objects.create(
+                    wallet=seller_wallet,
+                    amount=-order_total,
+                    transaction_type=Transaction.TransactionType.REFUND,
+                    status=Transaction.Status.SUCCESS,
+                    related_order_id=str(order.id),
+                    description=f"Order #{order.order_number or order.id} cancelled by buyer — funds reversed"
+                )
+                Transaction.objects.create(
+                    wallet=buyer_wallet,
+                    amount=order_total,
+                    transaction_type=Transaction.TransactionType.REFUND,
+                    status=Transaction.Status.SUCCESS,
+                    related_order_id=str(order.id),
+                    description=f"Refund for cancelled Order #{order.order_number or order.id}"
+                )
+
+                order.delivery_status = Order.DeliveryStatus.CANCELLED
+                order.payment_status = Order.PaymentStatus.REFUNDED
+                order.save()
+
+                return Response({
+                    "status": "success",
+                    "message": "Order cancelled and refunded to your wallet.",
+                    "order_id": order.id,
+                    "refunded_amount": str(order_total)
+                }, status=200)
+
+        except Order.DoesNotExist:
+            return Response({"status": "error", "message": "Order not found."}, status=404)
+        except Wallet.DoesNotExist:
+            return Response({"status": "error", "message": "Wallet not found."}, status=400)
+        except Exception:
+            logger.exception("Order cancellation failed for order %s", order_id)
+            return Response({"status": "error", "message": "An error occurred. Please try again."}, status=400)
+
+
 class SellerOrderListView(generics.ListAPIView):
     """
     List orders that contain items from the logged-in user's store.

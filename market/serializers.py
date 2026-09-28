@@ -226,6 +226,7 @@ class BuyerOrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     shop_name = serializers.ReadOnlyField(source='shop.name')
     shop_logo = serializers.ReadOnlyField(source='shop.logo')
+    shop_address = serializers.SerializerMethodField()
     seller_phone = serializers.SerializerMethodField()
 
     def get_seller_phone(self, obj):
@@ -236,10 +237,15 @@ class BuyerOrderSerializer(serializers.ModelSerializer):
             pass
         return None
 
+    def get_shop_address(self, obj):
+        if obj.shop:
+            return obj.shop.address or f"{obj.shop.state}, {obj.shop.country}"
+        return None
+
     class Meta:
         model = Order
         fields = [
-            'id', 'order_number', 'shop', 'shop_name', 'shop_logo', 'items', 'total_price',
+            'id', 'order_number', 'shop', 'shop_name', 'shop_logo', 'shop_address', 'items', 'total_price',
             'delivery_status', 'payment_status',
             'shipping_address_json', 'seller_phone', 'created_at'
         ]
