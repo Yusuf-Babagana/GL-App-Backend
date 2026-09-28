@@ -654,6 +654,15 @@ class CheckoutView(APIView):
 
                     orders.append(order)
 
+                # Remove the purchased items from the buyer's cart so they
+                # don't sit there looking un-ordered — leaving them behind
+                # let a buyer re-run checkout on the same items and get
+                # double-charged for an order they'd already placed.
+                ordered_product_ids = [product.id for product, _ in order_items_data]
+                CartItem.objects.filter(
+                    cart__user=user, product_id__in=ordered_product_ids
+                ).delete()
+
                 if payment_method == 'wallet':
                     self._process_wallet_payment(user, orders, total_price)
 
@@ -1143,11 +1152,15 @@ class BuyerConfirmReceiptView(APIView):
             with transaction.atomic():
                 order = Order.objects.select_for_update().get(id=order_id, buyer=request.user)
 
-                if order.payment_status != Order.PaymentStatus.PAID:
-                    return Response({"status": "error", "message": "Order has not been paid yet."}, status=400)
-
+                # CONFIRMED must be checked first: it's a subtype of "not
+                # PAID anymore" (confirming moves payment_status away from
+                # PAID), so checking != PAID first made a double-confirm
+                # attempt show the misleading "not been paid yet" error.
                 if order.payment_status == Order.PaymentStatus.CONFIRMED:
                     return Response({"status": "error", "message": "This order has already been confirmed."}, status=400)
+
+                if order.payment_status != Order.PaymentStatus.PAID:
+                    return Response({"status": "error", "message": "Order has not been paid yet."}, status=400)
 
                 seller_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
 
