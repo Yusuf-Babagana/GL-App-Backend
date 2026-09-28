@@ -67,6 +67,31 @@ def send_password_reset_email(user, code):
     send_email(subject, message, [user.email])
 
 
+def send_kyc_approved_email(user):
+    subject = "Your Globalink Account Is Verified"
+    message = (
+        f"Hi {user.full_name or user.email},\n\n"
+        f"Good news — your identity verification has been approved. "
+        f"You now have full access to Globalink's buyer, seller, and wallet features.\n\n"
+        f"Thank you,\nGlobalink Team"
+    )
+    send_email(subject, message, [user.email])
+
+
+def send_kyc_rejected_email(user, reason=""):
+    subject = "Your Globalink Verification Needs Attention"
+    reason_line = f"\nReason: {reason}\n" if reason else "\n"
+    message = (
+        f"Hi {user.full_name or user.email},\n\n"
+        f"We were unable to approve your identity verification.\n"
+        f"{reason_line}\n"
+        f"Please open the Globalink app and re-submit your documents from "
+        f"Profile > Verification.\n\n"
+        f"Thank you,\nGlobalink Team"
+    )
+    send_email(subject, message, [user.email])
+
+
 def send_deletion_cancelled_email(user):
     subject = "Account Deletion Cancelled"
     message = (

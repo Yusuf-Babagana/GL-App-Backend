@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
-from .models import Category, Shop, Product, ProductImage, Order, OrderItem, Cart, CartItem, PromotedPost
+from .models import Category, Shop, Product, ProductImage, Order, OrderItem, Cart, CartItem, PromotedPost, WishlistItem
 from users.serializers import UserSerializer
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -38,6 +38,24 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = ['id', 'image', 'is_primary']
 
         
+class WishlistProductSerializer(serializers.ModelSerializer):
+    """
+    Shape matches what hooks/useWishlist.ts and app/(profile)/wishlist.tsx
+    actually read (_id, numeric price, plain image URL strings) -- this is
+    deliberately not the general-purpose ProductSerializer's shape.
+    """
+    _id = serializers.CharField(source='id', read_only=True)
+    price = serializers.FloatField()
+    images = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = ['_id', 'name', 'price', 'stock', 'images']
+
+    def get_images(self, obj):
+        return [img.image for img in obj.images.all()]
+
+
 class ProductSerializer(serializers.ModelSerializer):
     shop = ShopSerializer(read_only=True) 
     images = ProductImageSerializer(many=True, read_only=True)
@@ -208,6 +226,7 @@ class BuyerOrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     shop_name = serializers.ReadOnlyField(source='shop.name')
     shop_logo = serializers.ReadOnlyField(source='shop.logo')
+    shop_address = serializers.SerializerMethodField()
     seller_phone = serializers.SerializerMethodField()
 
     def get_seller_phone(self, obj):
@@ -218,10 +237,15 @@ class BuyerOrderSerializer(serializers.ModelSerializer):
             pass
         return None
 
+    def get_shop_address(self, obj):
+        if obj.shop:
+            return obj.shop.address or f"{obj.shop.state}, {obj.shop.country}"
+        return None
+
     class Meta:
         model = Order
         fields = [
-            'id', 'order_number', 'shop', 'shop_name', 'shop_logo', 'items', 'total_price',
+            'id', 'order_number', 'shop', 'shop_name', 'shop_logo', 'shop_address', 'items', 'total_price',
             'delivery_status', 'payment_status',
             'shipping_address_json', 'seller_phone', 'created_at'
         ]
@@ -256,6 +280,7 @@ class CheckoutInputSerializer(serializers.Serializer):
         choices=['wallet'], required=False, default=None
     )
     shipping_address = serializers.JSONField(required=False)
+    pin = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
 
 class BuyNowInputSerializer(serializers.Serializer):
     product_id = serializers.IntegerField()
@@ -264,6 +289,7 @@ class BuyNowInputSerializer(serializers.Serializer):
         choices=['wallet'], required=False, default=None
     )
     shipping_address = serializers.JSONField(required=False)
+    pin = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
 
 
 class PromotedPostSerializer(serializers.ModelSerializer):
