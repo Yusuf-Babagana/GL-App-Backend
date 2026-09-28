@@ -1,6 +1,7 @@
+from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
-from .models import Category, Shop, Product, ProductImage, Order, OrderItem, Cart, CartItem, PromotedPost
+from .models import Category, Shop, Product, ProductImage, Order, OrderItem, Cart, CartItem, PromotedPost, WishlistItem
 from users.serializers import UserSerializer
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -37,6 +38,24 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = ['id', 'image', 'is_primary']
 
         
+class WishlistProductSerializer(serializers.ModelSerializer):
+    """
+    Shape matches what hooks/useWishlist.ts and app/(profile)/wishlist.tsx
+    actually read (_id, numeric price, plain image URL strings) -- this is
+    deliberately not the general-purpose ProductSerializer's shape.
+    """
+    _id = serializers.CharField(source='id', read_only=True)
+    price = serializers.FloatField()
+    images = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = ['_id', 'name', 'price', 'stock', 'images']
+
+    def get_images(self, obj):
+        return [img.image for img in obj.images.all()]
+
+
 class ProductSerializer(serializers.ModelSerializer):
     shop = ShopSerializer(read_only=True) 
     images = ProductImageSerializer(many=True, read_only=True)
@@ -207,6 +226,7 @@ class BuyerOrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     shop_name = serializers.ReadOnlyField(source='shop.name')
     shop_logo = serializers.ReadOnlyField(source='shop.logo')
+    shop_address = serializers.SerializerMethodField()
     seller_phone = serializers.SerializerMethodField()
 
     def get_seller_phone(self, obj):
@@ -217,10 +237,15 @@ class BuyerOrderSerializer(serializers.ModelSerializer):
             pass
         return None
 
+    def get_shop_address(self, obj):
+        if obj.shop:
+            return obj.shop.address or f"{obj.shop.state}, {obj.shop.country}"
+        return None
+
     class Meta:
         model = Order
         fields = [
-            'id', 'order_number', 'shop', 'shop_name', 'shop_logo', 'items', 'total_price',
+            'id', 'order_number', 'shop', 'shop_name', 'shop_logo', 'shop_address', 'items', 'total_price',
             'delivery_status', 'payment_status',
             'shipping_address_json', 'seller_phone', 'created_at'
         ]
@@ -255,6 +280,7 @@ class CheckoutInputSerializer(serializers.Serializer):
         choices=['wallet'], required=False, default=None
     )
     shipping_address = serializers.JSONField(required=False)
+    pin = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
 
 class BuyNowInputSerializer(serializers.Serializer):
     product_id = serializers.IntegerField()
@@ -263,6 +289,7 @@ class BuyNowInputSerializer(serializers.Serializer):
         choices=['wallet'], required=False, default=None
     )
     shipping_address = serializers.JSONField(required=False)
+    pin = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
 
 
 class PromotedPostSerializer(serializers.ModelSerializer):
@@ -272,28 +299,35 @@ class PromotedPostSerializer(serializers.ModelSerializer):
     (product-linked vs. standalone item) so the client doesn't need to branch.
     """
     user_name = serializers.ReadOnlyField(source='user.full_name')
+    seller_id = serializers.ReadOnlyField(source='user.id')
     product_id = serializers.ReadOnlyField(source='product.id')
     product_name = serializers.ReadOnlyField(source='product.name')
     product_image = serializers.ReadOnlyField(source='product.image')
+    share_url = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
     images = serializers.SerializerMethodField()
     price = serializers.SerializerMethodField()
     location = serializers.SerializerMethodField()
     seller_name = serializers.SerializerMethodField()
-    phone_number = serializers.SerializerMethodField()
-    whatsapp_number = serializers.SerializerMethodField()
     time_remaining_seconds = serializers.SerializerMethodField()
 
     class Meta:
         model = PromotedPost
+        # Contact is in-app chat only, so the seller's phone/WhatsApp are
+        # deliberately NOT exposed on these public, unauthenticated endpoints.
         fields = [
-            'id', 'user_name', 'text_content', 'promotion_type', 'contact_preference',
+            'id', 'code', 'share_url', 'user_name', 'seller_id',
+            'text_content', 'promotion_type', 'contact_preference',
             'product_id', 'product_name', 'product_image',
             'title', 'image', 'images', 'price', 'location',
-            'seller_name', 'phone_number', 'whatsapp_number',
+            'seller_name',
             'duration_type', 'created_at', 'expires_at', 'time_remaining_seconds',
         ]
+
+    def get_share_url(self, obj):
+        base = getattr(settings, 'PROMO_SHARE_BASE_URL', '').rstrip('/')
+        return f"{base}/promotion/{obj.code}" if obj.code else None
 
     def _is_standalone(self, obj):
         return obj.promotion_type == PromotedPost.PromotionType.STANDALONE and obj.standalone_ad_id
@@ -333,20 +367,6 @@ class PromotedPostSerializer(serializers.ModelSerializer):
             return obj.product.shop.name
         return obj.user.full_name
 
-    def get_phone_number(self, obj):
-        if self._is_standalone(obj):
-            return obj.standalone_ad.phone_number
-        if obj.product and obj.product.shop:
-            return obj.product.shop.business_phone
-        return None
-
-    def get_whatsapp_number(self, obj):
-        if self._is_standalone(obj):
-            return obj.standalone_ad.whatsapp_number or obj.standalone_ad.phone_number
-        if obj.product and obj.product.shop:
-            return obj.product.shop.business_phone
-        return None
-
     def get_time_remaining_seconds(self, obj):
         if not obj.expires_at:
             return None
@@ -363,9 +383,7 @@ class PromotedPostCreateSerializer(serializers.ModelSerializer):
     promotion_type = serializers.ChoiceField(
         choices=PromotedPost.PromotionType.choices, default=PromotedPost.PromotionType.PRODUCT
     )
-    contact_preference = serializers.ChoiceField(
-        choices=PromotedPost.ContactPreference.choices, default=PromotedPost.ContactPreference.CHAT
-    )
+    # Contact is always in-app chat now; any client-sent value is ignored.
     product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all(), required=False, allow_null=True)
 
     # Standalone-item fields — only required when promotion_type == 'standalone'.
@@ -381,7 +399,7 @@ class PromotedPostCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = PromotedPost
         fields = [
-            'text_content', 'promotion_type', 'contact_preference', 'duration_type', 'product',
+            'text_content', 'promotion_type', 'duration_type', 'product',
             'title', 'description', 'price', 'location', 'phone_number', 'whatsapp_number',
             'category', 'images',
         ]
@@ -399,7 +417,5 @@ class PromotedPostCreateSerializer(serializers.ModelSerializer):
         else:
             if not data.get('title'):
                 raise serializers.ValidationError({"title": "Give your item a title."})
-            if not data.get('phone_number'):
-                raise serializers.ValidationError({"phone_number": "A contact phone number is required."})
 
         return data

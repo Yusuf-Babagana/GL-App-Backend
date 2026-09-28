@@ -12,10 +12,13 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'email', 'full_name', 'phone_number', 'profile_image',
-            'roles', 'active_role', 'kyc_status', 'language_preference','is_staff','push_token','is_online','last_seen',
+            'roles', 'active_role', 'kyc_status', 'rejection_reason', 'language_preference','is_staff','push_token','is_online','last_seen',
             'is_deactivation_pending', 'deletion_requested_at',
         ]
-        read_only_fields = ['id', 'roles', 'kyc_status', 'is_deactivation_pending', 'deletion_requested_at']
+        read_only_fields = [
+            'id', 'roles', 'active_role', 'kyc_status', 'rejection_reason', 'is_staff',
+            'is_deactivation_pending', 'deletion_requested_at',
+        ]
 
 class RegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -67,6 +70,21 @@ class AdminKYCSerializer(serializers.ModelSerializer):
         ]
 
 class AddressSerializer(serializers.ModelSerializer):
+    """
+    Field names here are camelCase to match what the mobile app's
+    useAddresses hook / AddressFormModal actually send and read (the model
+    itself, like the rest of Django, is snake_case).
+    """
+    _id = serializers.CharField(source='id', read_only=True)
+    fullName = serializers.CharField(source='full_name')
+    streetAddress = serializers.CharField(source='street_address')
+    zipCode = serializers.CharField(source='zip_code', required=False, allow_blank=True)
+    phoneNumber = serializers.CharField(source='phone_number')
+    isDefault = serializers.BooleanField(source='is_default', required=False, default=False)
+
     class Meta:
         model = Address
-        exclude = ['user'] # User is inferred from request
+        fields = [
+            '_id', 'label', 'fullName', 'streetAddress', 'city', 'state',
+            'country', 'zipCode', 'phoneNumber', 'isDefault',
+        ]

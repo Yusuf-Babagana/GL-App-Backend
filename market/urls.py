@@ -3,18 +3,19 @@ from .views import (
     CategoryListView, ProductListView, ProductDetailView,
     ShopCreateView, ShopUpdateView, SellerProductListView, ProductCreateView,
     CartAPIView, CartSyncView, CreateOrderView, BuyerOrderListView,
-    BuyerOrderDetailView, BuyerConfirmReceiptView,
+    BuyerOrderDetailView, BuyerConfirmReceiptView, BuyerCancelOrderView,
     SellerOrderListView, MerchantDashboardView,
     SellerUpdateOrderStatusView, AdminDashboardStatsView,
     ProductDeleteView, ProductUpdateView, SellerOrderDetailView,
     ShopListView, ShopDetailView, ProductVideoFeedView,
     MarkOrderDispatchedView, MerchantOnboardingView, ShopStatusView,
     AdminOverviewView, AdminApproveShopView, AdminUpdateUserRoleView,
-    MerchantGlobalOnboardingView, AdminOverviewTelemetryView,
+    MerchantGlobalOnboardingView, ShopNameCheckView, AdminOverviewTelemetryView,
     AdminReviewShopView, MerchantAnalyticsView, MyShopStatusView,
     InternalWalletCheckoutView, MerchantWithdrawalView,
     CheckoutView, BuyNowView, CheckoutSummaryView,
     PromotedPostCreateView, ActivePromotedPostListView, PromotedPostPricingView, PromotedPostDetailView,
+    PromotionByCodeView,
 )
 from chat.views import ConversationListView
 
@@ -33,7 +34,9 @@ urlpatterns = [
     path('shop/my-status/', MyShopStatusView.as_view(), name='my-shop-status'),
     path('store/onboarding/', MerchantOnboardingView.as_view(), name='merchant-onboarding'),
     path('store/update/', ShopUpdateView.as_view(), name='shop-update'),
+    path('store/detail/', ShopUpdateView.as_view(), name='shop-my-detail'),
     path('store/global-onboard/', MerchantGlobalOnboardingView.as_view(), name='global-onboard'),
+    path('store/check-name/', ShopNameCheckView.as_view(), name='shop-check-name'),
     path('seller/stats/', MerchantDashboardView.as_view(), name='seller-stats'),
     path('merchant/analytics/', MerchantAnalyticsView.as_view(), name='merchant-analytics'),
     path('seller/products/', SellerProductListView.as_view(), name='seller-products'),
@@ -57,6 +60,7 @@ urlpatterns = [
     path('buyer/orders/<int:pk>/', BuyerOrderDetailView.as_view(), name='buyer-order-detail'),
     path('buyer/orders/<int:order_id>/confirm/', BuyerConfirmReceiptView.as_view(), name='buyer-confirm-receipt'),
     path('orders/<int:order_id>/confirm-receipt/', BuyerConfirmReceiptView.as_view(), name='confirm-receipt-alias'),
+    path('buyer/orders/<int:order_id>/cancel/', BuyerCancelOrderView.as_view(), name='buyer-cancel-order'),
     path('cart/', CartAPIView.as_view(), name='cart'),
     path('cart/sync/', CartSyncView.as_view(), name='cart-sync'),
 
@@ -85,5 +89,6 @@ urlpatterns = [
     path('promoted-posts/', PromotedPostCreateView.as_view(), name='promoted-post-create'),
     path('promoted-posts/active/', ActivePromotedPostListView.as_view(), name='promoted-post-active-list'),
     path('promoted-posts/pricing/', PromotedPostPricingView.as_view(), name='promoted-post-pricing'),
+    path('promotions/<str:code>/', PromotionByCodeView.as_view(), name='promotion-by-code'),
     path('promoted-posts/<int:pk>/', PromotedPostDetailView.as_view(), name='promoted-post-detail'),
 ]

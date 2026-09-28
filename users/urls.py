@@ -1,7 +1,8 @@
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
-from .views import AdminDashboardStatsView, CustomRegisterView, AdminKYCListView, AdminKYCActionView, UserProfileView, AddRoleView, KYCSubmissionView, SetTransactionPINView, UpdateBVNView, CustomLoginView, RequestAccountDeletionView, CancelAccountDeletionView, RequestPasswordResetView, ConfirmPasswordResetView
+from .views import AdminDashboardStatsView, CustomRegisterView, AdminKYCListView, AdminKYCActionView, UserProfileView, AddRoleView, KYCSubmissionView, SetTransactionPINView, UpdateBVNView, CustomLoginView, RequestAccountDeletionView, CancelAccountDeletionView, RequestPasswordResetView, ConfirmPasswordResetView, AddressListCreateView, AddressDetailView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from market.views import WishlistView, WishlistItemDetailView
 
 urlpatterns = [
     # Auth
@@ -15,6 +16,16 @@ urlpatterns = [
     path('profile/', UserProfileView.as_view(), name='profile'),
     path('roles/add/', AddRoleView.as_view(), name='add_role'), # POST { "role": "seller" }
     path('set-pin/', SetTransactionPINView.as_view(), name='set-pin'),
+
+    # Address book (hooks/useAddressess.ts calls these WITHOUT a trailing
+    # slash — matched exactly here rather than relying on APPEND_SLASH,
+    # which doesn't reliably redirect POST/PUT/DELETE).
+    path('addresses', AddressListCreateView.as_view(), name='address-list-create'),
+    path('addresses/<int:pk>', AddressDetailView.as_view(), name='address-detail'),
+
+    # Wishlist (hooks/useWishlist.ts calls these WITHOUT a trailing slash)
+    path('wishlist', WishlistView.as_view(), name='wishlist-list-create'),
+    path('wishlist/<int:product_id>', WishlistItemDetailView.as_view(), name='wishlist-detail'),
 
     # KYC
     path('kyc/upload/', KYCSubmissionView.as_view(), name='kyc_upload'),

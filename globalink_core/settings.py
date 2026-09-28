@@ -170,6 +170,14 @@ DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='noreply@globalink.com')
 ACCOUNT_DELETION_GRACE_PERIOD_DAYS = 30
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:3000')
 
+# --- Promotion sharing / deep links ---
+# Base URL for the public shareable promotion link: <base>/promotion/<code>
+PROMO_SHARE_BASE_URL = env('PROMO_SHARE_BASE_URL', default='https://glappbackend.pythonanywhere.com')
+PLAY_STORE_URL = env(
+    'PLAY_STORE_URL',
+    default='https://play.google.com/store/apps/details?id=com.globalinkmarketplace.app',
+)
+
 # 12. API & Security Settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -187,6 +195,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         # Only views that set throttle_scope are actually throttled by ScopedRateThrottle.
         'login': '10/min',
+        'password_reset': '5/min',
     },
 }
 
