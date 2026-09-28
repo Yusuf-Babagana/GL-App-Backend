@@ -1,4 +1,5 @@
 import logging
+import secrets
 import uuid
 from decimal import Decimal
 from datetime import timedelta
@@ -53,7 +54,7 @@ class Shop(models.Model):
     id_document = models.ImageField(upload_to=kyc_upload_path, blank=True, null=True) # Backward compatibility
     
     # Shop Info Context (Step 2)
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     shop_type = models.CharField(max_length=30, choices=SHOP_TYPE_CHOICES, null=True, blank=True)
     business_phone = models.CharField(max_length=30, null=True, blank=True)
@@ -161,6 +162,19 @@ class ProductImage(models.Model):
 
     def __str__(self):
         return f"Image for {self.product.name}"
+
+
+class WishlistItem(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='wishlist_items')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='wishlisted_by')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'product')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.email} ♥ {self.product.name}"
 
 
 class StandaloneAd(models.Model):
@@ -294,6 +308,14 @@ class CartItem(models.Model):
 
 
 
+# Unambiguous alphabet for shareable promotion codes — no 0/O/1/I/L.
+_PROMO_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+
+
+def _generate_promo_code(length=6):
+    return ''.join(secrets.choice(_PROMO_CODE_ALPHABET) for _ in range(length))
+
+
 class PromotedPost(models.Model):
     """
     A paid announcement/ticker slot. Payment tiers are fixed and mirrored
@@ -327,6 +349,9 @@ class PromotedPost(models.Model):
     }
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='promoted_posts')
+    # Short, unguessable identifier for the public shareable/deep link
+    # (https://<host>/promotion/<code> and GLAPP://promotion/<code>).
+    code = models.CharField(max_length=12, unique=True, editable=False, db_index=True, blank=True)
     text_content = models.CharField(max_length=300)
     promotion_type = models.CharField(max_length=12, choices=PromotionType.choices, default=PromotionType.PRODUCT)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='promoted_posts', null=True, blank=True)
@@ -342,6 +367,11 @@ class PromotedPost(models.Model):
         return f"PromotedPost({self.user.email}, {self.duration_type})"
 
     def save(self, *args, **kwargs):
+        if not self.code:
+            code = _generate_promo_code()
+            while PromotedPost.objects.filter(code=code).exists():
+                code = _generate_promo_code()
+            self.code = code
         if self.is_active and not self.expires_at:
             self.expires_at = timezone.now() + self.DURATION_TIMEDELTAS[self.duration_type]
         super().save(*args, **kwargs)

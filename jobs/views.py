@@ -75,6 +75,16 @@ class ApplyJobView(generics.CreateAPIView):
         job = JobPosting.objects.get(pk=job_id)
         serializer.save(seeker=user, job=job)
 
+class SeekerApplicationsView(generics.ListAPIView):
+    """
+    View all applications I (the current seeker) have submitted.
+    """
+    serializer_class = JobApplicationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return JobApplication.objects.filter(seeker=self.request.user).order_by('-created_at')
+
 # --- EMPLOYER DASHBOARD ---
 
 class EmployerApplicationsView(generics.ListAPIView):

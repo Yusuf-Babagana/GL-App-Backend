@@ -15,6 +15,15 @@ db.sqlite3-journal
 media/
 staticfiles/
 
+# User-uploaded content served outside MEDIA_ROOT (kyc_docs is the actual
+# storage path used at runtime -- it must NEVER be tracked, it holds ID scans
+# and selfies). product_images/store_logos/category_icons are lower-risk but
+# still user-uploaded binaries that don't belong in git history.
+kyc_docs/
+product_images/
+store_logos/
+category_icons/
+
 # Migrations cache
 **/migrations/__pycache__/
 

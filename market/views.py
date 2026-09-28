@@ -5,7 +5,7 @@ from decimal import Decimal
 from collections import defaultdict
 from django.shortcuts import get_object_or_404
 from django.conf import settings
-from django.db import transaction, models
+from django.db import transaction, models, IntegrityError
 from django.db.models import Q, Sum
 from rest_framework import generics, permissions, status, filters
 from rest_framework.response import Response
@@ -33,7 +33,7 @@ GLAPP_COMMISSION_CAP  = Decimal('2500.00')
 # ---------------------------------------------------------------------------
 
 # Local Imports
-from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile, PromotedPost, PromotedPostPricing, StandaloneAd, StandaloneAdImage
+from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile, PromotedPost, PromotedPostPricing, StandaloneAd, StandaloneAdImage, WishlistItem
 from .serializers import (
     CategorySerializer, ShopSerializer, ProductSerializer,
     OrderSerializer, BuyerOrderSerializer, SellerOrderSerializer,
@@ -41,6 +41,7 @@ from .serializers import (
     CartSyncItemSerializer, CartSyncResponseSerializer,
     CheckoutInputSerializer, BuyNowInputSerializer,
     PromotedPostSerializer, PromotedPostCreateSerializer,
+    WishlistProductSerializer,
 )
 from finance.models import Wallet, Transaction, PlatformRevenue
 from finance.utils import WalletManager
@@ -79,7 +80,7 @@ class ShopCreateView(generics.CreateAPIView):
         self.request.user.save()
 
 
-class ShopUpdateView(generics.UpdateAPIView):
+class ShopUpdateView(generics.RetrieveUpdateAPIView):
     serializer_class = ShopSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -144,6 +145,41 @@ class MerchantOnboardingView(APIView):
             return Response({"status": "error", "message": str(e)}, status=400)
 
 
+class ShopNameCheckView(APIView):
+    """
+    Checks whether a requested shop name is available.
+    Accessible to authenticated users during the onboarding process.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        raw_name = request.query_params.get('name', '')
+        name = raw_name.strip()
+        if not name:
+            return Response({
+                "available": False,
+                "message": "Shop name cannot be empty."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(name) < 2:
+            return Response({
+                "available": False,
+                "message": "Shop name must be at least 2 characters long."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        existing = Shop.objects.filter(name__iexact=name).exclude(owner=request.user).exists()
+        if existing:
+            return Response({
+                "available": False,
+                "message": f"The shop name '{name}' is already registered. Please choose a different name."
+            }, status=status.HTTP_200_OK)
+
+        return Response({
+            "available": True,
+            "message": "Shop name is available."
+        }, status=status.HTTP_200_OK)
+
+
 class MerchantGlobalOnboardingView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser] # Enforce multi-part parser so binary images parse cleanly
@@ -152,7 +188,7 @@ class MerchantGlobalOnboardingView(APIView):
         user = request.user
         data = request.data
 
-        # 🛡️ If user already has a shop, return existing data instead of blocking
+        # If user already has a shop, return existing data instead of blocking
         if Shop.objects.filter(owner=user).exists():
             shop = Shop.objects.get(owner=user)
             return Response({
@@ -167,55 +203,116 @@ class MerchantGlobalOnboardingView(APIView):
                     "status": "approved" if shop.is_active else "pending",
                     "created_at": shop.created_at.isoformat() if shop.created_at else None,
                 }
-            }, status=200)
+            }, status=status.HTTP_200_OK)
+
+        # Sanitize and validate shop name
+        shop_name = (data.get('shop_name') or data.get('shopName') or '').strip()
+        if not shop_name:
+            return Response({
+                "status": "error",
+                "message": "Shop name is required. Please provide a valid store name."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check for existing shop with the exact name under another owner
+        duplicate_shop = Shop.objects.filter(name__iexact=shop_name).exclude(owner=user).first()
+        if duplicate_shop:
+            return Response({
+                "status": "error",
+                "message": f"A shop named '{shop_name}' is already registered. Please choose a different name or add your city/branch."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Sanitize text inputs
+        owner_name = (data.get('owner_name') or data.get('name') or user.get_full_name() or '').strip()
+        owner_email = (data.get('owner_email') or data.get('email') or user.email or '').strip()
+        owner_phone = (data.get('owner_phone') or data.get('phone') or '').strip()
+        id_type = (data.get('id_type') or data.get('idType') or '').strip()
+        id_number = (data.get('id_number') or data.get('idNumber') or '').strip()
+        shop_type = (data.get('shop_type') or data.get('shopType') or 'retailer').strip()
+        business_phone = (data.get('business_phone') or data.get('businessPhone') or owner_phone).strip()
+        address = (data.get('shop_address') or data.get('shopAddress') or '').strip()
+        country = (data.get('country') or 'Nigeria').strip()
+        state = (data.get('state') or 'Kano').strip()
+        cac_number = (data.get('cac_number') or '').strip()
+        is_registered = str(data.get('registered', 'no')).strip().lower() in ('yes', 'true', '1')
 
         try:
-            # 🌟 CORE ARCHITECTURAL RULE COMPLIANCE:
-            # Change their platform system role identity profile state to 'seller' immediately
-            user.active_role = 'seller'
-            if not user.roles:
-                user.roles = []
-            if 'seller' not in user.roles:
-                user.roles.append('seller')
-            user.save()
+            with transaction.atomic():
+                # Elevate user role to 'seller'
+                user.active_role = 'seller'
+                if not user.roles:
+                    user.roles = []
+                if 'seller' not in user.roles:
+                    user.roles.append('seller')
+                user.save()
 
-            # Create the record matching the exact multi-part keys shipped by Axios/FormData
-            shop = Shop.objects.create(
-                owner=user,
-                # Step 1 Personal Info keys fallback map
-                owner_full_name=data.get('owner_name') or data.get('name'),
-                owner_email=data.get('owner_email') or data.get('email') or user.email,
-                owner_phone=data.get('owner_phone') or data.get('phone'),
-                id_type=data.get('id_type') or data.get('idType'),
-                id_number=data.get('id_number') or data.get('idNumber'),
-                id_image=request.FILES.get('id_image'),
-                id_document=request.FILES.get('id_image'),   # Backward compatibility fallback
+                # Shop.logo is a URLField (the rest of the app stores a
+                # Cloudinary URL string there) — an uploaded file can't be
+                # assigned to it directly, that just stores the object's
+                # repr as garbage text. Save it to media storage ourselves
+                # and store the resulting URL string instead.
+                logo_file = request.FILES.get('logo')
+                logo_url = None
+                if logo_file:
+                    from django.core.files.storage import default_storage
+                    saved_path = default_storage.save(
+                        f"shop_logos/{uuid_lib.uuid4().hex}_{logo_file.name}", logo_file
+                    )
+                    logo_url = default_storage.url(saved_path)
 
-                # Step 2 Shop Info keys fallback map
-                name=data.get('shop_name') or data.get('shopName'),
-                shop_type=data.get('shop_type') or data.get('shopType'),
-                business_phone=data.get('business_phone') or data.get('businessPhone'),
-                address=data.get('shop_address') or data.get('shopAddress'),
-                country=data.get('country') or 'Nigeria',
-                state=data.get('state') or 'Kano',
-                logo=request.FILES.get('logo'),
+                # Create the Shop
+                shop = Shop.objects.create(
+                    owner=user,
+                    owner_full_name=owner_name or None,
+                    owner_email=owner_email or None,
+                    owner_phone=owner_phone or None,
+                    id_type=id_type or None,
+                    id_number=id_number or None,
+                    id_image=request.FILES.get('id_image'),
+                    id_document=request.FILES.get('id_image'),
 
-                # Legal registry data
-                is_registered=str(data.get('registered', 'no')).lower() == 'yes',
-                cac_number=data.get('cac_number', ''),
-                is_active=False # Keep pending until approved!
-            )
+                    name=shop_name,
+                    shop_type=shop_type or None,
+                    business_phone=business_phone or None,
+                    address=address or None,
+                    country=country,
+                    state=state,
+                    logo=logo_url,
+
+                    is_registered=is_registered,
+                    cac_number=cac_number,
+                    is_active=False
+                )
 
             return Response({
-                "status": "success", 
+                "status": "success",
                 "message": "Application file received and locked for administrative verification."
-            }, status=201)
+            }, status=status.HTTP_201_CREATED)
+
+        except IntegrityError as ie:
+            logger.error("Shop registration IntegrityError: %s", str(ie))
+            err_msg = str(ie).lower()
+            if "unique constraint" in err_msg and "name" in err_msg:
+                return Response({
+                    "status": "error",
+                    "message": f"A shop named '{shop_name}' is already registered. Please choose a different name."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            elif "owner" in err_msg or "unique" in err_msg:
+                return Response({
+                    "status": "error",
+                    "message": "You already have a shop application registered with this account."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({
+                    "status": "error",
+                    "message": "Unable to save shop details due to a database constraint. Please check your details."
+                }, status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
+            logger.error("Shop registration error: %s", str(e), exc_info=True)
             return Response({
-                "status": "error", 
-                "message": f"Database parsing failed structural rules: {str(e)}"
-            }, status=400)
+                "status": "error",
+                "message": "Submission error occurred. Please verify your details and try again."
+            }, status=status.HTTP_400_BAD_REQUEST)
 
 
 class AdminOverviewTelemetryView(APIView):
@@ -343,13 +440,22 @@ class CategoryListView(generics.ListAPIView):
 @method_decorator(cache_page(300), name='dispatch')
 @method_decorator(vary_on_headers('Authorization'), name='dispatch')
 class ProductListView(generics.ListAPIView):
-    queryset = Product.objects.select_related('shop', 'category').prefetch_related('images')
     serializer_class = ProductSerializer
     permission_classes = [AllowAny]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description', 'category__name']
     ordering_fields = ['price', '-price', 'created_at', '-created_at', 'name']
     ordering = ['-created_at']
+
+    def get_queryset(self):
+        queryset = Product.objects.select_related('shop', 'category').prefetch_related('images')
+        shop_id = self.request.query_params.get('shop') or self.request.query_params.get('store')
+        if shop_id:
+            queryset = queryset.filter(shop_id=shop_id)
+        category_id = self.request.query_params.get('category')
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+        return queryset
 
 class ProductDetailView(generics.RetrieveAPIView):
     queryset = Product.objects.all()
@@ -430,6 +536,7 @@ class CheckoutView(APIView):
         raw_items = data.get('items')
         payment_method = data.get('payment_method')
         shipping_address = data.get('shipping_address', {})
+        pin = data.get('pin')
 
         if not raw_items:
             try:
@@ -447,17 +554,36 @@ class CheckoutView(APIView):
                 "message": "Your cart is empty. Add items before checking out."
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        if payment_method == 'wallet':
+            pin_error = self._check_pin(user=request.user, pin=pin)
+            if pin_error:
+                return pin_error
+
         return self._process_checkout(request.user, raw_items, payment_method, shipping_address)
+
+    def _check_pin(self, user, pin):
+        """Verify the wallet transaction PIN before a wallet payment. Returns
+        a Response on failure, or None if the PIN is valid."""
+        if not user.transaction_pin:
+            return Response({
+                "status": "error",
+                "message": "No transaction PIN set. Set one in your profile first."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        if not pin or not user.check_transaction_pin(pin):
+            return Response({
+                "status": "error",
+                "message": "Invalid transaction PIN."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        return None
 
     def _process_checkout(self, user, raw_items, payment_method, shipping_address):
         total_price = Decimal('0.00')
         order_items_data = []
-        shop = None
 
         # Pre-validate stock before any DB writes
         for item in raw_items:
             try:
-                product = Product.objects.get(id=item['product_id'])
+                product = Product.objects.select_related('shop').get(id=item['product_id'])
             except Product.DoesNotExist:
                 return Response({
                     "status": "error",
@@ -476,8 +602,6 @@ class CheckoutView(APIView):
 
             total_price += product.price * qty
             order_items_data.append((product, qty))
-            if not shop:
-                shop = product.shop
 
         # Pre-validate wallet balance if paying via wallet
         if payment_method == 'wallet':
@@ -490,49 +614,75 @@ class CheckoutView(APIView):
                     "message": f"Insufficient wallet balance. Required: ₦{total_price:,.0f}, Available: ₦{buyer_wallet.available_balance:,.0f}."
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+        # An Order has a single `shop` FK, but a cart can span multiple
+        # sellers. Split the cart into one Order per shop so each seller's
+        # order-list/dispatch views and escrow release see exactly (and
+        # only) their own items — a single combined Order used to make
+        # non-primary sellers' items invisible to them and their share of
+        # the payment permanently stuck in escrow.
+        items_by_shop = defaultdict(list)
+        for product, qty in order_items_data:
+            items_by_shop[product.shop_id].append((product, qty))
+
         # All validations passed — execute the transaction
         try:
             with transaction.atomic():
-                order = Order.objects.create(
-                    buyer=user,
-                    shop=shop,
-                    total_price=total_price,
-                    delivery_status=Order.DeliveryStatus.PENDING,
-                    payment_status=Order.PaymentStatus.PENDING,
-                    shipping_address_json=shipping_address
-                )
-
-                for product, qty in order_items_data:
-                    product = Product.objects.select_for_update().get(id=product.id)
-                    if product.stock < qty:
-                        raise ValueError(f"Stock changed for {product.name}")
-                    OrderItem.objects.create(
-                        order=order,
-                        product=product,
-                        quantity=qty,
-                        price_at_purchase=product.price
+                orders = []
+                for shop_id, items in items_by_shop.items():
+                    shop_total = sum((p.price * q for p, q in items), Decimal('0.00'))
+                    order = Order.objects.create(
+                        buyer=user,
+                        shop_id=shop_id,
+                        total_price=shop_total,
+                        delivery_status=Order.DeliveryStatus.PENDING,
+                        payment_status=Order.PaymentStatus.PENDING,
+                        shipping_address_json=shipping_address
                     )
-                    product.stock -= qty
-                    product.save()
+
+                    for product, qty in items:
+                        product = Product.objects.select_for_update().get(id=product.id)
+                        if product.stock < qty:
+                            raise ValueError(f"Stock changed for {product.name}")
+                        OrderItem.objects.create(
+                            order=order,
+                            product=product,
+                            quantity=qty,
+                            price_at_purchase=product.price
+                        )
+                        product.stock -= qty
+                        product.save()
+
+                    orders.append(order)
+
+                # Remove the purchased items from the buyer's cart so they
+                # don't sit there looking un-ordered — leaving them behind
+                # let a buyer re-run checkout on the same items and get
+                # double-charged for an order they'd already placed.
+                ordered_product_ids = [product.id for product, _ in order_items_data]
+                CartItem.objects.filter(
+                    cart__user=user, product_id__in=ordered_product_ids
+                ).delete()
 
                 if payment_method == 'wallet':
-                    self._process_wallet_payment(user, order, total_price)
+                    self._process_wallet_payment(user, orders, total_price)
 
-                    order_serializer = OrderSerializer(order)
+                    orders_data = OrderSerializer(orders, many=True).data
                     return Response({
                         "status": "success",
                         "message": "Order placed and paid successfully.",
                         "payment_method": "wallet",
-                        "order": order_serializer.data
+                        "order": orders_data[0] if orders_data else None,
+                        "orders": orders_data
                     }, status=status.HTTP_201_CREATED)
 
-                order_serializer = OrderSerializer(order)
+                orders_data = OrderSerializer(orders, many=True).data
                 return Response({
                     "status": "success",
                     "message": "Order created successfully. Proceed to payment.",
-                    "order_id": order.id,
+                    "order_id": orders[0].id if orders else None,
                     "amount_to_pay": str(total_price),
-                    "order": order_serializer.data
+                    "order": orders_data[0] if orders_data else None,
+                    "orders": orders_data
                 }, status=status.HTTP_201_CREATED)
 
         except ValueError as e:
@@ -547,7 +697,13 @@ class CheckoutView(APIView):
                 "message": "Checkout failed. Please try again."
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    def _process_wallet_payment(self, user, order, total_price):
+    def _process_wallet_payment(self, user, orders, total_price):
+        """
+        orders: list of single-shop Order instances covering the whole
+        checkout. Buyer is debited once for the combined total; each
+        order's own shop owner is credited that order's total_price into
+        locked_balance (net of commission, released on buyer confirmation).
+        """
         buyer_wallet, _ = Wallet.objects.select_for_update().get_or_create(
             user=user, defaults={'available_balance': Decimal('0.00')}
         )
@@ -558,14 +714,10 @@ class CheckoutView(APIView):
         buyer_wallet.available_balance -= total_price
         buyer_wallet.save()
 
-        order_items = OrderItem.objects.filter(order=order).select_related('product__shop__owner')
-        merchant_shares = {}
-        for oi in order_items:
-            owner = oi.product.shop.owner
-            amount = oi.quantity * oi.price_at_purchase
-            merchant_shares[owner] = merchant_shares.get(owner, Decimal('0.00')) + amount
+        for order in orders:
+            owner = order.shop.owner
+            amount = order.total_price
 
-        for owner, amount in merchant_shares.items():
             seller_wallet, _ = Wallet.objects.select_for_update().get_or_create(
                 user=owner, defaults={'available_balance': Decimal('0.00')}
             )
@@ -581,17 +733,18 @@ class CheckoutView(APIView):
                 description=f"Sales earnings (locked) for Order #{order.order_number or order.id}"
             )
 
+            order.payment_status = Order.PaymentStatus.PAID
+            order.save()
+
+        order_refs = ", ".join(f"#{o.order_number or o.id}" for o in orders)
         Transaction.objects.create(
             wallet=buyer_wallet,
             amount=-total_price,
             transaction_type=Transaction.TransactionType.PAYMENT,
             status=Transaction.Status.SUCCESS,
-            related_order_id=str(order.id),
-            description=f"Payment for Order #{order.order_number or order.id}"
+            related_order_id=",".join(str(o.id) for o in orders),
+            description=f"Payment for Order(s) {order_refs}"
         )
-
-        order.payment_status = Order.PaymentStatus.PAID
-        order.save()
 
 
 class BuyNowView(APIView):
@@ -614,11 +767,55 @@ class BuyNowView(APIView):
         }]
         payment_method = data.get('payment_method')
         shipping_address = data.get('shipping_address', {})
+        pin = data.get('pin')
 
-        return CheckoutView()._process_checkout(request.user, raw_items, payment_method, shipping_address)
+        checkout_view = CheckoutView()
+        if payment_method == 'wallet':
+            pin_error = checkout_view._check_pin(user=request.user, pin=pin)
+            if pin_error:
+                return pin_error
+
+        return checkout_view._process_checkout(request.user, raw_items, payment_method, shipping_address)
 
 
 # --- CART & ORDERING ---
+
+class WishlistView(APIView):
+    """
+    Backs the mobile app's wishlist (hooks/useWishlist.ts). Every response
+    returns the user's full wishlist as a product list, matching what that
+    hook expects back from every mutation.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _products(self, user):
+        items = WishlistItem.objects.filter(user=user).select_related('product').prefetch_related('product__images')
+        return [item.product for item in items]
+
+    def get(self, request):
+        return Response({"wishlist": WishlistProductSerializer(self._products(request.user), many=True).data})
+
+    def post(self, request):
+        product_id = request.data.get('productId') or request.data.get('product_id')
+        if not product_id:
+            return Response({"error": "productId is required"}, status=status.HTTP_400_BAD_REQUEST)
+        product = get_object_or_404(Product, id=product_id)
+        WishlistItem.objects.get_or_create(user=request.user, product=product)
+        return Response(
+            {"wishlist": WishlistProductSerializer(self._products(request.user), many=True).data},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WishlistItemDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, product_id):
+        WishlistItem.objects.filter(user=request.user, product_id=product_id).delete()
+        items = WishlistItem.objects.filter(user=request.user).select_related('product').prefetch_related('product__images')
+        products = [item.product for item in items]
+        return Response({"wishlist": WishlistProductSerializer(products, many=True).data})
+
 
 class CartAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -652,6 +849,11 @@ class CartAPIView(APIView):
         return Response({"message": "Item added to cart"}, status=status.HTTP_200_OK)
 
     def delete(self, request):
+        if request.data.get('clear_all'):
+            cart = self.get_cart(request)
+            CartItem.objects.filter(cart=cart).delete()
+            return Response({"message": "Cart cleared"}, status=status.HTTP_200_OK)
+
         item_id = request.data.get('item_id')
         if not item_id:
              return Response({"error": "Item ID required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -768,9 +970,9 @@ class CreateOrderView(APIView):
 
             with transaction.atomic():
                 for item in cart_items:
-                    product = Product.objects.select_for_update().get(id=item['product_id'])
+                    product = Product.objects.select_for_update().select_related('shop').get(id=item['product_id'])
                     qty = int(item['quantity'])
-                    
+
                     if product.stock < qty:
                         return Response({
                             "status": "out_of_stock",
@@ -778,34 +980,44 @@ class CreateOrderView(APIView):
                             "available_stock": product.stock,
                             "message": f"Only {product.stock} unit(s) of \"{product.name}\" are available."
                         }, status=400)
-                    
+
                     total_calculated_price += (product.price * qty)
                     order_items_to_create.append((product, qty))
 
-                new_order = Order.objects.create(
-                    buyer=request.user,
-                    shop=order_items_to_create[0][0].shop if order_items_to_create else None,
-                    total_price=total_calculated_price,
-                    delivery_status=Order.DeliveryStatus.PENDING,
-                    payment_status=Order.PaymentStatus.PENDING,
-                    shipping_address_json=request.data.get('shipping_address', {})
-                )
-
+                # Split by shop — see CheckoutView._process_checkout for why
+                # a single combined Order across sellers is wrong.
+                items_by_shop = defaultdict(list)
                 for product, qty in order_items_to_create:
-                    OrderItem.objects.create(
-                        order=new_order, 
-                        product=product, 
-                        quantity=qty, 
-                        price_at_purchase=product.price
+                    items_by_shop[product.shop_id].append((product, qty))
+
+                new_orders = []
+                for shop_id, items in items_by_shop.items():
+                    shop_total = sum((p.price * q for p, q in items), Decimal('0.00'))
+                    new_order = Order.objects.create(
+                        buyer=request.user,
+                        shop_id=shop_id,
+                        total_price=shop_total,
+                        delivery_status=Order.DeliveryStatus.PENDING,
+                        payment_status=Order.PaymentStatus.PENDING,
+                        shipping_address_json=request.data.get('shipping_address', {})
                     )
-                    product.stock -= qty
-                    product.save()
+                    for product, qty in items:
+                        OrderItem.objects.create(
+                            order=new_order,
+                            product=product,
+                            quantity=qty,
+                            price_at_purchase=product.price
+                        )
+                        product.stock -= qty
+                        product.save()
+                    new_orders.append(new_order)
 
             return Response({
                 "status": "success",
                 "message": "Order created successfully.",
-                "order_id": new_order.id,
-                "amount_to_pay": str(total_calculated_price)
+                "order_id": new_orders[0].id if new_orders else None,
+                "amount_to_pay": str(total_calculated_price),
+                "order_ids": [o.id for o in new_orders]
             }, status=201)
 
         except Product.DoesNotExist:
@@ -820,10 +1032,22 @@ class InternalWalletCheckoutView(APIView):
 
     def post(self, request):
         order_id = request.data.get('order_id')
+        pin = request.data.get('pin')
         if not order_id:
             return Response({
                 "status": "error",
                 "message": "Order ID is required."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if not request.user.transaction_pin:
+            return Response({
+                "status": "error",
+                "message": "No transaction PIN set. Set one in your profile first."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        if not pin or not request.user.check_transaction_pin(pin):
+            return Response({
+                "status": "error",
+                "message": "Invalid transaction PIN."
             }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
@@ -928,11 +1152,15 @@ class BuyerConfirmReceiptView(APIView):
             with transaction.atomic():
                 order = Order.objects.select_for_update().get(id=order_id, buyer=request.user)
 
-                if order.payment_status != Order.PaymentStatus.PAID:
-                    return Response({"status": "error", "message": "Order has not been paid yet."}, status=400)
-
+                # CONFIRMED must be checked first: it's a subtype of "not
+                # PAID anymore" (confirming moves payment_status away from
+                # PAID), so checking != PAID first made a double-confirm
+                # attempt show the misleading "not been paid yet" error.
                 if order.payment_status == Order.PaymentStatus.CONFIRMED:
                     return Response({"status": "error", "message": "This order has already been confirmed."}, status=400)
+
+                if order.payment_status != Order.PaymentStatus.PAID:
+                    return Response({"status": "error", "message": "Order has not been paid yet."}, status=400)
 
                 seller_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
 
@@ -977,6 +1205,93 @@ class BuyerConfirmReceiptView(APIView):
             return Response({"status": "error", "message": "Seller wallet not found."}, status=400)
         except Exception as e:
             logger.exception("Receipt confirmation failed for order %s", order_id)
+            return Response({"status": "error", "message": "An error occurred. Please try again."}, status=400)
+
+
+class BuyerCancelOrderView(APIView):
+    """
+    Buyer cancels an order that hasn't been dispatched yet.
+    Only allowed while delivery_status is PENDING — once a seller has
+    marked it shipped, the buyer can no longer unilaterally cancel.
+    Atomically reverses the payment: moves the order total out of the
+    seller's locked_balance and back into the buyer's available_balance,
+    and restores the purchased quantities to product stock.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, order_id):
+        try:
+            with transaction.atomic():
+                order = Order.objects.select_for_update().get(id=order_id, buyer=request.user)
+
+                if order.delivery_status != Order.DeliveryStatus.PENDING:
+                    return Response({
+                        "status": "error",
+                        "message": f"This order can no longer be cancelled (status: {order.delivery_status})."
+                    }, status=400)
+
+                if order.payment_status != Order.PaymentStatus.PAID:
+                    return Response({
+                        "status": "error",
+                        "message": "This order isn't in a cancellable payment state."
+                    }, status=400)
+
+                seller_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
+                buyer_wallet = Wallet.objects.select_for_update().get(user=request.user)
+
+                order_total = order.total_price
+
+                if seller_wallet.locked_balance < order_total:
+                    return Response({
+                        "status": "error",
+                        "message": "Unable to process cancellation. Please contact support."
+                    }, status=400)
+
+                seller_wallet.locked_balance -= order_total
+                seller_wallet.save()
+
+                buyer_wallet.available_balance += order_total
+                buyer_wallet.save()
+
+                for order_item in order.items.select_related('product'):
+                    product = Product.objects.select_for_update().get(id=order_item.product_id)
+                    product.stock += order_item.quantity
+                    product.save()
+
+                Transaction.objects.create(
+                    wallet=seller_wallet,
+                    amount=-order_total,
+                    transaction_type=Transaction.TransactionType.REFUND,
+                    status=Transaction.Status.SUCCESS,
+                    related_order_id=str(order.id),
+                    description=f"Order #{order.order_number or order.id} cancelled by buyer — funds reversed"
+                )
+                Transaction.objects.create(
+                    wallet=buyer_wallet,
+                    amount=order_total,
+                    transaction_type=Transaction.TransactionType.REFUND,
+                    status=Transaction.Status.SUCCESS,
+                    related_order_id=str(order.id),
+                    description=f"Refund for cancelled Order #{order.order_number or order.id}"
+                )
+
+                order.delivery_status = Order.DeliveryStatus.CANCELLED
+                order.payment_status = Order.PaymentStatus.REFUNDED
+                order.save()
+
+                return Response({
+                    "status": "success",
+                    "message": "Order cancelled and refunded to your wallet.",
+                    "order_id": order.id,
+                    "refunded_amount": str(order_total)
+                }, status=200)
+
+        except Order.DoesNotExist:
+            return Response({"status": "error", "message": "Order not found."}, status=404)
+        except Wallet.DoesNotExist:
+            return Response({"status": "error", "message": "Wallet not found."}, status=400)
+        except Exception:
+            logger.exception("Order cancellation failed for order %s", order_id)
             return Response({"status": "error", "message": "An error occurred. Please try again."}, status=400)
 
 
@@ -1566,14 +1881,49 @@ class MerchantWithdrawalView(APIView):
         if amount_dec <= 0:
             return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Reserve funds BEFORE contacting Monnify. Real money must never be
+        # disbursed unless it has already been deducted from the wallet —
+        # calling the payment processor first (as this used to do) let a
+        # withdrawal succeed against a balance that was never verified.
+        reference = f"WTH-{uuid_lib.uuid4().hex[:12]}-{int(timezone.now().timestamp())}"
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=request.user)
+
+            if wallet.available_balance < amount_dec:
+                return Response(
+                    {"error": "Insufficient available balance. Locked funds cannot be withdrawn."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            wallet.available_balance -= amount_dec
+            wallet.save()
+
+            txn = Transaction.objects.create(
+                wallet=wallet,
+                amount=-amount_dec,
+                transaction_type=Transaction.TransactionType.WITHDRAWAL,
+                status=Transaction.Status.PENDING,
+                reference=reference,
+                description=f"Withdrawal to {account_number}",
+            )
+
+        def _refund_and_fail(reason):
+            with transaction.atomic():
+                w = Wallet.objects.select_for_update().get(pk=wallet.pk)
+                w.available_balance += amount_dec
+                w.save()
+                txn.status = Transaction.Status.FAILED
+                txn.description += f" (Failed: {reason} — refunded)"
+                txn.save(update_fields=['status', 'description'])
+
         token = self._monnify_auth_token()
         if not token:
+            _refund_and_fail("could not authenticate with payment processor")
             return Response(
                 {"error": "Could not authenticate with payment processor. Try again."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        reference = f"WTH-{uuid_lib.uuid4().hex[:12]}-{int(timezone.now().timestamp())}"
         disbursement_url = settings.MONNIFY_BASE_URL.rstrip('/') + '/api/v2/disbursements/single'
         payload = {
             "amount": float(amount_dec),
@@ -1598,6 +1948,7 @@ class MerchantWithdrawalView(APIView):
             result = disburse_resp.json()
         except requests.RequestException as e:
             logger.error(f"Monnify disbursement connection failure: {e}")
+            _refund_and_fail("could not reach payment processor")
             return Response(
                 {"error": "Could not reach payment processor. Try again."},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -1605,31 +1956,18 @@ class MerchantWithdrawalView(APIView):
 
         if not (result.get("requestSuccessful") and disburse_resp.status_code in (200, 201)):
             error_msg = result.get("responseMessage", "Payment processor rejected the request")
+            _refund_and_fail(error_msg)
             return Response(
                 {"error": f"Verification error: {error_msg}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        with transaction.atomic():
-            wallet = Wallet.objects.select_for_update().get(user=request.user)
-
-            if wallet.available_balance < amount_dec:
-                return Response(
-                    {"error": "Insufficient available balance. Locked funds cannot be withdrawn."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            wallet.available_balance -= amount_dec
-            wallet.save()
-
-            Transaction.objects.create(
-                wallet=wallet,
-                amount=-amount_dec,
-                transaction_type=Transaction.TransactionType.WITHDRAWAL,
-                status=Transaction.Status.SUCCESS,
-                reference=reference,
-                description=f"Withdrawal to {account_number}",
-            )
+        # Monnify has accepted the disbursement request — the wallet stays
+        # deducted. Final settlement is confirmed asynchronously via
+        # MonnifyWebhookView's DISBURSEMENT_SUCCESS/DISBURSEMENT_FAILED events,
+        # which mark this transaction SUCCESS or refund it on failure.
+        txn.status = Transaction.Status.SUCCESS
+        txn.save(update_fields=['status'])
 
         return Response(
             {
@@ -1670,7 +2008,7 @@ class PromotedPostCreateView(APIView):
                     description=data.get('description', ''),
                     price=data.get('price'),
                     location=data.get('location', ''),
-                    phone_number=data['phone_number'],
+                    phone_number=data.get('phone_number', ''),
                     whatsapp_number=data.get('whatsapp_number') or None,
                 )
                 StandaloneAdImage.objects.bulk_create([
@@ -1684,7 +2022,7 @@ class PromotedPostCreateView(APIView):
                 promotion_type=promotion_type,
                 product=data.get('product'),
                 standalone_ad=standalone_ad,
-                contact_preference=data['contact_preference'],
+                contact_preference=PromotedPost.ContactPreference.CHAT,
                 duration_type=duration_type,
                 amount_paid=amount,
             )
@@ -1732,6 +2070,34 @@ class PromotedPostDetailView(generics.RetrieveAPIView):
     serializer_class = PromotedPostSerializer
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
+
+
+class PromotionByCodeView(generics.RetrieveAPIView):
+    """
+    Public detail view keyed by the shareable short code. Backs the deep link
+    GLAPP://promotion/<code> and the https fallback. Returns 404 for an unknown
+    code and 410 (Gone) for a promotion that has expired or been deactivated, so
+    the client can show a "Promotion Unavailable" screen.
+    """
+    serializer_class = PromotedPostSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    lookup_field = 'code'
+    lookup_url_kwarg = 'code'
+
+    def get_queryset(self):
+        return PromotedPost.objects.select_related(
+            'product', 'product__shop', 'standalone_ad', 'user'
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not instance.is_active or instance.is_expired:
+            return Response(
+                {'detail': 'This promotion is no longer available.', 'code': 'unavailable'},
+                status=status.HTTP_410_GONE,
+            )
+        return Response(self.get_serializer(instance).data)
 
 
 class PromotedPostPricingView(APIView):

@@ -114,8 +114,23 @@ class PurchaseDataView(APIView):
             )
 
             status_msg = str(res_data.get('status', '')).upper()
-            
+            order_id = res_data.get('orderid') or request_id
+
             if res_data.get('statuscode') == '100' or "RECEIVED" in status_msg or "SUCCESSFUL" in status_msg:
+                # nellobyte_callback below looks this row up by order_id —
+                # without creating it here, every real callback 404s and
+                # this purchase's status can never move past "pending".
+                DataTransaction.objects.create(
+                    user=user,
+                    request_id=request_id,
+                    order_id=str(order_id),
+                    service_id=service_id,
+                    data_plan=variation_code,
+                    phone=phone,
+                    amount=amount,
+                    status=DataTransaction.Status.PENDING,
+                    remark=str(res_data),
+                )
                 return Response({
                     "message": "Data purchase successful!",
                     "details": res_data
@@ -124,6 +139,17 @@ class PurchaseDataView(APIView):
                 # AUTO-REFUND if Nellobyte fails
                 user.wallet.available_balance += float(amount)
                 user.wallet.save()
+                DataTransaction.objects.create(
+                    user=user,
+                    request_id=request_id,
+                    order_id=str(order_id),
+                    service_id=service_id,
+                    data_plan=variation_code,
+                    phone=phone,
+                    amount=amount,
+                    status=DataTransaction.Status.FAILED,
+                    remark=str(res_data.get("remark") or res_data.get("status") or "Provider error"),
+                )
                 return Response({
                     "error": "Provider Error",
                     "details": res_data.get("remark") or res_data.get("status")

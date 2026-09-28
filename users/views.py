@@ -7,7 +7,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Sum
-from .serializers import UserSerializer, RegistrationSerializer, KYCUploadSerializer, AdminKYCSerializer
+from .serializers import UserSerializer, RegistrationSerializer, KYCUploadSerializer, AdminKYCSerializer, AddressSerializer
+from .models import Address
 from django.shortcuts import get_object_or_404
 from django.contrib.auth import authenticate, login
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -101,17 +102,68 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         return self.request.user
 
+class AddressListCreateView(APIView):
+    """
+    Backs the mobile app's address book (hooks/useAddressess.ts). Every
+    response returns the user's full address list, matching what that hook
+    expects back from every mutation.
+    """
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def _all_addresses(self, user):
+        return Address.objects.filter(user=user).order_by('-is_default', 'id')
+
+    def get(self, request):
+        addresses = self._all_addresses(request.user)
+        return Response({"addresses": AddressSerializer(addresses, many=True).data})
+
+    def post(self, request):
+        serializer = AddressSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(user=request.user)
+        addresses = self._all_addresses(request.user)
+        return Response(
+            {"addresses": AddressSerializer(addresses, many=True).data},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AddressDetailView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def _all_addresses(self, user):
+        return Address.objects.filter(user=user).order_by('-is_default', 'id')
+
+    def put(self, request, pk):
+        address = get_object_or_404(Address, pk=pk, user=request.user)
+        serializer = AddressSerializer(address, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        addresses = self._all_addresses(request.user)
+        return Response({"addresses": AddressSerializer(addresses, many=True).data})
+
+    def delete(self, request, pk):
+        address = get_object_or_404(Address, pk=pk, user=request.user)
+        address.delete()
+        addresses = self._all_addresses(request.user)
+        return Response({"addresses": AddressSerializer(addresses, many=True).data})
+
+
 class AddRoleView(APIView):
     """
     Allows a user to activate a new role (e.g., "Become a Seller").
     """
     permission_classes = (permissions.IsAuthenticated,)
 
+    # Self-service roles only — admin is granted separately by another admin
+    # (AdminUpdateUserRoleView), never by the user themselves.
+    SELF_SERVICE_ROLES = [r for r in User.Roles.values if r != User.Roles.ADMIN]
+
     def post(self, request):
         role_to_add = request.data.get('role')
-        if role_to_add not in User.Roles.values:
+        if role_to_add not in self.SELF_SERVICE_ROLES:
             return Response({"error": "Invalid role"}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         user = request.user
         if role_to_add not in user.roles:
             user.roles.append(role_to_add)
@@ -213,12 +265,16 @@ class AdminKYCActionView(APIView):
             user_to_verify.kyc_status = User.KycStatus.VERIFIED
             user_to_verify.rejection_reason = None # Clear any old errors
             user_to_verify.save()
+            from .utils import send_kyc_approved_email
+            send_kyc_approved_email(user_to_verify)
             return Response({"message": f"User {user_to_verify.email} verified successfully."})
 
         elif action == 'reject':
             user_to_verify.kyc_status = User.KycStatus.REJECTED
             user_to_verify.rejection_reason = reason
             user_to_verify.save()
+            from .utils import send_kyc_rejected_email
+            send_kyc_rejected_email(user_to_verify, reason)
             return Response({"message": "KYC rejected. User notified of the reason."})
 
         return Response({"error": "Invalid action. Use 'approve' or 'reject'."}, status=status.HTTP_400_BAD_REQUEST)

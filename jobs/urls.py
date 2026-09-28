@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
-    JobListView, JobDetailView, SeekerProfileView, 
-    ApplyJobView, EmployerApplicationsView
+    JobListView, JobDetailView, SeekerProfileView,
+    ApplyJobView, EmployerApplicationsView, SeekerApplicationsView
 )
 
 urlpatterns = [
@@ -12,6 +12,7 @@ urlpatterns = [
     # Seeker
     path('profile/me/', SeekerProfileView.as_view(), name='seeker-profile'),
     path('<int:job_id>/apply/', ApplyJobView.as_view(), name='job-apply'),
+    path('applications/mine/', SeekerApplicationsView.as_view(), name='seeker-applications'),
 
     # Employer Management
     path('applications/received/', EmployerApplicationsView.as_view(), name='employer-applications'),
