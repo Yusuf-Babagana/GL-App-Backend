@@ -96,9 +96,13 @@ class NellobyteClient:
             "CallBackURL": self.callback_url,
         }
 
-        masked = {k: (v[:-4] + '****' if k == 'APIKey' else v) for k, v in params.items()}
+        masked = {k: ('****' if k == 'APIKey' else v) for k, v in params.items()}
         logger.info(f"Nellobyte purchase_data — url={url} params={masked}")
-        
+        try:
+            logger.info("Outbound IP: %s", requests.get('https://api.ipify.org', timeout=10).text)
+        except Exception as e:
+            logger.info("Outbound IP lookup failed: %s", e)
+
         response = requests.get(url, params=params, timeout=30)
         logger.info(f"Nellobyte purchase_data response — {response.json()}")
         return response.json()
