@@ -409,6 +409,16 @@ class DataHistoryView(generics.ListAPIView):
             transaction_type=Transaction.TransactionType.BILL_PAYMENT
         ).order_by('-created_at')
 
+    def list(self, request, *args, **kwargs):
+        # Settle this user's stuck Pending orders (missed provider callback)
+        # before returning history. Never let it break the history screen.
+        try:
+            from .reconcile import reconcile_pending_data_orders
+            reconcile_pending_data_orders(wallet=request.user.wallet, max_orders=5)
+        except Exception as e:
+            logger.error(f"Data history reconcile failed: {e}")
+        return super().list(request, *args, **kwargs)
+
 
 class DataVariationsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
