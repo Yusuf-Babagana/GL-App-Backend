@@ -401,3 +401,51 @@ class WithdrawalRequestTests(TestCase):
         }
         response = self.client.post(url, data, content_type='application/json')
         self.assertEqual(response.status_code, 401)
+
+
+
+class DisbursementWebhookTests(TestCase):
+    """Withdrawal refund must happen exactly once and never be reversed silently."""
+
+    def setUp(self):
+        import hashlib, hmac, json
+        from django.conf import settings
+        from django.contrib.auth import get_user_model
+        from rest_framework.test import APIClient
+        self.settings = settings
+        self._hmac, self._hashlib, self._json = hmac, hashlib, json
+        u = get_user_model().objects.create_user(email="w@example.com", password="pw12345!", full_name="W")
+        self.wallet, _ = Wallet.objects.get_or_create(user=u)
+        self.wallet.available_balance = Decimal("0.00")
+        self.wallet.save()
+        self.txn = Transaction.objects.create(
+            wallet=self.wallet, amount=Decimal("-1000.00"),
+            transaction_type=Transaction.TransactionType.WITHDRAWAL,
+            status=Transaction.Status.SUCCESS, reference="WTH-test1",
+        )
+        self.client = APIClient()
+
+    def _send(self, event):
+        body = self._json.dumps({"eventType": event, "eventData": {"reference": "WTH-test1"}})
+        sig = self._hmac.new(self.settings.MONNIFY_SECRET_KEY.encode(), body.encode(), self._hashlib.sha512).hexdigest()
+        return self.client.generic("POST", "/api/finance/monnify-webhook/", body,
+                                   content_type="application/json", HTTP_MONNIFY_SIGNATURE=sig)
+
+    def test_failed_disbursement_refunds_once(self):
+        self.assertEqual(self._send("DISBURSEMENT_FAILED").status_code, 200)
+        self._send("DISBURSEMENT_FAILED")
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.available_balance, Decimal("1000.00"))
+
+    def test_pending_withdrawal_is_refunded_on_failure(self):
+        self.txn.status = Transaction.Status.PENDING
+        self.txn.save()
+        self._send("DISBURSEMENT_FAILED")
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.available_balance, Decimal("1000.00"))
+
+    def test_success_after_refund_is_not_flipped(self):
+        self._send("DISBURSEMENT_FAILED")
+        self._send("DISBURSEMENT_SUCCESS")
+        self.txn.refresh_from_db()
+        self.assertEqual(self.txn.status, Transaction.Status.FAILED)

@@ -28,6 +28,9 @@ urlpatterns = [
 
     path('admin/', admin.site.urls),
 
+    # Customer-facing web app (SPA over the same /api/ endpoints the mobile app uses)
+    path('app/', include('webapp.urls')),
+
     path('account-deletion/', TemplateView.as_view(template_name='account_deletion.html'), name='account-deletion'),
 
     # Public web fallback for shared promotion links (deep-link target + OG preview)

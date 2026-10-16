@@ -34,6 +34,7 @@ GLAPP_COMMISSION_CAP  = Decimal('2500.00')
 
 # Local Imports
 from .models import Category, Shop, Product, Order, OrderItem, Cart, CartItem, ProductImage, MerchantProfile, PromotedPost, PromotedPostPricing, StandaloneAd, StandaloneAdImage, WishlistItem
+from .serializers import validate_seller_status_change
 from .serializers import (
     CategorySerializer, ShopSerializer, ProductSerializer,
     OrderSerializer, BuyerOrderSerializer, SellerOrderSerializer,
@@ -559,7 +560,10 @@ class CheckoutView(APIView):
             if pin_error:
                 return pin_error
 
-        return self._process_checkout(request.user, raw_items, payment_method, shipping_address)
+        return self._process_checkout(
+            request.user, raw_items, payment_method, shipping_address,
+            idempotency_key=request.headers.get('Idempotency-Key'),
+        )
 
     def _check_pin(self, user, pin):
         """Verify the wallet transaction PIN before a wallet payment. Returns
@@ -576,7 +580,31 @@ class CheckoutView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         return None
 
-    def _process_checkout(self, user, raw_items, payment_method, shipping_address):
+    def _duplicate_response(self, user, txn):
+        """Replay of an already-processed checkout: return the original orders
+        instead of charging the buyer a second time."""
+        ids = [int(i) for i in (txn.related_order_id or '').split(',') if i.strip().isdigit()]
+        orders = list(Order.objects.filter(id__in=ids, buyer=user))
+        orders_data = OrderSerializer(orders, many=True).data
+        return Response({
+            "status": "success",
+            "message": "Order placed and paid successfully.",
+            "payment_method": "wallet",
+            "duplicate": True,
+            "order": orders_data[0] if orders_data else None,
+            "orders": orders_data
+        }, status=status.HTTP_200_OK)
+
+    def _process_checkout(self, user, raw_items, payment_method, shipping_address, idempotency_key=None):
+        # Idempotency: a retry of a checkout whose response was lost (network
+        # drop) carries the same key and must not create/charge a second order.
+        payment_ref = None
+        if idempotency_key and payment_method == 'wallet':
+            payment_ref = f"CHK-{user.id}-{str(idempotency_key).strip()[:64]}"
+            existing = Transaction.objects.filter(reference=payment_ref).first()
+            if existing:
+                return self._duplicate_response(user, existing)
+
         total_price = Decimal('0.00')
         order_items_data = []
 
@@ -664,7 +692,7 @@ class CheckoutView(APIView):
                 ).delete()
 
                 if payment_method == 'wallet':
-                    self._process_wallet_payment(user, orders, total_price)
+                    self._process_wallet_payment(user, orders, total_price, payment_ref)
 
                     orders_data = OrderSerializer(orders, many=True).data
                     return Response({
@@ -690,6 +718,16 @@ class CheckoutView(APIView):
                 "status": "error",
                 "message": str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError:
+            # Lost a race against a concurrent request with the same key.
+            existing = Transaction.objects.filter(reference=payment_ref).first() if payment_ref else None
+            if existing:
+                return self._duplicate_response(user, existing)
+            logger.exception("Checkout integrity error for user %s", user.id)
+            return Response({
+                "status": "error",
+                "message": "Checkout failed. Please try again."
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as e:
             logger.exception("Checkout failed for user %s", user.id)
             return Response({
@@ -697,7 +735,7 @@ class CheckoutView(APIView):
                 "message": "Checkout failed. Please try again."
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    def _process_wallet_payment(self, user, orders, total_price):
+    def _process_wallet_payment(self, user, orders, total_price, payment_ref=None):
         """
         orders: list of single-shop Order instances covering the whole
         checkout. Buyer is debited once for the combined total; each
@@ -742,6 +780,7 @@ class CheckoutView(APIView):
             amount=-total_price,
             transaction_type=Transaction.TransactionType.PAYMENT,
             status=Transaction.Status.SUCCESS,
+            reference=payment_ref,
             related_order_id=",".join(str(o.id) for o in orders),
             description=f"Payment for Order(s) {order_refs}"
         )
@@ -775,7 +814,10 @@ class BuyNowView(APIView):
             if pin_error:
                 return pin_error
 
-        return checkout_view._process_checkout(request.user, raw_items, payment_method, shipping_address)
+        return checkout_view._process_checkout(
+            request.user, raw_items, payment_method, shipping_address,
+            idempotency_key=request.headers.get('Idempotency-Key'),
+        )
 
 
 # --- CART & ORDERING ---
@@ -1050,21 +1092,31 @@ class InternalWalletCheckoutView(APIView):
                 "message": "Invalid transaction PIN."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            order = Order.objects.get(id=order_id, buyer=request.user)
-        except Order.DoesNotExist:
-            return Response({
-                "status": "error",
-                "message": "Order not found."
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        if order.payment_status == Order.PaymentStatus.PAID:
-            return Response({
-                "status": "error",
-                "message": "This order has already been paid."
-            }, status=status.HTTP_400_BAD_REQUEST)
-
         with transaction.atomic():
+            # Lock the order row so two concurrent pay requests can't both
+            # pass the "unpaid" check and debit the buyer twice.
+            try:
+                order = Order.objects.select_for_update().get(id=order_id, buyer=request.user)
+            except Order.DoesNotExist:
+                return Response({
+                    "status": "error",
+                    "message": "Order not found."
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            if order.payment_status != Order.PaymentStatus.PENDING:
+                return Response({
+                    "status": "error",
+                    "message": "This order has already been paid." if order.payment_status in (
+                        Order.PaymentStatus.PAID, Order.PaymentStatus.CONFIRMED
+                    ) else "This order can no longer be paid."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if order.delivery_status == Order.DeliveryStatus.CANCELLED:
+                return Response({
+                    "status": "error",
+                    "message": "This order was cancelled."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
             buyer_wallet, _ = Wallet.objects.select_for_update().get_or_create(
                 user=request.user, defaults={'available_balance': Decimal('0.00')}
             )
@@ -1349,6 +1401,10 @@ class SellerUpdateOrderStatusView(APIView):
         # 3. Validation
         if not new_status:
             return Response({"error": "Status is required"}, status=400)
+
+        error = validate_seller_status_change(order, new_status)
+        if error:
+            return Response({"error": error}, status=400)
 
         # 4. Update and Save
         order.delivery_status = new_status
@@ -1676,6 +1732,9 @@ class MarkOrderDispatchedView(APIView):
         if order.delivery_status != 'pending':
             return Response({"error": f"Cannot dispatch order in '{order.delivery_status}' status."}, status=400)
 
+        if order.payment_status != Order.PaymentStatus.PAID:
+            return Response({"error": "Only paid orders can be dispatched."}, status=400)
+
         order.delivery_status = 'shipped'
         order.save()
 
@@ -1946,12 +2005,31 @@ class MerchantWithdrawalView(APIView):
                 timeout=30,
             )
             result = disburse_resp.json()
-        except requests.RequestException as e:
+        except requests.ConnectionError as e:
+            # Connection never established: Monnify did not receive the
+            # request, so it is safe to refund immediately.
             logger.error(f"Monnify disbursement connection failure: {e}")
             _refund_and_fail("could not reach payment processor")
             return Response(
                 {"error": "Could not reach payment processor. Try again."},
                 status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except (requests.RequestException, ValueError) as e:
+            # Timeout / unreadable response: Monnify MAY have accepted the
+            # transfer. Refunding here could pay the user twice, so keep the
+            # wallet debited and the transaction PENDING; the webhook
+            # (DISBURSEMENT_SUCCESS/FAILED) or an admin reconciles it.
+            logger.critical(
+                "Monnify disbursement outcome UNKNOWN for ref %s (user %s, amount %s): %s",
+                reference, request.user.id, amount_dec, e,
+            )
+            return Response(
+                {
+                    "message": "Withdrawal is being processed. Your balance will update once the bank confirms.",
+                    "reference": reference,
+                    "status": "pending",
+                },
+                status=status.HTTP_202_ACCEPTED,
             )
 
         if not (result.get("requestSuccessful") and disburse_resp.status_code in (200, 201)):

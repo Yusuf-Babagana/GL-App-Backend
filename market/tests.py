@@ -127,6 +127,87 @@ class MultiShopCheckoutTests(TestCase):
         self.assertEqual(order_b.payment_status, Order.PaymentStatus.PAID)
 
 
+class PaymentSafetyTests(MultiShopCheckoutTests):
+    """Idempotent checkout, full pay -> confirm flow, cancel, seller status rules."""
+
+    def _checkout_keyed(self, key):
+        return self.client.post("/api/market/checkout/", {
+            "items": [{"product_id": self.product_a.id, "quantity": 1}],
+            "payment_method": "wallet",
+            "shipping_address": {"address": "1 Test Rd", "city": "Kano", "phone": "0800"},
+            "pin": "1234",
+        }, format="json", HTTP_IDEMPOTENCY_KEY=key)
+
+    def test_retry_with_same_idempotency_key_charges_once(self):
+        first = self._checkout_keyed("abc123")
+        self.assertEqual(first.status_code, 201, first.data)
+        second = self._checkout_keyed("abc123")
+        self.assertEqual(second.status_code, 200, second.data)
+        self.assertTrue(second.data.get("duplicate"))
+        self.assertEqual(Order.objects.filter(buyer=self.buyer).count(), 1)
+        self.buyer.wallet.refresh_from_db()
+        self.assertEqual(self.buyer.wallet.available_balance, Decimal("1000.00"))
+        self.assertEqual(second.data["order"]["id"], first.data["order"]["id"])
+
+    def test_different_keys_are_separate_purchases(self):
+        self._checkout_keyed("k1")
+        self._checkout_keyed("k2")
+        self.assertEqual(Order.objects.filter(buyer=self.buyer).count(), 2)
+
+    def test_full_flow_pay_dispatch_confirm_ledger(self):
+        self._checkout_keyed("flow")
+        order = Order.objects.get(buyer=self.buyer)
+        seller = _auth_client(self.seller_a)
+        r = seller.post(f"/api/market/seller/orders/{order.id}/dispatch/")
+        self.assertEqual(r.status_code, 200, r.data)
+        r = self.client.post(f"/api/market/buyer/orders/{order.id}/confirm/")
+        self.assertEqual(r.status_code, 200, r.data)
+        again = self.client.post(f"/api/market/buyer/orders/{order.id}/confirm/")
+        self.assertEqual(again.status_code, 400)
+        self.seller_a.wallet.refresh_from_db()
+        self.assertEqual(self.seller_a.wallet.locked_balance, Decimal("0.00"))
+        self.assertEqual(self.seller_a.wallet.available_balance, Decimal("950.00"))
+        from finance.models import Transaction
+        self.assertTrue(Transaction.objects.filter(
+            related_order_id=str(order.id), transaction_type="escrow_release").exists())
+
+    def test_buyer_cancel_before_dispatch_refunds_and_restores_stock(self):
+        self._checkout_keyed("cx")
+        order = Order.objects.get(buyer=self.buyer)
+        r = self.client.post(f"/api/market/buyer/orders/{order.id}/cancel/")
+        self.assertEqual(r.status_code, 200, r.data)
+        self.buyer.wallet.refresh_from_db()
+        self.seller_a.wallet.refresh_from_db()
+        self.assertEqual(self.buyer.wallet.available_balance, Decimal("2000.00"))
+        self.assertEqual(self.seller_a.wallet.locked_balance, Decimal("0.00"))
+        self.product_a.refresh_from_db()
+        self.assertEqual(self.product_a.stock, 10)
+        # cancelling twice must not refund twice
+        self.assertEqual(self.client.post(f"/api/market/buyer/orders/{order.id}/cancel/").status_code, 400)
+
+    def test_seller_cannot_set_arbitrary_status(self):
+        self._checkout_keyed("st")
+        order = Order.objects.get(buyer=self.buyer)
+        seller = _auth_client(self.seller_a)
+        for bad in ("cancelled", "delivered", "bogus"):
+            r = seller.post(f"/api/market/seller/orders/status-change/{order.id}/", {"status": bad}, format="json")
+            self.assertEqual(r.status_code, 400, bad)
+            r = seller.patch(f"/api/market/seller/orders/{order.id}/", {"delivery_status": bad}, format="json")
+            self.assertEqual(r.status_code, 400, bad)
+        r = seller.patch(f"/api/market/seller/orders/{order.id}/", {"delivery_status": "shipped"}, format="json")
+        self.assertEqual(r.status_code, 200, r.data)
+        r = seller.patch(f"/api/market/seller/orders/{order.id}/", {"delivery_status": "cancelled"}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_wallet_pay_rejects_already_paid_order(self):
+        self._checkout_keyed("wp")
+        order = Order.objects.get(buyer=self.buyer)
+        r = self.client.post("/api/market/orders/wallet-pay/", {"order_id": order.id, "pin": "1234"}, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.buyer.wallet.refresh_from_db()
+        self.assertEqual(self.buyer.wallet.available_balance, Decimal("1000.00"))
+
+
 class WishlistTests(TestCase):
     """
     Covers /api/users/wishlist and /api/users/wishlist/<product_id>, backing

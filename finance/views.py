@@ -37,6 +37,16 @@ class TransactionListView(generics.ListAPIView):
     def get_queryset(self):
         return Transaction.objects.filter(wallet=self.request.user.wallet).order_by('-created_at')
 
+    def list(self, request, *args, **kwargs):
+        # Same safety net as DataHistoryView: the wallet screens read this
+        # endpoint, so settle stuck Pending data orders here too.
+        try:
+            from .reconcile import reconcile_pending_data_orders
+            reconcile_pending_data_orders(wallet=request.user.wallet, max_orders=5)
+        except Exception as e:
+            logger.error(f"Transaction list reconcile failed: {e}")
+        return super().list(request, *args, **kwargs)
+
 class WalletDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -97,7 +107,7 @@ class MonnifyWebhookView(APIView):
         event_data = data.get('eventData', {})
         
         # Log for debugging
-        print(f"WEBHOOK RECEIVED: {event_type}")
+        logger.info(f"WEBHOOK RECEIVED: {event_type}")
         
         # CASE 1: Incoming Deposit (User funding wallet or Order Checkout)
         if event_type == 'SUCCESSFUL_TRANSACTION':
@@ -167,30 +177,50 @@ class MonnifyWebhookView(APIView):
         # CASE 2: Outgoing Withdrawal (Monnify finished sending money to bank)
         elif event_type == 'DISBURSEMENT_SUCCESS':
             ref = event_data.get('reference')
-            Transaction.objects.filter(reference=ref).update(status=Transaction.Status.SUCCESS)
-            logger.info(f"✅ Disbursement successful for ref {ref}")
+            try:
+                with transaction.atomic():
+                    ledger = Transaction.objects.select_for_update().filter(reference=ref).first()
+                    if ledger is None:
+                        logger.error(f"Disbursement success webhook for unknown ref {ref}")
+                    elif ledger.status == Transaction.Status.FAILED:
+                        # Already refunded to the wallet but the bank transfer went
+                        # through: do NOT flip to SUCCESS silently, flag for manual review.
+                        logger.critical(
+                            f"DOUBLE-PAYOUT RISK: ref {ref} was refunded (FAILED) but Monnify reports success"
+                        )
+                    else:
+                        ledger.status = Transaction.Status.SUCCESS
+                        ledger.save(update_fields=['status'])
+                        logger.info(f"✅ Disbursement successful for ref {ref}")
+            except Exception as e:
+                logger.error(f"❌ Disbursement success webhook failure: {e}")
+                return Response({"error": "Internal Error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             return Response({"status": "success"}, status=status.HTTP_200_OK)
 
         elif event_type == 'DISBURSEMENT_FAILED':
             ref = event_data.get('reference')
             try:
                 with transaction.atomic():
-                    ledger = Transaction.objects.select_for_update().get(reference=ref)
-                    # Only refund if the wallet was actually deducted (SUCCESS status).
-                    # PENDING transactions haven't deducted the wallet yet.
-                    if ledger.status == Transaction.Status.SUCCESS:
-                        ledger.wallet.available_balance += abs(ledger.amount)
-                        ledger.wallet.save()
+                    ledger = Transaction.objects.select_for_update().filter(reference=ref).first()
+                    if ledger is None:
+                        logger.error(f"Disbursement failed webhook for unknown ref {ref}")
+                    elif (
+                        ledger.transaction_type == Transaction.TransactionType.WITHDRAWAL
+                        and ledger.status != Transaction.Status.FAILED
+                    ):
+                        # Withdrawals debit the wallet up front (PENDING or SUCCESS
+                        # alike), so both states must be refunded — exactly once.
+                        wallet = Wallet.objects.select_for_update().get(pk=ledger.wallet_id)
+                        wallet.available_balance += abs(ledger.amount)
+                        wallet.save()
                         ledger.status = Transaction.Status.FAILED
                         ledger.description += " (Failed: Refunded)"
                         ledger.save()
                         logger.warning(f"⚠️ Disbursement failed and refunded for ref {ref}")
-                    else:
-                        ledger.status = Transaction.Status.FAILED
-                        ledger.save(update_fields=['status'])
-                        logger.warning(f"⚠️ Disbursement failed for ref {ref} (was PENDING, no refund needed)")
             except Exception as e:
                 logger.error(f"❌ Webhook Refund failure: {e}")
+                # Non-2xx so Monnify retries instead of silently losing the refund.
+                return Response({"error": "Internal Error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({"status": "success"}, status=200)
 

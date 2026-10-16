@@ -252,6 +252,26 @@ class BuyerOrderSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+# Statuses a seller may move an order to, keyed by its current status.
+# Everything past "shipped" (delivered/cancelled/refunds) is driven by the
+# buyer, rider or admin flows so a seller can't strand escrowed funds.
+SELLER_ALLOWED_TRANSITIONS = {
+    'pending': {'ready_for_pickup', 'shipped'},
+    'ready_for_pickup': {'shipped'},
+}
+
+
+def validate_seller_status_change(order, new_status):
+    """Return an error message if the seller may not set `new_status`, else None."""
+    if new_status == order.delivery_status:
+        return None
+    if order.payment_status != 'paid':
+        return "Only paid orders can be updated."
+    if new_status not in SELLER_ALLOWED_TRANSITIONS.get(order.delivery_status, set()):
+        return f"Cannot change order from '{order.delivery_status}' to '{new_status}'."
+    return None
+
+
 class SellerOrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     buyer_name = serializers.ReadOnlyField(source='buyer.full_name')
@@ -268,6 +288,13 @@ class SellerOrderSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['order_number', 'buyer_name', 'buyer_phone', 'buyer_email',
                            'total_price', 'payment_status', 'created_at']
+
+    def validate_delivery_status(self, value):
+        if self.instance is not None:
+            error = validate_seller_status_change(self.instance, value)
+            if error:
+                raise serializers.ValidationError(error)
+        return value
 
 
 class CheckoutItemSerializer(serializers.Serializer):
@@ -418,4 +445,4 @@ class PromotedPostCreateSerializer(serializers.ModelSerializer):
             if not data.get('title'):
                 raise serializers.ValidationError({"title": "Give your item a title."})
 
-        return data
+        return data
