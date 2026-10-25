@@ -10,7 +10,7 @@
     if (st.status === 'approved') { G.go('#/merchant'); return; }
     if (st.status === 'pending') { G.go('#/merchant/pending'); return; }
     const u = G.user || {};
-    el.innerHTML = '<div class="narrow"><a href="#/more">← Account</a><h1>Become a seller</h1><form class="card" id="f">' +
+    el.innerHTML = '<div>' + G.head('Become a seller', '#/more') + '<form class="card" id="f">' +
       '<h2>Your details</h2><label>Full name</label><input name="owner_name" required value="' + esc(u.full_name || '') + '">' +
       '<label>Email</label><input name="owner_email" type="email" required value="' + esc(u.email || '') + '"><label>Phone</label><input name="owner_phone" required inputmode="tel" value="' + esc(u.phone_number || '') + '">' +
       '<label>ID type</label><select name="id_type"><option>NIN</option><option>Voter Card</option><option>Driver License</option><option>International Passport</option></select>' +
@@ -53,7 +53,7 @@
   G.route('/merchant/pending', async (el) => {
     const st = await G.get('/market/shop/my-status/');
     if (st.status === 'approved') { G.go('#/merchant'); return; }
-    el.innerHTML = '<div class="narrow card center"><div style="font-size:44px">⏳</div><h1>' + (st.status === 'pending' ? 'Application under review' : 'No application yet') + '</h1><p class="mute">' +
+    el.innerHTML = '<div class="card center"><div style="font-size:44px">⏳</div><h1>' + (st.status === 'pending' ? 'Application under review' : 'No application yet') + '</h1><p class="mute">' +
       (st.status === 'pending' ? 'Your shop will open once an administrator activates it. We will notify you.' : 'Start your seller application to open a shop.') + '</p>' +
       (st.status === 'none' ? '<a class="btn" href="#/merchant/onboarding">Apply now</a>' : '<a class="btn" href="#/more">Back</a>') + '</div>';
   }, { auth: true });
@@ -95,7 +95,7 @@
     const cats = G.list(await G.get('/market/categories/', { noAuth: true }));
     const p = existing || {};
     const curImg = G.pimg(p); const curVid = p.video_url || '';
-    el.innerHTML = '<div class="narrow"><a href="#/merchant">← Dashboard</a><h1>' + (existing ? 'Edit product' : 'Add product') + '</h1><form class="card" id="f">' +
+    el.innerHTML = '<div>' + G.head('\' + (existing ? \'Edit product\' : \'Add product\') + \'', '#/merchant') + '<form class="card" id="f">' +
       '<label>Name</label><input name="name" required value="' + esc(p.name || '') + '"><label>Description</label><textarea name="description">' + esc(p.description || '') + '</textarea>' +
       '<div class="row"><div class="grow"><label>Price (₦)</label><input name="price" type="number" min="0" step="0.01" required value="' + esc(p.price || '') + '"></div><div class="grow"><label>Stock</label><input name="stock" type="number" min="0" required value="' + esc(p.stock != null ? p.stock : 1) + '"></div></div>' +
       '<label>Category</label><select name="category"><option value="">None</option>' + cats.map((c) => '<option value="' + c.id + '"' + (String(p.category) === String(c.id) ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select>' +
@@ -127,7 +127,7 @@
   G.route('/merchant/edit-store', async (el) => {
     if (!(await requireShop(el))) return;
     const s = await G.get('/market/store/detail/');
-    el.innerHTML = '<div class="narrow"><a href="#/merchant">← Dashboard</a><h1>Edit store</h1><form class="card" id="f">' +
+    el.innerHTML = '<div>' + G.head('Edit store', '#/merchant') + '<form class="card" id="f">' +
       (s.logo ? '<img src="' + esc(s.logo) + '" style="width:80px;height:80px;object-fit:cover;border-radius:12px" alt="">' : '') +
       '<label>Store name</label><input name="name" required value="' + esc(s.name || '') + '"><label>Description</label><textarea name="description">' + esc(s.description || '') + '</textarea>' +
       '<label>New logo</label><input name="logo" type="file" accept="image/*"><div id="err" style="margin-top:10px"></div><button class="btn block" style="margin-top:12px">Save</button></form></div>';
@@ -148,7 +148,7 @@
   /* ---------- Seller orders ---------- */
   G.route('/seller/orders', async (el) => {
     const orders = G.list(await G.get('/market/seller/orders/'));
-    el.innerHTML = '<a href="#/merchant">← Dashboard</a><h1>Customer orders</h1>' + (orders.length ? orders.map((o) =>
+    el.innerHTML = '' + G.head('Customer orders', '#/merchant') + '' + (orders.length ? orders.map((o) =>
       '<a class="card" style="display:block;color:inherit" href="#/seller/orders/' + o.id + '"><div class="row between"><b>#' + esc(o.order_number || o.id) + '</b><span class="price">' + money(o.total_price) + '</span></div>' +
       '<div class="small mute">' + esc(o.buyer_name || '') + ' · ' + G.date(o.created_at) + '</div><div style="margin-top:6px">' + G.statusPill(o.delivery_status) + ' ' + G.statusPill(o.payment_status) + '</div></a>').join('') : '<div class="empty">No orders yet.</div>');
   }, { auth: true });
@@ -156,7 +156,7 @@
   G.route('/seller/orders/:id', async (el, ctx) => {
     const o = await G.get('/market/seller/orders/' + ctx.params.id + '/');
     const sa = o.shipping_address_json || {}; const paid = o.payment_status === 'paid';
-    el.innerHTML = '<div class="narrow"><a href="#/seller/orders">← Orders</a><h1>Order #' + esc(o.order_number || o.id) + '</h1>' +
+    el.innerHTML = '<div>' + G.head('Order #\' + esc(o.order_number || o.id) + \'', '#/seller/orders') + '' +
       '<div class="card"><div>' + G.statusPill(o.delivery_status) + ' ' + G.statusPill(o.payment_status) + '</div><div class="small mute" style="margin-top:6px">' + G.date(o.created_at) + '</div></div>' +
       '<div class="card"><h2>Items</h2>' + (o.items || []).map((i) => '<div class="item"><div class="grow">' + esc(i.product_name) + '<div class="small mute">Qty ' + i.quantity + ' × ' + money(i.price) + '</div></div><b>' + money(i.quantity * i.price) + '</b></div>').join('') + '<div class="row between"><b>Total</b><b class="price">' + money(o.total_price) + '</b></div></div>' +
       '<div class="card"><h2>Buyer</h2><div>' + esc(o.buyer_name || '') + '</div><div class="small mute">' + esc(o.buyer_email || '') + '</div><div>' + (o.buyer_phone ? '<a href="tel:' + esc(o.buyer_phone) + '">' + esc(o.buyer_phone) + '</a>' : '') + '</div>' +
@@ -173,7 +173,7 @@
   G.route('/promote', async (el) => {
     const [pricing, cats, prods] = await Promise.all([G.get('/market/promoted-posts/pricing/', { noAuth: true }).catch(() => []), G.get('/market/categories/', { noAuth: true }).catch(() => []), G.get('/market/seller/products/').catch(() => [])]);
     const tiers = G.list(pricing); const products = G.list(prods); const categories = G.list(cats);
-    el.innerHTML = '<div class="narrow"><a href="#/more">← Account</a><h1>Promote a post</h1><p class="mute">Your promotion appears in the home ticker. The fee is taken from your wallet.</p><form class="card" id="f">' +
+    el.innerHTML = '<div>' + G.head('Promote a post', '#/more') + '<p class="mute">Your promotion appears in the home ticker. The fee is taken from your wallet.</p><form class="card" id="f">' +
       '<div class="tabs"><span class="chip on" data-t="product">My product</span><span class="chip" data-t="standalone">Other item</span></div>' +
       '<div id="prodBox"><label>Product</label><select name="product">' + (products.length ? products.map((p) => '<option value="' + p.id + '">' + esc(p.name) + '</option>').join('') : '<option value="">No products — use "Other item"</option>') + '</select></div>' +
       '<div id="saBox" style="display:none"><label>Title</label><input name="title"><label>Description</label><textarea name="description"></textarea><label>Price (₦)</label><input name="price" type="number" min="0">' +
@@ -200,7 +200,7 @@
           }
           const r = await G.post('/market/promoted-posts/', body);
           const share = r && r.data && r.data.share_url;
-          el.innerHTML = '<div class="narrow card center"><div style="font-size:44px">🎉</div><h1>Your promotion is live</h1>' + (share ? '<p>Share this link:</p><input readonly value="' + esc(share) + '" onclick="this.select()">' : '') + '<br><a class="btn" href="#/">See it on home</a></div>';
+          el.innerHTML = '<div class="card center"><div style="font-size:44px">🎉</div><h1>Your promotion is live</h1>' + (share ? '<p>Share this link:</p><input readonly value="' + esc(share) + '" onclick="this.select()">' : '') + '<br><a class="btn" href="#/">See it on home</a></div>';
         } catch (er) { $('#err', el).innerHTML = G.fail(er); }
       });
     };

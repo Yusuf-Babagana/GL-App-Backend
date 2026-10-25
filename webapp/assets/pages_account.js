@@ -4,44 +4,62 @@
   const G = window.GL;
   const { esc, $, $$ } = G;
 
-  /* ---------- Auth ---------- */
+  /* ---------- Auth (auth/login, register, forgot-password) ---------- */
+  const t = (...a) => G.t(...a);
   function afterAuth() {
     const next = G.session.get('gl_next');
     G.session.del('gl_next');
+    if (G.isAdmin() && (!next || next === '#/login')) { G.go('#/admin'); return; }
     G.go(next && next !== '#/login' ? next : '#/');
   }
+  const authHead = (icon, title, sub) => '<div class="authhead"><div class="authbox">' + G.icon(icon) + '</div><h1>' + esc(title) + '</h1><p>' + esc(sub) + '</p></div>';
+  const field = (label, input) => '<div><label style="margin-top:0">' + esc(label) + '</label>' + input + '</div><div style="height:20px"></div>';
 
   G.route('/login', (el) => {
     if (G.loggedIn()) { G.go('#/'); return; }
-    el.innerHTML = '<div class="narrow card"><h1>Welcome back</h1><form id="f"><label>Email</label><input name="email" type="email" required autocomplete="email">' +
-      '<label>Password</label><input name="password" type="password" required autocomplete="current-password"><div id="err" style="margin-top:10px"></div>' +
-      '<button class="btn block" style="margin-top:12px">Sign in</button></form>' +
-      '<p class="center small"><a href="#/forgot-password">Forgot password?</a> · <a href="#/register">Create account</a></p></div>';
+    el.innerHTML = '<div class="authwrap">' + authHead('globe', t('welcome_back'), t('sign_in_account')) +
+      '<form id="f">' + field(t('email_address'), '<input name="email" type="email" required autocomplete="email" placeholder="' + esc(t('email_placeholder')) + '">') +
+      '<label style="margin-top:0">' + esc(t('password')) + '</label>' + G.pwField('password', t('password_placeholder')) +
+      '<div style="text-align:right;margin:8px 0 24px"><a class="link small" href="#/forgot-password">' + esc(t('forgot_password')) + '</a></div>' +
+      '<div id="err"></div><button class="btn lg block">' + esc(t('sign_in')) + '</button>' +
+      '<div class="center" style="margin-top:16px"><a href="#/" id="skip" class="mute" style="font-weight:500">' + esc(t('skip_browse')) + '</a></div></form>' +
+      '<div class="center" style="margin-top:16px"><span class="mute" style="font-weight:500">' + esc(t('no_account')) + ' </span><a class="link" href="#/register">' + esc(t('sign_up')) + '</a></div>' +
+      '<div class="center" style="margin-top:16px">' + G.langSwitcher() + '</div></div>';
+    $('#skip', el).onclick = () => G.session.set('gl_guest', '1');
     $('#f', el).onsubmit = (e) => {
-      e.preventDefault();
-      const f = e.target;
+      e.preventDefault(); const f = e.target;
+      if (!f.email.value || !f.password.value) { $('#err', el).innerHTML = '<div class="alert bad">' + esc(t('fill_all_fields')) + '</div>'; return; }
       G.busy($('button', f), async () => {
-        try { await G.login(f.email.value, f.password.value); afterAuth(); }
-        catch (er) { $('#err', el).innerHTML = G.fail(er.status === 401 ? { data: { error: 'Invalid email or password.' } } : er); }
+        try { await G.login(f.email.value, f.password.value); G.session.del('gl_guest'); afterAuth(); }
+        catch (er) { $('#err', el).innerHTML = '<div class="alert bad"><b>' + esc(t('authentication_failed')) + '</b><br>' + esc(er.status === 401 ? t('invalid_credentials') : G.errMsg(er)) + '</div>'; }
       });
     };
   });
 
   G.route('/register', (el) => {
     if (G.loggedIn()) { G.go('#/'); return; }
-    el.innerHTML = '<div class="narrow card"><h1>Create account</h1><form id="f"><div class="row"><div class="grow"><label>First name</label><input name="first" required></div><div class="grow"><label>Last name</label><input name="last" required></div></div>' +
-      '<label>Email</label><input name="email" type="email" required autocomplete="email"><label>Password</label><input name="password" type="password" required minlength="8" autocomplete="new-password">' +
-      '<div class="small mute">At least 8 characters, not too common, not all numbers.</div><div id="err" style="margin-top:10px"></div>' +
-      '<button class="btn block" style="margin-top:12px">Sign up</button></form><p class="center small">Already registered? <a href="#/login">Sign in</a></p></div>';
+    el.innerHTML = '<div class="authwrap">' + authHead('userplus', t('create_account'), t('join_community')) +
+      '<form id="f">' + field(t('full_name'), '<input name="full_name" required autocomplete="name" placeholder="' + esc(t('full_name_placeholder')) + '">') +
+      field(t('email_address'), '<input name="email" type="email" required autocomplete="email" placeholder="' + esc(t('email_placeholder')) + '">') +
+      field(t('phone_number'), '<input name="phone" type="tel" autocomplete="tel" placeholder="' + esc(t('phone_placeholder')) + '">') +
+      '<label style="margin-top:0">' + esc(t('password')) + '</label>' + G.pwField('password', t('password_placeholder_create'), 'new-password') + '<div style="height:20px"></div>' +
+      '<label style="margin-top:0">' + esc(t('confirm_password')) + '</label>' + G.pwField('confirm', t('confirm_password_placeholder'), 'new-password') + '<div style="height:24px"></div>' +
+      '<div id="err"></div><button class="btn lg block">' + esc(t('create_account')) + '</button></form>' +
+      '<div class="center" style="margin-top:24px"><span class="mute" style="font-weight:500">' + esc(t('have_account')) + ' </span><a class="link" href="#/login">' + esc(t('sign_in')) + '</a></div></div>';
     $('#f', el).onsubmit = (e) => {
-      e.preventDefault();
-      const f = e.target;
+      e.preventDefault(); const f = e.target; const bad = (m) => { $('#err', el).innerHTML = '<div class="alert bad">' + esc(m) + '</div>'; };
+      const name = f.full_name.value.trim().replace(/\s+/g, ' ');
+      if (!name || !f.email.value.trim() || !f.password.value) return bad(t('fill_required'));
+      if (f.password.value !== f.confirm.value) return bad(t('passwords_no_match'));
+      if (f.password.value.length < 8) return bad(t('password_too_short'));
+      const parts = name.split(' ');
       G.busy($('button', f), async () => {
         try {
-          await G.post('/users/register/', { email: f.email.value.trim(), password: f.password.value, first_name: f.first.value.trim(), last_name: f.last.value.trim() }, { noAuth: true });
-          await G.login(f.email.value, f.password.value); // register response has no refresh token
-          afterAuth();
-        } catch (er) { $('#err', el).innerHTML = G.fail(er); }
+          await G.post('/users/register/', { email: f.email.value.trim(), password: f.password.value, first_name: parts[0], last_name: parts.slice(1).join(' ') }, { noAuth: true });
+          await G.login(f.email.value, f.password.value); // register response carries no refresh token
+          if (f.phone.value.trim()) { try { await G.patch('/users/profile/', { phone_number: f.phone.value.trim() }); } catch (x) { /* optional */ } }
+          G.session.del('gl_guest'); G.toast(t('account_ready')); afterAuth();
+        } catch (er) { bad(G.errMsg(er)); }
       });
     };
   });
@@ -49,58 +67,73 @@
   G.route('/forgot-password', (el) => {
     let email = '';
     function step1() {
-      el.innerHTML = '<div class="narrow card"><h1>Reset password</h1><form id="f"><label>Email</label><input name="email" type="email" required><div id="err" style="margin-top:10px"></div>' +
-        '<button class="btn block" style="margin-top:12px">Send reset code</button></form><p class="center small"><a href="#/login">Back to sign in</a></p></div>';
+      el.innerHTML = '<div class="authwrap">' + authHead('lock', t('forgot_password_title'), t('forgot_password_subtitle')) +
+        '<form id="f">' + field(t('email_address'), '<input name="email" type="email" required placeholder="' + esc(t('email_placeholder')) + '">') + '<div id="err"></div>' +
+        '<button class="btn lg block">' + esc(t('send_reset_code')) + '</button></form><div class="center" style="margin-top:20px"><a class="link" href="#/login">' + esc(t('back_to_login')) + '</a></div></div>';
       $('#f', el).onsubmit = (e) => {
         e.preventDefault();
         G.busy($('button', e.target), async () => {
-          try { email = e.target.email.value.trim().toLowerCase(); await G.post('/users/password-reset/request/', { email }, { noAuth: true }); G.toast('If the account exists, a code was sent.'); step2(); }
+          try { email = e.target.email.value.trim().toLowerCase(); await G.post('/users/password-reset/request/', { email }, { noAuth: true }); G.toast(t('code_sent_message')); step2(); }
           catch (er) { $('#err', el).innerHTML = G.fail(er); }
         });
       };
     }
     function step2() {
-      el.innerHTML = '<div class="narrow card"><h1>Enter code</h1><p class="mute small">We sent a code to ' + esc(email) + '.</p><form id="f"><label>Reset code</label><input name="otp" inputmode="numeric" required>' +
-        '<label>New password</label><input name="pw" type="password" required minlength="8" autocomplete="new-password"><div id="err" style="margin-top:10px"></div>' +
-        '<button class="btn block" style="margin-top:12px">Reset password</button></form><p class="center small"><a href="#" id="back">Use a different email</a></p></div>';
-      $('#back', el).onclick = (e) => { e.preventDefault(); step1(); };
+      el.innerHTML = '<div class="authwrap">' + authHead('lock', t('reset_password'), t('enter_code_subtitle')) +
+        '<form id="f">' + field(t('otp_code'), '<input name="otp" inputmode="numeric" required maxlength="6" style="text-align:center;letter-spacing:8px;font-size:20px">') +
+        '<label style="margin-top:0">' + esc(t('new_password')) + '</label>' + G.pwField('pw', t('new_password_placeholder'), 'new-password') + '<div style="height:20px"></div><div id="err"></div>' +
+        '<button class="btn lg block">' + esc(t('reset_password')) + '</button></form><div class="center" style="margin-top:20px"><a class="link" href="#" id="resend">' + esc(t('resend_code')) + '</a></div></div>';
+      $('#resend', el).onclick = async (e) => { e.preventDefault(); try { await G.post('/users/password-reset/request/', { email }, { noAuth: true }); G.toast(t('code_sent_message')); } catch (er) { G.toast(G.errMsg(er)); } };
       $('#f', el).onsubmit = (e) => {
         e.preventDefault();
         G.busy($('button', e.target), async () => {
-          try { await G.post('/users/password-reset/confirm/', { email, otp: e.target.otp.value.trim(), new_password: e.target.pw.value }, { noAuth: true }); G.toast('Password updated — please sign in'); G.go('#/login'); }
-          catch (er) { $('#err', el).innerHTML = G.fail(er); }
+          try { await G.post('/users/password-reset/confirm/', { email, otp: e.target.otp.value.trim(), new_password: e.target.pw.value }, { noAuth: true }); G.toast(t('password_reset_success')); G.go('#/login'); }
+          catch (er) { $('#err', el).innerHTML = '<div class="alert bad">' + esc(er.status === 400 ? t('invalid_reset_code') : er.status === 429 ? t('too_many_attempts') : G.errMsg(er)) + '</div>'; }
         });
       };
     }
     step1();
   });
 
-  /* ---------- More / account hub ---------- */
+  /* ---------- More (tabs/more.tsx) ---------- */
   G.route('/more', async (el) => {
-    const u = G.user;
-    const link = (h, ic, t, sub) => '<a href="' + h + '"><span class="ic">' + ic + '</span><span class="grow"><b>' + t + '</b>' + (sub ? '<div class="small mute">' + sub + '</div>' : '') + '</span><span class="mute">›</span></a>';
-    let shopStatus = null;
-    if (u) { try { shopStatus = (await G.get('/market/shop/my-status/')).status; } catch (e) { shopStatus = null; } }
-    const kyc = u && u.kyc_status;
-    el.innerHTML = '<div class="narrow">' +
-      (u ? '<div class="card row"><div class="grow"><h2 style="margin:0">' + esc(u.full_name || u.email) + '</h2><div class="small mute">' + esc(u.email) + '</div></div><span class="pill ' + (kyc === 'verified' ? 'ok' : kyc === 'rejected' ? 'bad' : 'warn') + '">KYC: ' + esc(G.pretty(kyc || 'unverified')) + '</span></div>'
-        : '<div class="card center"><p>Sign in to access your orders, wallet and more.</p><a class="btn" href="#/login">Sign in</a> <a class="btn sec" href="#/register">Create account</a></div>') +
-      '<div class="card menu">' +
-      (u ? link('#/profile', '👤', 'My profile', 'Name, phone, photo') + link('#/orders', '📦', 'My orders') + link('#/wallet', '👛', 'Wallet', 'Balance, deposits, withdrawals') + link('#/wishlist', '♡', 'Wishlist') + link('#/addresses', '📍', 'Addresses') + link('#/security', '🔒', 'Privacy & security', 'PIN, delete account') + link('#/kyc', '🪪', 'Identity verification (KYC)') : '') +
-      link('#/jobs', '💼', 'Jobs') +
-      (u ? (shopStatus === 'approved' ? link('#/merchant', '🏪', 'Merchant dashboard', 'Products, orders, earnings') + link('#/promote', '📣', 'Promote a post') :
-        shopStatus === 'pending' ? link('#/merchant/pending', '⏳', 'Shop under review') : link('#/merchant/onboarding', '🏪', 'Become a seller', 'Open your shop on GLAPP')) : '') +
-      (G.isAdmin() ? link('#/admin', '🛡', 'Admin dashboard') + link('#/admin/kyc', '🪪', 'KYC requests') : '') +
-      link('#/help', '🎧', 'Help & support') + link('#/privacy-policy', '📄', 'Privacy policy') + '</div>' +
-      (u ? '<button class="btn bad block" id="out">Sign out</button>' : '') + '</div>';
+    const signed = G.loggedIn();
+    const menu = [
+      ['wishlist', 'heart', t('wishlist'), '#/wishlist'], ['address', 'pin', t('addresses'), '#/addresses'], ['market', 'grid', t('market'), '#/markets'],
+      ['jobs', 'briefcase', t('jobs'), '#/jobs'], ['support', 'headset', t('support'), '#/help'], ['profile', 'user', t('profile'), '#/profile'],
+      ['privacy', 'lock', t('privacy_security'), '#/security'], ['pp', 'file', t('privacy_policy'), '#/privacy-policy'],
+    ];
+    if (G.isAdmin()) menu.push(['admin', 'shield', t('admin_panel'), '#/admin']);
+    const quick = [[t('orders'), 'bag', '#/orders', '#3B82F6', '#EFF6FF'], [t('wallet'), 'wallet', '#/wallet', '#F59E0B', '#FFFBEB'], [t('cart'), 'cart', '#/cart', '#8B5CF6', '#F5F3FF']];
+    el.innerHTML = '<h1 style="margin-bottom:20px">' + esc(t('more')) + '</h1>' +
+      '<button class="shopcard" id="shop"><span class="ib">' + G.icon('store') + '</span><span class="grow"><b>' + esc(t('my_shop')) + '</b><span>' + esc(t('my_shop_subtitle')) + '</span></span>' + G.icon('right', 22) + '</button>' +
+      '<div class="quick">' + quick.map((q) => '<a href="' + q[2] + '" style="background:' + q[4] + ';box-shadow:0 3px 6px ' + q[3] + '20"><div class="ib" style="color:' + q[3] + '">' + G.icon(q[1]) + '</div>' + esc(q[0]) + '</a>').join('') + '</div>' +
+      G.kycBanner() +
+      '<div class="menu">' + menu.map((m) => '<a href="' + m[3] + '"><span class="ic">' + G.icon(m[1]) + '</span><span class="grow">' + esc(m[2]) + '</span>' + G.icon('right').replace('<svg', '<svg class="chev"') + '</a>').join('') + '</div>' +
+      '<div class="card" style="border-radius:16px;margin-top:24px;padding:16px 20px"><div class="row" style="flex-wrap:nowrap;margin-bottom:6px"><span class="ic" style="width:40px;height:40px;border-radius:12px;background:#F9FAFB;color:var(--primary);display:flex;align-items:center;justify-content:center">' + G.icon('globe', 20) + '</span><b style="font-size:16px">' + esc(t('language')) + '</b></div>' + G.langSwitcher() + '</div>' +
+      (signed ? '<button class="sbtn out" id="out">' + G.icon('logout') + esc(t('sign_out')) + '</button>'
+        : '<a class="btn lg block" href="#/login">' + G.icon('user', 20) + esc(t('sign_in_continue')) + '</a>') +
+      (signed ? '<button class="sbtn dng" id="del" style="margin-top:16px">' + esc(t('delete_account')) + '</button>' : '') +
+      '<div class="ver">' + esc(t('version')) + '</div>';
+    $('#shop', el).onclick = async (e) => {
+      if (!signed) return G.requireLogin();
+      const b = e.currentTarget; b.style.opacity = '.7';
+      try { const r = await G.get('/market/shop/my-status/'); G.go(r.status === 'approved' || r.status === 'pending' ? '#/merchant' : '#/merchant/onboarding'); }
+      catch (er) { G.toast('Unable to load shop. Please check your connection and try again.'); b.style.opacity = ''; }
+    };
     const o = $('#out', el); if (o) o.onclick = () => G.logout();
+    const d = $('#del', el);
+    if (d) d.onclick = async () => {
+      if (!(await G.confirm(t('delete_account_title') + '\n\n' + t('delete_account_msg')))) return;
+      try { await G.post('/users/request-deletion/'); alert(t('deletion_submitted') + '\n' + t('deletion_email')); } catch (e) { G.toast(G.errMsg(e)); }
+    };
   });
 
   /* ---------- Profile ---------- */
   G.route('/profile', async (el) => {
     await G.loadUser();
     const u = G.user;
-    el.innerHTML = '<div class="narrow"><a href="#/more">← Account</a><h1>My profile</h1><form class="card" id="f">' +
+    el.innerHTML = '<div>' + G.head('My profile', '#/more') + '<form class="card" id="f">' +
       (u.profile_image ? '<img src="' + esc(u.profile_image) + '" style="width:80px;height:80px;border-radius:50%;object-fit:cover" alt="">' : '') +
       '<label>Full name</label><input name="full_name" value="' + esc(u.full_name || '') + '"><label>Email</label><input value="' + esc(u.email) + '" disabled>' +
       '<label>Phone number</label><input name="phone_number" inputmode="tel" value="' + esc(u.phone_number || '') + '"><label>Profile photo</label><input name="photo" type="file" accept="image/*">' +
@@ -131,7 +164,7 @@
   G.route('/security', async (el) => {
     const [w] = await Promise.all([G.get('/finance/wallet/').catch(() => ({})), G.loadUser()]);
     const hasPin = !!w.user_has_pin; const u = G.user;
-    el.innerHTML = '<div class="narrow"><a href="#/more">← Account</a><h1>Privacy & security</h1>' +
+    el.innerHTML = '<div>' + G.head('Privacy & security', '#/more') + '' +
       '<form class="card" id="pf"><h2>' + (hasPin ? 'Change' : 'Create') + ' transaction PIN</h2>' +
       (hasPin ? '<label>Current PIN</label><input name="old" type="password" inputmode="numeric" maxlength="4">' : '') +
       '<label>' + (hasPin ? 'New PIN' : 'PIN') + '</label><input name="pin" type="password" inputmode="numeric" maxlength="4"><label>Confirm PIN</label><input name="pin2" type="password" inputmode="numeric" maxlength="4">' +
@@ -181,7 +214,7 @@
       };
     }
     function draw() {
-      el.innerHTML = '<div class="narrow"><a href="#/more">← Account</a><div class="row between"><h1>Addresses</h1><button class="btn" id="add">+ Add</button></div>' +
+      el.innerHTML = '<div>' + G.back('#/more') + '<div class="row between"><h1>Addresses</h1><button class="btn" id="add">+ Add</button></div>' +
         (addrs.length ? addrs.map((a) => '<div class="card"><div class="row between"><b>' + esc(a.label || a.fullName) + '</b>' + (a.isDefault ? '<span class="pill ok">Default</span>' : '') + '</div>' +
           '<div>' + esc(a.fullName) + '</div><div>' + esc(a.streetAddress) + ', ' + esc(a.city) + ', ' + esc(a.state) + ' ' + esc(a.zipCode || '') + '</div><div class="mute">' + esc(a.country) + ' · ' + esc(a.phoneNumber) + '</div>' +
           '<div class="row" style="margin-top:8px"><button class="btn sm sec" data-e="' + a._id + '">Edit</button><button class="btn sm ghost" data-d="' + a._id + '">Delete</button></div></div>').join('') : '<div class="empty">No saved addresses.</div>') + '</div>';
@@ -200,7 +233,7 @@
     async function draw() {
       const items = (await G.get('/users/wishlist')).wishlist || [];
       G.wish = new Set(items.map((p) => String(p._id)));
-      el.innerHTML = '<div class="narrow" style="max-width:none"><a href="#/more">← Account</a><h1>Wishlist</h1>' + (items.length ? '<div class="grid">' + items.map((p) =>
+      el.innerHTML = '<div>' + G.head('Wishlist', '#/more') + '' + (items.length ? '<div class="grid">' + items.map((p) =>
         '<div class="pcard"><a href="#/product/' + p._id + '">' + G.img(p.images && p.images[0]) + '</a><div class="b"><a class="name" href="#/product/' + p._id + '">' + esc(p.name) + '</a><div class="price">' + G.money(p.price) + '</div>' +
         '<div class="row between"><button class="btn sm" data-add="' + p._id + '">Add to cart</button><button class="btn sm ghost" data-rm="' + p._id + '">Remove</button></div></div></div>').join('') + '</div>'
         : '<div class="empty">Your wishlist is empty.</div>') + '</div>';
@@ -219,11 +252,11 @@
   G.route('/kyc', async (el) => {
     await G.loadUser(); const u = G.user; const s = u.kyc_status;
     if (s === 'verified' || s === 'pending') {
-      el.innerHTML = '<div class="narrow card center"><div style="font-size:44px">' + (s === 'verified' ? '✅' : '⏳') + '</div><h1>' + (s === 'verified' ? 'You are verified' : 'Under review') + '</h1><p class="mute">' +
+      el.innerHTML = '<div class="card center"><div style="font-size:44px">' + (s === 'verified' ? '✅' : '⏳') + '</div><h1>' + (s === 'verified' ? 'You are verified' : 'Under review') + '</h1><p class="mute">' +
         (s === 'verified' ? 'Your identity has been verified.' : 'Your documents were submitted. We will notify you once reviewed.') + '</p><a class="btn" href="#/more">Back</a></div>';
       return;
     }
-    el.innerHTML = '<div class="narrow"><a href="#/more">← Account</a><h1>Identity verification</h1>' +
+    el.innerHTML = '<div>' + G.head('Identity verification', '#/more') + '' +
       (s === 'rejected' ? '<div class="alert bad">Your last submission was rejected' + (u.rejection_reason ? ': ' + esc(u.rejection_reason) : '') + '. Please resubmit.</div>' : '') +
       '<form class="card" id="f"><label>ID type</label><select name="t"><option>NIN</option><option>Voter Card</option><option>Driver License</option><option>International Passport</option></select>' +
       '<label>ID document photo</label><input name="id" type="file" accept="image/*" required><label>Selfie</label><input name="selfie" type="file" accept="image/*" required>' +
@@ -241,13 +274,22 @@
   G.route('/kyc/upload', (el) => { G.go('#/kyc'); }, { auth: true });
 
   /* ---------- Chat ---------- */
+  const AV = ['#329629', '#3B82F6', '#8B5CF6', '#F59E0B', '#EF4444', '#0EA5E9', '#EC4899'];
+  function timeAnchor(iso) {
+    if (!iso) return '';
+    const d = new Date(iso); const now = new Date();
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
   G.route('/chat', async (el) => {
-    if (!G.loggedIn()) { el.innerHTML = '<div class="empty">Sign in to chat with buyers and sellers.<br><br><a class="btn" href="#/login">Sign in</a></div>'; return; }
+    if (!G.loggedIn()) { el.innerHTML = '<h1>' + esc(t('chats')) + '</h1>' + G.emptyState('chat', t('login_required'), t('login_cart_msg'), '<a class="btn lg" href="#/login">' + esc(t('login')) + '</a>'); return; }
     const convs = G.list(await G.get('/chat/inbox/'));
-    el.innerHTML = '<div class="narrow"><h1>Messages</h1>' + (convs.length ? '<div class="card menu">' + convs.map((c) =>
-      '<a href="#/chat/' + c.id + '"><span class="ic">' + (c.other_user_avatar ? '<img src="' + esc(c.other_user_avatar) + '" style="width:36px;height:36px;border-radius:50%;object-fit:cover" alt="">' : '👤') + '</span><span class="grow"><b>' + esc(c.other_user_name) +
-      '</b>' + (c.product_name ? ' <span class="small mute">· ' + esc(c.product_name) + '</span>' : '') + '<div class="small mute">' + esc(c.last_message || 'No messages yet') + '</div></span>' +
-      (c.unread_count ? '<span class="badge">' + c.unread_count + '</span>' : '') + '</a>').join('') + '</div>' : '<div class="empty">No conversations yet.<br>Message a seller from any product page.</div>') + '</div>';
+    el.innerHTML = '<h1>' + esc(t('chats')) + '</h1>' + (convs.length ? convs.map((c) => {
+      const nm = c.other_user_name || '?';
+      return '<a class="inbox" href="#/chat/' + c.id + '">' + (c.other_user_avatar ? '<img class="avatar" src="' + esc(c.other_user_avatar) + '" alt="">' : '<span class="avatar" style="background:' + AV[(nm.charCodeAt(0) || 0) % AV.length] + '">' + esc(nm.charAt(0).toUpperCase()) + '</span>') +
+        '<div class="grow"><div class="row between" style="flex-wrap:nowrap"><b class="name">' + esc(nm) + '</b><span class="small mute" style="font-size:11px">' + esc(timeAnchor(c.updated_at)) + '</span></div>' +
+        '<div class="row between" style="flex-wrap:nowrap"><span class="small mute name" style="font-weight:' + (c.unread_count ? 700 : 500) + '">' + esc(c.last_message || 'No messages yet') + '</span>' + (c.unread_count ? '<span class="badge inline">' + (c.unread_count > 99 ? '99+' : c.unread_count) + '</span>' : '') + '</div></div></a>';
+    }).join('') : G.emptyState('chat', 'No conversations yet', 'Message a seller from any product page.'));
   });
 
   G.route('/chat/with/:userId', async (el, ctx) => {
@@ -259,7 +301,7 @@
 
   G.route('/chat/:id', async (el, ctx) => {
     const id = ctx.params.id; let lastId = 0; const seen = new Set();
-    el.innerHTML = '<div class="narrow"><a href="#/chat">← Messages</a><div class="card"><div class="chat-box" id="box"></div>' +
+    el.innerHTML = '<div>' + G.back('#/chat') + '<div class="card"><div class="chat-box" id="box"></div>' +
       '<form class="row" id="f" style="margin-top:8px"><input class="grow" name="t" placeholder="Type a message…" autocomplete="off"><button class="btn">Send</button></form></div></div>';
     const box = $('#box', el);
     function add(m) {
@@ -291,14 +333,14 @@
 
   /* ---------- Help / privacy ---------- */
   G.route('/help', (el) => {
-    el.innerHTML = '<div class="narrow"><h1>Help & support</h1><div class="card menu">' +
+    el.innerHTML = '<div><h1>Help & support</h1><div class="card menu">' +
       '<a href="mailto:globalinkmarketplace@gmail.com"><span class="ic">✉</span><span class="grow"><b>Email us</b><div class="small mute">globalinkmarketplace@gmail.com</div></span></a>' +
       '<a href="https://wa.me/2348101293037" target="_blank" rel="noopener"><span class="ic">💬</span><span class="grow"><b>WhatsApp</b><div class="small mute">+234 810 129 3037</div></span></a>' +
       '<a href="tel:+2348101293037"><span class="ic">📞</span><span class="grow"><b>Call</b><div class="small mute">+234 810 129 3037</div></span></a>' +
       '<a href="mailto:globalinkmarketplace@gmail.com?subject=Web%20App%20Issue%20Report"><span class="ic">🐞</span><span class="grow"><b>Report an issue</b></span></a></div></div>';
   });
   G.route('/privacy-policy', (el) => {
-    el.innerHTML = '<div class="narrow card"><h1>Privacy policy</h1><p>GLAPP collects the information needed to run the marketplace: your account details, orders, wallet activity, messages and any identity documents you submit for verification.</p>' +
+    el.innerHTML = '<div class="card"><h1>Privacy policy</h1><p>GLAPP collects the information needed to run the marketplace: your account details, orders, wallet activity, messages and any identity documents you submit for verification.</p>' +
       '<p>We use this information to process payments and deliveries, keep the platform safe and meet legal requirements. We do not sell your personal data.</p>' +
       '<p>You can update your profile at any time and request deletion of your account from <a href="#/security">Privacy & security</a> or <a href="/account-deletion/">this page</a>.</p>' +
       '<p>Questions? <a href="mailto:globalinkmarketplace@gmail.com">globalinkmarketplace@gmail.com</a></p></div>';

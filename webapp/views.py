@@ -18,7 +18,7 @@ from django.views.decorators.http import require_GET
 
 ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
 ALLOWED_ASSETS = {
-    'app.css', 'favicon.svg',
+    'app.css', 'favicon.svg', 'i18n.js', 'logo.jpeg',
     'core.js', 'pages_shop.js', 'pages_money.js', 'pages_account.js', 'pages_seller.js', 'pages_misc.js', 'boot.js',
 }
 

@@ -65,7 +65,7 @@
 
   G.route('/jobs/post', (el) => {
     if (!G.hasRole('employer')) { el.innerHTML = '<div class="alert">Only employers can post jobs. <a href="#/jobs?tab=employer">Become an employer</a></div>'; return; }
-    el.innerHTML = '<div class="narrow"><a href="#/jobs?tab=employer">← Jobs</a><h1>Post a job</h1><form class="card" id="f"><label>Title</label><input name="title" required><label>Description</label><textarea name="description" required></textarea>' +
+    el.innerHTML = '<div>' + G.head('Post a job', '#/jobs?tab=employer') + '<form class="card" id="f"><label>Title</label><input name="title" required><label>Description</label><textarea name="description" required></textarea>' +
       '<label>Requirements (one per line)</label><textarea name="requirements"></textarea><div class="row"><div class="grow"><label>Budget</label><input name="budget" type="number" min="0"></div><div class="grow"><label>Currency</label><input name="currency" value="NGN"></div></div>' +
       '<label><input type="checkbox" name="is_negotiable"> Negotiable</label><label>Location</label><input name="location" required><label>Type</label><select name="job_type">' + JOB_TYPES.map((t) => '<option value="' + t + '">' + G.pretty(t) + '</option>').join('') + '</select>' +
       '<div id="err" style="margin-top:10px"></div><button class="btn block" style="margin-top:12px">Publish job</button></form></div>';
@@ -85,7 +85,7 @@
   G.route('/jobs/:id', async (el, ctx) => {
     const j = await G.get('/jobs/' + ctx.params.id + '/', { noAuth: !G.loggedIn() });
     const mine = G.user && j.employer === G.user.id;
-    el.innerHTML = '<div class="narrow"><a href="#/jobs">← Jobs</a><div class="card"><h1>' + esc(j.title) + '</h1><div class="mute">' + esc(j.employer_name) + ' · ' + esc(j.location) + '</div>' +
+    el.innerHTML = '<div>' + G.back('#/jobs') + '<div class="card"><h1>' + esc(j.title) + '</h1><div class="mute">' + esc(j.employer_name) + ' · ' + esc(j.location) + '</div>' +
       '<p><span class="pill">' + esc(G.pretty(j.job_type)) + '</span> <span class="pill ' + (j.status === 'open' ? 'ok' : 'warn') + '">' + esc(G.pretty(j.status)) + '</span></p><div class="price">' + esc(jobBudget(j)) + '</div>' +
       '<h3 style="margin-top:12px">Description</h3><p style="white-space:pre-wrap">' + esc(j.description) + '</p>' +
       ((j.requirements || []).length ? '<h3>Requirements</h3><ul>' + j.requirements.map((r) => '<li>' + esc(r) + '</li>').join('') + '</ul>' : '') + '</div>' +
@@ -138,7 +138,7 @@
 
   G.route('/admin/kyc', async (el) => {
     const list = G.list(await G.get('/users/admin/kyc/pending/'));
-    el.innerHTML = '<a href="#/admin">← Admin</a><h1>KYC requests</h1>' + (list.length ? list.map((u) => '<div class="card"><div class="row between"><div><b>' + esc(u.full_name || u.email) + '</b><div class="small mute">' + esc(u.email) + ' · ' + esc(u.phone_number || '') + '</div></div><span class="pill warn">' + esc(u.kyc_status) + '</span></div>' +
+    el.innerHTML = '' + G.head('KYC requests', '#/admin') + '' + (list.length ? list.map((u) => '<div class="card"><div class="row between"><div><b>' + esc(u.full_name || u.email) + '</b><div class="small mute">' + esc(u.email) + ' · ' + esc(u.phone_number || '') + '</div></div><span class="pill warn">' + esc(u.kyc_status) + '</span></div>' +
       '<div class="small mute">ID type: ' + esc(u.id_document_type || '—') + '</div><div class="row" style="margin:8px 0">' +
       (u.id_document_image ? '<a href="' + esc(u.id_document_image) + '" target="_blank" rel="noopener"><img src="' + esc(u.id_document_image) + '" style="height:110px;border-radius:8px" alt="ID"></a>' : '<span class="mute">No ID</span>') +
       (u.selfie_image ? '<a href="' + esc(u.selfie_image) + '" target="_blank" rel="noopener"><img src="' + esc(u.selfie_image) + '" style="height:110px;border-radius:8px" alt="Selfie"></a>' : '') + '</div>' +
