@@ -875,7 +875,7 @@
             <h5><i class="bi bi-tags" style="color:#f59e0b"></i> VTU Data Pricing Control</h5>
             <div class="d-flex align-items-center gap-2 flex-wrap">
               <span class="text-muted" style="font-size:0.78rem"><i class="bi bi-info-circle me-1"></i>Changes apply immediately</span>
-              <button class="btn btn-soft-info btn-action btn-refresh-prices" id="refreshPricesBtn" title="Fetch live prices from Nellobyte">
+              <button class="btn btn-soft-info btn-action btn-refresh-prices" id="refreshPricesBtn" title="Fetch live prices from BT DataPlug">
                 <i class="bi bi-cloud-download me-1"></i>Refresh Prices
               </button>
             </div>
@@ -888,7 +888,7 @@
                   <tr>
                     <th>Network</th>
                     <th>Service ID</th>
-                    <th>Nellobyte Price</th>
+                    <th>BT DataPlug Price</th>
                     <th>Price Factor (&#215;)</th>
                     <th>Selling Price (&#8355;)</th>
                     <th>Status</th>
@@ -953,11 +953,11 @@
             <!-- Price Preview Section -->
             <div id="pricePreviewSection" class="mt-3" style="display:none">
               <hr>
-              <h6 class="mb-3"><i class="bi bi-eye me-1"></i>Live Price Preview (from Nellobyte)</h6>
+              <h6 class="mb-3"><i class="bi bi-eye me-1"></i>Live Price Preview (from BT DataPlug)</h6>
               <div id="pricePreviewContainer"></div>
               <div id="pricePreviewLoading" class="text-center py-3" style="display:none">
                 <div class="spinner-border spinner-border-sm text-warning me-2" role="status"></div>
-                <span class="text-muted">Fetching live prices from Nellobyte...</span>
+                <span class="text-muted">Fetching live prices from BT DataPlug...</span>
               </div>
             </div>
           </div>
@@ -974,7 +974,7 @@
           <div class="panel-body">
             <div id="plansLoading" class="text-center py-3" style="display:none">
               <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
-              <span class="text-muted">Fetching all plans from Nellobyte...</span>
+              <span class="text-muted">Fetching all plans from BT DataPlug...</span>
             </div>
 
             <!-- Toolbar -->
@@ -1564,7 +1564,7 @@
     });
   });
 
-  /* --- Refresh live prices from Nellobyte --- */
+  /* --- Refresh live prices from BT DataPlug --- */
   function renderPricePreview(entries) {
     var container = document.getElementById('pricePreviewContainer');
     var html = '';
@@ -1590,7 +1590,7 @@
         });
         html += '</tbody></table></div>';
       } else if (!entry.error) {
-        html += '<span class="text-muted small">No plans returned from Nellobyte.</span>';
+        html += '<span class="text-muted small">No plans returned from BT DataPlug.</span>';
       }
       html += '</div></div>';
     });
@@ -1632,7 +1632,7 @@
               }
             });
           } else {
-            container.innerHTML = '<div class="text-muted small py-2"><i class="bi bi-cloud-slash me-1"></i>Could not fetch live prices. Nellobyte may be unreachable.</div>';
+            container.innerHTML = '<div class="text-muted small py-2"><i class="bi bi-cloud-slash me-1"></i>Could not fetch live prices. BT DataPlug may be unreachable.</div>';
           }
         })
         .catch(function() {
@@ -1669,7 +1669,7 @@
       .catch(function() {});
   })();
 
-  /* --- Load All Plans from Nellobyte with editable prices --- */
+  /* --- Load All Plans from BT DataPlug with editable prices --- */
   var plansData = [];
   var plansChanged = {};
 
@@ -1707,13 +1707,13 @@
   function renderPlansTable(plans) {
     var container = document.getElementById('plansContainer');
     if (!plans.length) {
-      container.innerHTML = '<div class="empty-state"><i class="bi bi-database"></i><p>No plans returned from Nellobyte.</p></div>';
+      container.innerHTML = '<div class="empty-state"><i class="bi bi-database"></i><p>No plans returned from BT DataPlug.</p></div>';
       document.getElementById('plansActions').style.display = 'none';
       document.getElementById('plansToolbar').style.display = 'none';
       return;
     }
     var html = '<div class="table-responsive plans-table-wrap"><table class="table table-dashboard" id="plansTable"><thead><tr>';
-    html += '<th>Network</th><th>Plan Name</th><th class="text-end">Nellobyte (&#8355;)</th><th class="text-end">Selling Price (&#8355;)</th><th class="text-end">Profit (&#8355;)</th><th class="text-center">Ov</th>';
+    html += '<th>Network</th><th>Plan Name</th><th class="text-end">BT DataPlug (&#8355;)</th><th class="text-end">Selling Price (&#8355;)</th><th class="text-end">Profit (&#8355;)</th><th class="text-center">Ov</th>';
     html += '</tr></thead><tbody>';
     plans.forEach(function(p, i) {
       var orig = parseFloat(p.original_price);
@@ -1808,7 +1808,7 @@
       })
       .catch(function() {
         document.getElementById('plansLoading').style.display = 'none';
-        document.getElementById('plansContainer').innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error loading plans. Nellobyte may be unreachable.</p></div>';
+        document.getElementById('plansContainer').innerHTML = '<div class="empty-state"><i class="bi bi-exclamation-triangle"></i><p>Error loading plans. BT DataPlug may be unreachable.</p></div>';
       })
       .finally(function() {
         this.disabled = false;
@@ -1896,7 +1896,7 @@
     applyFilters();
   });
 
-  /* --- Apply Factor: multiply Nellobyte price by factor for all visible rows --- */
+  /* --- Apply Factor: multiply BT DataPlug price by factor for all visible rows --- */
   document.getElementById('applyFactorBtn').addEventListener('click', function() {
     var f = parseFloat(document.getElementById('applyFactorValue').value);
     if (isNaN(f) || f <= 0) {
