@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Wallet, Transaction
-from .nellobyte import NellobyteClient
+from .btdataplug import BTDataPlugClient, BTDataPlugError
 from .utils import MonnifyAPI
 
 User = get_user_model()
@@ -30,21 +30,16 @@ class DataPurchaseTests(TestCase):
         access_token = RefreshToken.for_user(self.user).access_token
         self.headers = {'HTTP_AUTHORIZATION': f'Bearer {access_token}'}
 
-    @patch('finance.views.NellobyteClient.purchase_data')
-    @patch('finance.views.NellobyteClient.fetch_all_variations')
+    @patch('finance.views.BTDataPlugClient.purchase_data')
+    @patch('finance.views.BTDataPlugClient.fetch_all_variations')
     def test_data_purchase_success(self, mock_fetch, mock_purchase):
         # DataPurchaseView prices the purchase itself via fetch_all_variations
         # (it never trusts a client-supplied `amount`) -- this must be mocked
-        # too, or _fetch_live_price makes a real outbound call to Nellobyte.
+        # too, or _fetch_live_price makes a real outbound call to the provider.
         mock_fetch.return_value = [
             {"PRODUCT_ID": "MTN500", "PRODUCT_NAME": "500MB", "PRODUCT_AMOUNT": "500.00"},
         ]
-        # Mock successful Nellobyte response
-        mock_purchase.return_value = {
-            'statuscode': '100',
-            'status': 'ORDER_RECEIVED',
-            'orderid': '12345'
-        }
+        mock_purchase.return_value = {'reference': 'BTD-12345', 'status': 'successful'}
 
         url = reverse('data-purchase')
         data = {
@@ -64,17 +59,13 @@ class DataPurchaseTests(TestCase):
         self.assertEqual(transaction.status, Transaction.Status.SUCCESS)
         self.assertEqual(transaction.amount, Decimal('-550.00'))
 
-    @patch('finance.views.NellobyteClient.purchase_data')
-    @patch('finance.views.NellobyteClient.fetch_all_variations')
+    @patch('finance.views.BTDataPlugClient.purchase_data')
+    @patch('finance.views.BTDataPlugClient.fetch_all_variations')
     def test_data_purchase_api_failure_auto_refund(self, mock_fetch, mock_purchase):
         mock_fetch.return_value = [
             {"PRODUCT_ID": "INVALID", "PRODUCT_NAME": "Test Plan", "PRODUCT_AMOUNT": "200.00"},
         ]
-        # Mock failed Nellobyte response
-        mock_purchase.return_value = {
-            'statuscode': '201',
-            'status': 'INVALID_DATA_PLAN'
-        }
+        mock_purchase.side_effect = BTDataPlugError('INVALID_DATA_PLAN', code='purchase_failed', http_status=422)
 
         url = reverse('data-purchase')
         data = {
@@ -93,8 +84,8 @@ class DataPurchaseTests(TestCase):
         self.assertEqual(transaction.status, Transaction.Status.FAILED)
         self.assertIn("(Failed: INVALID_DATA_PLAN)", transaction.description)
 
-    @patch('finance.views.NellobyteClient.purchase_data')
-    @patch('finance.views.NellobyteClient.fetch_all_variations')
+    @patch('finance.views.BTDataPlugClient.purchase_data')
+    @patch('finance.views.BTDataPlugClient.fetch_all_variations')
     def test_data_purchase_critical_failure_pending(self, mock_fetch, mock_purchase):
         mock_fetch.return_value = [
             {"PRODUCT_ID": "MTN500", "PRODUCT_NAME": "500MB", "PRODUCT_AMOUNT": "500.00"},
@@ -118,9 +109,9 @@ class DataPurchaseTests(TestCase):
         transaction = Transaction.objects.get(wallet=self.wallet)
         self.assertEqual(transaction.status, Transaction.Status.PENDING)
 
-    @patch('finance.views.NellobyteClient.fetch_all_variations')
+    @patch('finance.views.BTDataPlugClient.fetch_all_variations')
     def test_data_variations_success(self, mock_fetch):
-        # Mock Nellobyte plans response
+        # Mock provider plans response
         mock_fetch.return_value = [
             {"ID": "1", "Name": "500MB", "Amount": "100.00"},
             {"ID": "2", "Name": "1GB", "Amount": "200.00"}
@@ -140,7 +131,7 @@ class DataPurchaseTests(TestCase):
         self.assertEqual(data['results'][0]['variation_amount'], "110.0")  # 100 * 1.10x default markup
         self.assertEqual(data['results'][0]['type'], "Standard")
 
-    @patch('finance.views.NellobyteClient.fetch_all_variations')
+    @patch('finance.views.BTDataPlugClient.fetch_all_variations')
     def test_data_variations_all_providers(self, mock_fetch):
         # Same mock for all 4 providers
         mock_fetch.return_value = [
@@ -159,7 +150,7 @@ class DataPurchaseTests(TestCase):
         providers = {p['provider'] for p in data['results']}
         self.assertEqual(providers, {'MTN', 'Glo', 'Airtel', '9mobile'})
 
-    @patch('finance.views.NellobyteClient.fetch_all_variations')
+    @patch('finance.views.BTDataPlugClient.fetch_all_variations')
     def test_data_variations_empty_plans(self, mock_fetch):
         mock_fetch.return_value = []
 

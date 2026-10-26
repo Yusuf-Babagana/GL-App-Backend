@@ -1,3 +1,4 @@
+import json
 import requests
 from decimal import Decimal
 from django.conf import settings
@@ -9,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework import status, permissions
 from finance.models import Transaction, DataMarkup, DataPlanPrice
 from finance.utils import WalletManager
-from finance.nellobyte import NellobyteClient
+from finance.btdataplug import BTDataPlugClient, BTDataPlugError, verify_webhook_signature
 from .models import DataTransaction
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ class PurchaseDataView(APIView):
         if not network_key:
             return None, f"Unknown service: {service_id}"
 
-        client = NellobyteClient()
+        client = BTDataPlugClient()
         plans = client.fetch_all_variations(network_key)
 
         matched = None
@@ -82,7 +83,7 @@ class PurchaseDataView(APIView):
         if not all([service_id, variation_code, phone]):
             return Response({"error": "Missing required fields: serviceID, variation_code, phone"}, status=400)
 
-        # Fetch live price from Nellobyte + admin markup
+        # Fetch live price from BT DataPlug + admin markup
         amount, error = self._fetch_live_price(service_id, variation_code)
         if error:
             return Response({"error": error}, status=400)
@@ -99,61 +100,48 @@ class PurchaseDataView(APIView):
         if not payment_success:
             return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Call Nellobyte API
+        # Call BT DataPlug API
         from finance.utils import generate_vtpass_request_id
         
         request_id = generate_vtpass_request_id()
 
         try:
-            client = NellobyteClient()
-            res_data = client.purchase_data(
+            client = BTDataPlugClient()
+            order = client.purchase_data(request_id=request_id, plan_id=variation_code, phone=phone)
+            order_status = order.get('status')
+            DataTransaction.objects.create(
+                user=user,
                 request_id=request_id,
+                order_id=str(order.get('reference') or request_id),
                 service_id=service_id,
                 data_plan=variation_code,
-                phone=phone
+                phone=phone,
+                amount=amount,
+                status=(DataTransaction.Status.SUCCESS if order_status == 'successful'
+                        else DataTransaction.Status.PENDING),
+                remark=str(order),
             )
+            return Response({"message": "Data purchase successful!", "details": order}, status=200)
 
-            status_msg = str(res_data.get('status', '')).upper()
-            order_id = res_data.get('orderid') or request_id
-
-            if res_data.get('statuscode') == '100' or "RECEIVED" in status_msg or "SUCCESSFUL" in status_msg:
-                # nellobyte_callback below looks this row up by order_id —
-                # without creating it here, every real callback 404s and
-                # this purchase's status can never move past "pending".
+        except BTDataPlugError as e:
+            if e.code not in ('purchase_failed', 'validation_error', 'insufficient_funds',
+                              'service_not_permitted', 'service_unavailable'):
+                # Ambiguous (timeout, 5xx, ...): keep the funds held, record as pending.
                 DataTransaction.objects.create(
-                    user=user,
-                    request_id=request_id,
-                    order_id=str(order_id),
-                    service_id=service_id,
-                    data_plan=variation_code,
-                    phone=phone,
-                    amount=amount,
-                    status=DataTransaction.Status.PENDING,
-                    remark=str(res_data),
+                    user=user, request_id=request_id, order_id=request_id,
+                    service_id=service_id, data_plan=variation_code, phone=phone,
+                    amount=amount, status=DataTransaction.Status.PENDING, remark=str(e),
                 )
-                return Response({
-                    "message": "Data purchase successful!",
-                    "details": res_data
-                }, status=200)
-            else:
-                # AUTO-REFUND if Nellobyte fails
-                user.wallet.available_balance += float(amount)
-                user.wallet.save()
-                DataTransaction.objects.create(
-                    user=user,
-                    request_id=request_id,
-                    order_id=str(order_id),
-                    service_id=service_id,
-                    data_plan=variation_code,
-                    phone=phone,
-                    amount=amount,
-                    status=DataTransaction.Status.FAILED,
-                    remark=str(res_data.get("remark") or res_data.get("status") or "Provider error"),
-                )
-                return Response({
-                    "error": "Provider Error",
-                    "details": res_data.get("remark") or res_data.get("status")
-                }, status=400)
+                return Response({"message": "Transaction submitted. Check history for status updates."}, status=202)
+            # AUTO-REFUND: provider clearly did not take the order
+            user.wallet.available_balance += float(amount)
+            user.wallet.save()
+            DataTransaction.objects.create(
+                user=user, request_id=request_id, order_id=request_id,
+                service_id=service_id, data_plan=variation_code, phone=phone,
+                amount=amount, status=DataTransaction.Status.FAILED, remark=str(e),
+            )
+            return Response({"error": "Provider Error", "details": str(e)}, status=400)
 
         except Exception as e:
             # SAFETY REFUND if network crashes
@@ -163,33 +151,25 @@ class PurchaseDataView(APIView):
 
 
 @csrf_exempt
-def nellobyte_callback(request):
-    orderid = request.GET.get('orderid')
-    statuscode = request.GET.get('statuscode')
-    orderstatus = request.GET.get('orderstatus', '')
-
-    logger.info(f"Nellobyte callback: orderid={orderid} statuscode={statuscode} orderstatus={orderstatus}")
-
-    if not orderid:
-        return HttpResponse("Missing orderid", status=400)
+def btdataplug_callback(request):
+    if request.method != 'POST' or not verify_webhook_signature(
+            request.body, request.headers.get('X-BTDataPlug-Signature', '')):
+        return HttpResponse("Invalid signature", status=401)
+    try:
+        order = json.loads(request.body)['data']
+    except (ValueError, KeyError):
+        return HttpResponse("Bad payload", status=400)
 
     try:
-        txn = DataTransaction.objects.get(order_id=orderid)
+        txn = DataTransaction.objects.get(request_id=order.get('client_reference'))
     except DataTransaction.DoesNotExist:
-        logger.error(f"Nellobyte callback: DataTransaction not found for orderid={orderid}")
         return HttpResponse("Transaction not found", status=404)
 
-    if statuscode == '100':
-        txn.status = DataTransaction.Status.SUCCESS
-        txn.remark = f"statuscode={statuscode} orderstatus={orderstatus}"
+    new_status = {'successful': DataTransaction.Status.SUCCESS,
+                  'failed': DataTransaction.Status.FAILED,
+                  'reversed': DataTransaction.Status.FAILED}.get(order.get('status'))
+    if new_status and txn.status == DataTransaction.Status.PENDING:
+        txn.status = new_status
+        txn.remark = f"status={order.get('status')} {order.get('failure_reason') or ''}".strip()
         txn.save()
-        logger.info(f"DataTransaction {txn.id} marked SUCCESS (orderid={orderid})")
-    else:
-        txn.status = DataTransaction.Status.FAILED
-        txn.remark = f"statuscode={statuscode} orderstatus={orderstatus}"
-        txn.save()
-        logger.warning(f"DataTransaction {txn.id} marked FAILED (orderid={orderid}, code={statuscode})")
-
     return HttpResponse("OK", status=200)
-
-

@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from django.contrib.auth import get_user_model
@@ -225,13 +226,14 @@ class MonnifyWebhookView(APIView):
         return Response({"status": "success"}, status=200)
 
 
-from .nellobyte import NellobyteClient
+from .btdataplug import BTDataPlugClient, BTDataPlugError, verify_webhook_signature
+from .nellobyte import NellobyteClient  # deposit webhook only
 from market.pagination import MarketPageNumberPagination
 
 class DataPurchaseView(APIView):
     """
-    Handles Data Bundle purchases using NellobyteClient.
-    Fetches the live price from Nellobyte + admin markup on the server.
+    Handles Data Bundle purchases using BTDataPlugClient.
+    Fetches the live price from BT DataPlug + admin markup on the server.
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -247,7 +249,7 @@ class DataPurchaseView(APIView):
         if not network_key:
             return None, f"Unknown service: {service_id}"
 
-        client = NellobyteClient()
+        client = BTDataPlugClient()
         plans = client.fetch_all_variations(network_key)
 
         matched = None
@@ -306,7 +308,7 @@ class DataPurchaseView(APIView):
             logger.error("Data Purchase 400: Missing required fields.")
             return Response({"error": "Missing service_id, variation_code, or phone."}, status=400)
 
-        # Fetch live price from Nellobyte + admin markup
+        # Fetch live price from BT DataPlug + admin markup
         amount, error = self._fetch_live_price(service_id, data_plan)
         if error:
             logger.error(f"Data Purchase 400: Price fetch failed: {error}")
@@ -332,16 +334,17 @@ class DataPurchaseView(APIView):
             logger.error(f"Data Purchase 400: Insufficient Balance. Need {amount}, have {wallet.available_balance}")
             return Response({"error": "Insufficient wallet balance."}, status=400)
 
-        # Call Nellobyte FIRST before touching wallet
+        # Call the provider FIRST before touching wallet. request_id is the
+        # idempotency key, so a retry of this same order can never double-charge.
+        desc = f"Data: {service_id.upper()} ({data_plan}) to {phone}"
         try:
-            client = NellobyteClient()
-            logger.info(f"Calling Nellobyte with req_id={request_id}, svc={service_id}, plan={data_plan}, ph={phone}")
-            resp = client.purchase_data(request_id, service_id, data_plan, phone)
+            client = BTDataPlugClient()
+            logger.info(f"Calling BTDataPlug with req_id={request_id}, svc={service_id}, plan={data_plan}, ph={phone}")
+            order = client.purchase_data(request_id, data_plan, phone)
+            order_status = order.get('status')
 
-            status_code = str(resp.get('statuscode'))
-            order_status = resp.get('status', '')
-
-            if status_code == '100':
+            if order_status in ('successful', 'pending'):
+                is_success = order_status == 'successful'
                 with transaction.atomic():
                     wallet = Wallet.objects.select_for_update().get(user=request.user)
                     if wallet.available_balance < amount:
@@ -354,80 +357,73 @@ class DataPurchaseView(APIView):
                         wallet=wallet,
                         amount=-amount,
                         transaction_type=Transaction.TransactionType.BILL_PAYMENT,
-                        status=Transaction.Status.SUCCESS,
-                        description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone}",
-                        reference=resp.get('orderid', request_id)
+                        status=Transaction.Status.SUCCESS if is_success else Transaction.Status.PENDING,
+                        description=desc if is_success else f"{desc} (Pending)",
+                        reference=request_id
                     )
 
-                return Response({
-                    "message": "Data purchase successful!",
-                    "order_id": resp.get('orderid'),
-                    "new_balance": float(wallet.available_balance)
-                }, status=200)
-
-            elif 'ORDER_RECEIVED' in order_status or status_code in ('', '101', '102'):
-                with transaction.atomic():
-                    wallet = Wallet.objects.select_for_update().get(user=request.user)
-                    if wallet.available_balance < amount:
-                        return Response({"error": "Insufficient wallet balance."}, status=400)
-
-                    wallet.available_balance -= amount
-                    wallet.save()
-
-                    Transaction.objects.create(
-                        wallet=wallet,
-                        amount=-amount,
-                        transaction_type=Transaction.TransactionType.BILL_PAYMENT,
-                        status=Transaction.Status.PENDING,
-                        description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone} (Pending)",
-                        reference=resp.get('orderid', request_id)
-                    )
-
-                logger.info(f"Data Purchase 202: Order queued — orderid={resp.get('orderid')} status={order_status}")
+                if is_success:
+                    return Response({
+                        "message": "Data purchase successful!",
+                        "order_id": order.get('reference'),
+                        "new_balance": float(wallet.available_balance)
+                    }, status=200)
                 return Response({
                     "message": "Order submitted for processing. Check history for status updates.",
-                    "order_id": resp.get('orderid'),
+                    "order_id": order.get('reference'),
                     "new_balance": float(wallet.available_balance)
                 }, status=202)
 
-            else:
-                error_msg = resp.get('status', 'Provider rejected request')
-                with transaction.atomic():
-                    Transaction.objects.create(
-                        wallet=wallet,
-                        amount=0,
-                        transaction_type=Transaction.TransactionType.BILL_PAYMENT,
-                        status=Transaction.Status.FAILED,
-                        description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone} (Failed: {error_msg})",
-                        reference=resp.get('orderid', request_id)
-                    )
+            error_msg = order.get('failure_reason') or 'Provider rejected request'
+            return self._record_failure(wallet, desc, request_id, error_msg)
 
-                logger.error(f"Data Purchase 400: Nellobyte Error: {error_msg} | Code: {status_code} | Raw: {resp}")
-                return Response({"error": f"Nellobyte Error: {error_msg}"}, status=400)
-
+        except BTDataPlugError as e:
+            if e.code in ('purchase_failed', 'validation_error', 'insufficient_funds',
+                          'service_not_permitted', 'service_unavailable'):
+                # Provider clearly did not take the order (and refunded itself if it charged).
+                logger.error(f"Data Purchase 400: BTDataPlug Error: {e} | Code: {e.code}")
+                if e.code == 'insufficient_funds':
+                    # Our provider wallet is empty -- not the user's problem to see.
+                    msg = "Service temporarily unavailable. Please try again later."
+                else:
+                    msg = str(e)
+                return self._record_failure(wallet, desc, request_id, msg)
+            # Anything else (timeout, 5xx, request_in_progress, ...) is ambiguous.
+            return self._reserve_pending(request, amount, desc, request_id, e)
         except Exception as e:
-            logger.error(f"Nellobyte Network/Critical Failure: {e}")
-            # We genuinely don't know whether Nellobyte processed this before
-            # the exception (timeout, connection drop, etc). This used to
-            # tell the user to "check history" while creating no record at
-            # all to check -- reserve the funds and leave a PENDING
-            # transaction so support/the callback can reconcile it later,
-            # same as the ORDER_RECEIVED branch above.
-            with transaction.atomic():
-                wallet = Wallet.objects.select_for_update().get(user=request.user)
-                if wallet.available_balance >= amount:
-                    wallet.available_balance -= amount
-                    wallet.save()
+            return self._reserve_pending(request, amount, desc, request_id, e)
 
-                Transaction.objects.create(
-                    wallet=wallet,
-                    amount=-amount,
-                    transaction_type=Transaction.TransactionType.BILL_PAYMENT,
-                    status=Transaction.Status.PENDING,
-                    description=f"Nellobyte Data: {service_id.upper()} ({data_plan}) to {phone} (Pending: connection error, needs reconciliation)",
-                    reference=request_id
-                )
-            return Response({"message": "Transaction submitted. Check history for status updates."}, status=202)
+    def _record_failure(self, wallet, desc, request_id, error_msg):
+        Transaction.objects.create(
+            wallet=wallet,
+            amount=0,
+            transaction_type=Transaction.TransactionType.BILL_PAYMENT,
+            status=Transaction.Status.FAILED,
+            description=f"{desc} (Failed: {error_msg})"[:255],
+            reference=request_id
+        )
+        return Response({"error": f"Purchase failed: {error_msg}"}, status=400)
+
+    def _reserve_pending(self, request, amount, desc, request_id, exc):
+        logger.error(f"BTDataPlug Network/Critical Failure: {exc}")
+        # We genuinely don't know whether the provider processed this (timeout,
+        # connection drop, etc). Reserve the funds and leave a PENDING transaction
+        # so the webhook/reconcile job can settle it by client_reference.
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=request.user)
+            if wallet.available_balance >= amount:
+                wallet.available_balance -= amount
+                wallet.save()
+
+            Transaction.objects.create(
+                wallet=wallet,
+                amount=-amount,
+                transaction_type=Transaction.TransactionType.BILL_PAYMENT,
+                status=Transaction.Status.PENDING,
+                description=f"{desc} (Pending: connection error, needs reconciliation)",
+                reference=request_id
+            )
+        return Response({"message": "Transaction submitted. Check history for status updates."}, status=202)
 
 class DataHistoryView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -495,7 +491,7 @@ class DataVariationsView(APIView):
         return self._markup_cache[service_id]
 
     def _get_plan_field(self, plan, *keys, default=None):
-        """Try multiple possible field names from Nellobyte response."""
+        """Try multiple possible field names from the provider response."""
         for key in keys:
             val = plan.get(key)
             if val is not None:
@@ -504,9 +500,9 @@ class DataVariationsView(APIView):
 
     def _format_plan(self, plan, provider_label=None, service_id=None):
         """
-        Format a raw Nellobyte V2 PRODUCT item into the standardized response.
+        Format a normalised BTDataPlugClient plan item into the standardized response.
 
-        Nellobyte V2 fields:  PRODUCT_ID, PRODUCT_NAME, PRODUCT_AMOUNT, PRODUCT_CODE
+        Fields: PRODUCT_ID (BT DataPlug plan_id), PRODUCT_NAME, PRODUCT_AMOUNT
         Fallbacks for older / alternative field conventions are kept.
         Returns None if the plan has been disabled via DataPlanPrice.is_active=False.
         """
@@ -593,7 +589,7 @@ class DataVariationsView(APIView):
 
     def get(self, request):
         service_id = request.query_params.get('service_id')
-        client = NellobyteClient()
+        client = BTDataPlugClient()
 
         if not service_id or service_id.lower() == 'all':
             all_plans = self._fetch_all_raw_plans(client)
@@ -897,71 +893,26 @@ def clubkonnect_deposit_webhook(request):
 
 
 @csrf_exempt
-def webhook_data_callback(request):
-    orderid = request.GET.get('orderid')
-    statuscode = request.GET.get('statuscode')
-    orderstatus = request.GET.get('orderstatus', '')
-    orderremark = request.GET.get('orderremark', '')
+def btdataplug_webhook(request):
+    """
+    Receives BT DataPlug transaction.* events. Requests are authenticated by the
+    HMAC signature, and delivery is at-least-once, so settling is idempotent.
+    """
+    if request.method != 'POST':
+        return HttpResponse("Method not allowed", status=405)
 
-    logger.info(f"Nellobyte callback: orderid={orderid} statuscode={statuscode} orderstatus={orderstatus} orderremark={orderremark}")
-
-    if not orderid or not statuscode:
-        return HttpResponse("Missing orderid or statuscode", status=400)
+    if not verify_webhook_signature(request.body, request.headers.get('X-BTDataPlug-Signature', '')):
+        logger.warning("BTDataPlug webhook: invalid signature")
+        return HttpResponse("Invalid signature", status=401)
 
     try:
-        txn = Transaction.objects.get(reference=orderid, transaction_type=Transaction.TransactionType.BILL_PAYMENT)
-    except Transaction.DoesNotExist:
-        logger.error(f"Nellobyte callback: Transaction not found for orderid={orderid}")
-        return HttpResponse("Transaction not found", status=404)
+        event = json.loads(request.body)
+        order = event['data']
+    except (ValueError, KeyError):
+        return HttpResponse("Bad payload", status=400)
 
-    with transaction.atomic():
-        txn = Transaction.objects.select_for_update().get(pk=txn.pk)
-
-        if orderremark:
-            txn.description = (txn.description or '') + f" | Remark: {orderremark}"
-
-        # Some Nellobyte callbacks return non-100 codes even when the
-        # data was successfully delivered (e.g. "successfully sold").
-        # Check the remark text — if it indicates success, honour it.
-        remark_lower = (orderremark or '').lower()
-        succeeded = any(kw in remark_lower for kw in ['successfully sold', 'successful', 'completed successfully'])
-
-        if statuscode == '100' or succeeded:
-            txn.status = Transaction.Status.SUCCESS
-            txn.description += f" (Completed: code={statuscode})"
-            txn.save()
-            logger.info(f"Nellobyte callback: Transaction {txn.id} marked SUCCESS (orderid={orderid})")
-            return HttpResponse("OK", status=200)
-        else:
-            txn.status = Transaction.Status.FAILED
-            txn.description += f" (Failed: code={statuscode})"
-            if txn.amount < 0 and 'Refunded' not in txn.description:
-                wallet = Wallet.objects.select_for_update().get(pk=txn.wallet_id)
-                wallet.available_balance += abs(txn.amount)
-                wallet.save()
-                txn.description += " (Wallet Refunded)"
-            txn.save()
-
-            # Auto-disable plans that fail with provider-side errors
-            if any(kw in remark_lower for kw in ['no active sim', 'inactive sim', 'not have an active sim']):
-                match = re.search(r'([A-Z]+-DATA)\s*\(([^)]+)\)', txn.description)
-                if match:
-                    raw_service = match.group(1).lower()
-                    variation_code = match.group(2)
-                    service_map = {
-                        'mtn-data': 'mtn-data',
-                        'glo-data': 'glo-data',
-                        '9mobile-data': '9mobile-data',
-                        'airtel-data': 'airtel-data',
-                    }
-                    service_id = service_map.get(raw_service)
-                    if service_id:
-                        DataPlanPrice.objects.update_or_create(
-                            network=service_id,
-                            variation_code=variation_code,
-                            defaults={'is_active': False, 'plan_name': f'Auto-disabled: {orderremark}'}
-                        )
-                        logger.info(f"Auto-disabled plan {service_id}/{variation_code} due to provider error")
-
-            logger.warning(f"Nellobyte callback: Transaction {txn.id} marked FAILED (orderid={orderid}, code={statuscode})")
-            return HttpResponse("OK", status=200)
+    from .reconcile import settle_from_order
+    if not settle_from_order(order):
+        # Unknown order or still pending -- 200 so the provider doesn't keep retrying.
+        logger.info(f"BTDataPlug webhook: no state change for event={event.get('id')} ref={order.get('client_reference')}")
+    return HttpResponse("OK", status=200)

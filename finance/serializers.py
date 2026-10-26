@@ -52,9 +52,9 @@ class DataHistorySerializer(serializers.ModelSerializer):
 
     def _parse_description(self, obj):
         desc = obj.description or ''
-        if 'Nellobyte Data:' in desc:
+        if 'Data:' in desc:  # covers legacy 'Nellobyte Data:' and current 'Data:'
             try:
-                after = desc.split('Nellobyte Data:')[1].strip()
+                after = desc.split('Data:')[1].strip()
                 service_part = after.split('(')[0].strip()
                 plan_part = after.split('(')[1].split(')')[0].strip()
                 phone_part = after.split('to ')[-1].strip()

@@ -21,11 +21,17 @@ ALLOWED_HOSTS = ['glappbackend.pythonanywhere.com', '127.0.0.1', 'localhost', 't
 AUTH_USER_MODEL = 'users.User'
 
 # 5. Third Party Service Keys (Read from .env)
-# NELLOBYTE SYSTEMS CONFIGURATION
+# BT DATAPLUG CONFIGURATION (data purchases)
+BTDATAPLUG_BASE_URL = env('BTDATAPLUG_BASE_URL', default='https://www.btdataplug.com/api/v1/dev')
+BTDATAPLUG_API_KEY = env('BTDATAPLUG_API_KEY', default='')          # pk_test_... / pk_live_...
+BTDATAPLUG_SECRET_KEY = env('BTDATAPLUG_SECRET_KEY', default='')    # sk_test_... / sk_live_...
+BTDATAPLUG_WEBHOOK_SECRET = env('BTDATAPLUG_WEBHOOK_SECRET', default='')
+CABLE_PRICE_FACTOR = env('CABLE_PRICE_FACTOR', default='1.00')  # resale markup on cable packages
+
+# NELLOBYTE (legacy: only the old deposit webhook still requeries it)
 NELLOBYTE_USER_ID = env('NELLOBYTE_USER_ID', default='')
 NELLOBYTE_API_KEY = env('NELLOBYTE_API_KEY', default='')
 NELLOBYTE_BASE_URL = env('NELLOBYTE_BASE_URL', default='https://www.nellobytesystems.com')
-NELLOBYTE_CALLBACK_URL = env('NELLOBYTE_CALLBACK_URL', default='https://glappbackend.pythonanywhere.com/api/finance/nellobyte-callback/')
 
 # PAYSTACK CONFIGURATION
 PAYSTACK_PUBLIC_KEY = env('PAYSTACK_PUBLIC_KEY', default='')

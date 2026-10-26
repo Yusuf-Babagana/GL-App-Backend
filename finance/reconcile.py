@@ -1,36 +1,39 @@
 """
-Settles Pending Nellobyte data orders when the provider's callback never
-arrives (or arrives before the transaction row exists).
+Settles Pending data orders from BT DataPlug, either from a webhook event or by
+polling the provider when the webhook never arrives.
 
-Mirrors the outcome rules in views.webhook_data_callback:
-  - delivered      -> Transaction SUCCESS
-  - cancelled/failed -> Transaction FAILED and the wallet is refunded
-  - anything else  -> left Pending, retried on the next run
+Outcome rules:
+  - successful          -> Transaction SUCCESS
+  - failed / reversed   -> Transaction FAILED and the wallet is refunded
+  - pending             -> left Pending, retried on the next run
 """
 import logging
+import re
 from datetime import timedelta
 
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Transaction, Wallet
-from .nellobyte import NellobyteClient
+from .btdataplug import BTDataPlugClient
+from .models import DataPlanPrice, Transaction, Wallet
 
 logger = logging.getLogger(__name__)
 
-SUCCESS_STATUSES = {'ORDER_COMPLETED'}
-FAILED_STATUSES = {'ORDER_CANCELLED', 'ORDER_ERROR', 'ORDER_FAILED', 'ORDER_REJECTED'}
+SUCCESS_STATUSES = {'successful'}
+FAILED_STATUSES = {'failed', 'reversed'}
 
 
-def _settle(txn_id, outcome, detail):
+def _settle(txn_id, outcome, detail, note=''):
+    """Moves a Pending (or, for reversals, Success) transaction to its final state."""
     with transaction.atomic():
         txn = Transaction.objects.select_for_update().get(pk=txn_id)
-        if txn.status != Transaction.Status.PENDING:
-            return False  # the callback (or another run) got there first
+        reversal = outcome == 'failed' and detail.startswith('reversed')
+        if txn.status != Transaction.Status.PENDING and not (reversal and txn.status == Transaction.Status.SUCCESS):
+            return False  # the webhook (or another run) got there first
 
         if outcome == 'success':
             txn.status = Transaction.Status.SUCCESS
-            txn.description = f"{txn.description} (Confirmed)"[:255]
+            txn.description = f"{txn.description} (Confirmed){note}"[:255]
         else:
             txn.status = Transaction.Status.FAILED
             if txn.amount < 0 and 'Refunded' not in txn.description:
@@ -45,6 +48,52 @@ def _settle(txn_id, outcome, detail):
     return True
 
 
+def _maybe_disable_plan(txn, reason):
+    """Auto-disable plans the provider rejects with a SIM-level error."""
+    if not any(kw in reason.lower() for kw in ('no active sim', 'inactive sim', 'not have an active sim')):
+        return
+    match = re.search(r'([A-Z0-9]+-DATA)\s*\(([^)]+)\)', txn.description)
+    if match:
+        service_id, variation_code = match.group(1).lower(), match.group(2)
+        DataPlanPrice.objects.update_or_create(
+            network=service_id,
+            variation_code=variation_code,
+            defaults={'is_active': False, 'plan_name': f'Auto-disabled: {reason}'[:255]},
+        )
+        logger.info(f"Auto-disabled plan {service_id}/{variation_code} due to provider error")
+
+
+def settle_from_order(order):
+    """
+    Applies a BT DataPlug order dict (from a webhook or a status query) to the
+    matching Transaction. Returns True if anything changed.
+    """
+    status = str(order.get('status') or '').lower()
+    ref = order.get('client_reference')
+    if not ref:
+        return False
+    if status in SUCCESS_STATUSES:
+        outcome = 'success'
+    elif status in FAILED_STATUSES:
+        outcome = 'failed'
+    else:
+        return False
+
+    txn = Transaction.objects.filter(
+        reference=ref, transaction_type=Transaction.TransactionType.BILL_PAYMENT
+    ).first()
+    if txn is None:
+        logger.error(f"Reconcile: no transaction for client_reference={ref}")
+        return False
+
+    token = (order.get('result') or {}).get('token')  # electricity tokens arrive here when the order was pending
+    note = f" | Token: {token}" if token else ''
+    changed = _settle(txn.pk, outcome, f"{status} {order.get('failure_reason') or ''}".strip(), note)
+    if changed and outcome == 'failed':
+        _maybe_disable_plan(txn, order.get('failure_reason') or '')
+    return changed
+
+
 def reconcile_pending_data_orders(wallet=None, min_age_minutes=3, max_orders=10):
     """Returns the number of transactions that were settled."""
     cutoff = timezone.now() - timedelta(minutes=min_age_minutes)
@@ -57,24 +106,20 @@ def reconcile_pending_data_orders(wallet=None, min_age_minutes=3, max_orders=10)
     if wallet is not None:
         pending = pending.filter(wallet=wallet)
 
-    client = NellobyteClient()
+    client = BTDataPlugClient()
     settled = 0
     for txn in pending[:max_orders]:
         try:
-            resp = client.query_transaction(order_id=txn.reference)
+            order = client.query_transaction(client_reference=txn.reference)
         except Exception as e:
             logger.error(f"Reconcile: query failed for {txn.reference}: {e}")
             continue
 
-        order_status = str(resp.get('orderstatus') or resp.get('status') or '').upper()
-        if order_status in SUCCESS_STATUSES:
-            outcome = 'success'
-        elif order_status in FAILED_STATUSES:
-            outcome = 'failed'
-        else:
-            logger.info(f"Reconcile: {txn.reference} still unresolved, response={resp}")
+        if order is None:
+            # Not auto-refunded: this also matches legacy (pre-BT DataPlug) orders,
+            # which the provider has never heard of. Needs a human decision.
+            logger.warning(f"Reconcile: {txn.reference} not found at provider, leaving Pending")
             continue
-
-        if _settle(txn.pk, outcome, order_status):
+        if settle_from_order(order):
             settled += 1
     return settled

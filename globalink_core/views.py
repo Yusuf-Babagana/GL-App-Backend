@@ -16,7 +16,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import json
 from finance.models import Wallet, Transaction, WithdrawalTicket, PlatformRevenue, DataMarkup, DataPlanPrice
-from finance.nellobyte import NellobyteClient
+from finance.btdataplug import BTDataPlugClient
 from market.models import Shop, Order, PromotedPostPricing, PromotedPost
 
 User = get_user_model()
@@ -276,7 +276,7 @@ class AdminDataPricingView(LoginRequiredMixin, UserPassesTestMixin, View):
         for svc, net in self.SERVICE_TO_NETWORK.items():
             entry = {'network': svc, 'network_label': net, 'samples': [], 'error': None}
             try:
-                client = NellobyteClient()
+                client = BTDataPlugClient()
                 plans = client.fetch_all_variations(net)
                 factor = 1.10
                 try:
@@ -452,7 +452,7 @@ class AdminDataPlansView(LoginRequiredMixin, UserPassesTestMixin, View):
         return self.request.user.is_staff or self.request.user.is_superuser
 
     def get(self, request):
-        client = NellobyteClient()
+        client = BTDataPlugClient()
         overrides = {}
         try:
             for dpp in DataPlanPrice.objects.filter(is_active=True):

@@ -4,7 +4,7 @@ from finance.reconcile import reconcile_pending_data_orders
 
 
 class Command(BaseCommand):
-    help = "Settle Pending Nellobyte data orders whose callback never arrived."
+    help = "Settle Pending data orders whose webhook never arrived."
 
     def handle(self, *args, **options):
         settled = reconcile_pending_data_orders(max_orders=50)
