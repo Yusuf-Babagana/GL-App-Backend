@@ -46,6 +46,8 @@ from .serializers import (
 )
 from finance.models import Wallet, Transaction, PlatformRevenue
 from finance.utils import WalletManager
+from .escrow import EscrowError, refund_buyer, release_to_seller
+from globalink_core.notify import notify_user
 
 
 # --- SELLER / STORE VIEWS ---
@@ -1201,63 +1203,40 @@ class BuyerConfirmReceiptView(APIView):
 
     def post(self, request, order_id):
         try:
-            with transaction.atomic():
-                order = Order.objects.select_for_update().get(id=order_id, buyer=request.user)
-
-                # CONFIRMED must be checked first: it's a subtype of "not
-                # PAID anymore" (confirming moves payment_status away from
-                # PAID), so checking != PAID first made a double-confirm
-                # attempt show the misleading "not been paid yet" error.
-                if order.payment_status == Order.PaymentStatus.CONFIRMED:
-                    return Response({"status": "error", "message": "This order has already been confirmed."}, status=400)
-
-                if order.payment_status != Order.PaymentStatus.PAID:
-                    return Response({"status": "error", "message": "Order has not been paid yet."}, status=400)
-
-                seller_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
-
-                if seller_wallet.locked_balance < order.total_price:
-                    return Response({"status": "error", "message": "Unable to process confirmation. Please contact support."}, status=400)
-
-                order_total = order.total_price
-
-                commission = min(order_total * GLAPP_COMMISSION_RATE, GLAPP_COMMISSION_CAP)
-                net_payout = order_total - commission
-
-                seller_wallet.locked_balance -= order_total
-                seller_wallet.available_balance += net_payout
-                seller_wallet.save()
-
-                PlatformRevenue.add_commission(commission)
-
-                Transaction.objects.create(
-                    wallet=seller_wallet,
-                    amount=net_payout,
-                    transaction_type=Transaction.TransactionType.ESCROW_RELEASE,
-                    status=Transaction.Status.SUCCESS,
-                    related_order_id=str(order.id),
-                    description=f"Funds released for Order #{order.order_number or order.id} (Commission: ₦{commission})"
-                )
-
-                order.payment_status = Order.PaymentStatus.CONFIRMED
-                order.delivery_status = Order.DeliveryStatus.DELIVERED
-                order.save()
-
-                return Response({
-                    "status": "success",
-                    "message": "Receipt confirmed. Funds released to seller.",
-                    "order_id": order.id,
-                    "net_payout": str(net_payout),
-                    "commission": str(commission)
-                }, status=200)
-
+            order = Order.objects.get(id=order_id, buyer=request.user)
         except Order.DoesNotExist:
             return Response({"status": "error", "message": "Order not found."}, status=404)
-        except Wallet.DoesNotExist:
-            return Response({"status": "error", "message": "Seller wallet not found."}, status=400)
-        except Exception as e:
+
+        # CONFIRMED must be checked first: confirming moves payment_status away
+        # from PAID, so a double-confirm would otherwise read "not paid yet".
+        if order.payment_status == Order.PaymentStatus.CONFIRMED:
+            return Response({"status": "error", "message": "This order has already been confirmed."}, status=400)
+        if order.payment_status == Order.PaymentStatus.DISPUTED:
+            return Response({"status": "error",
+                             "message": "This order has an open dispute. Withdraw it first if you want to confirm receipt."},
+                            status=400)
+        if order.payment_status != Order.PaymentStatus.PAID:
+            return Response({"status": "error", "message": "Order has not been paid yet."}, status=400)
+
+        try:
+            net_payout, commission = release_to_seller(order.id, reason="buyer confirmed")
+        except EscrowError as e:
+            # Raised under the row lock, so this also covers a concurrent confirm.
+            return Response({"status": "error", "message": str(e)}, status=400)
+        except Exception:
             logger.exception("Receipt confirmation failed for order %s", order_id)
             return Response({"status": "error", "message": "An error occurred. Please try again."}, status=400)
+
+        notify_user(order.shop.owner, "Payment released",
+                    f"The buyer confirmed order #{order.order_number or order.pk}. ₦{net_payout:,.2f} was added to your wallet.",
+                    {"type": "order", "order_id": order.pk})
+        return Response({
+            "status": "success",
+            "message": "Receipt confirmed. Funds released to seller.",
+            "order_id": order.id,
+            "net_payout": str(net_payout),
+            "commission": str(commission)
+        }, status=200)
 
 
 class BuyerCancelOrderView(APIView):
@@ -1273,78 +1252,35 @@ class BuyerCancelOrderView(APIView):
 
     def post(self, request, order_id):
         try:
-            with transaction.atomic():
-                order = Order.objects.select_for_update().get(id=order_id, buyer=request.user)
-
-                if order.delivery_status != Order.DeliveryStatus.PENDING:
-                    return Response({
-                        "status": "error",
-                        "message": f"This order can no longer be cancelled (status: {order.delivery_status})."
-                    }, status=400)
-
-                if order.payment_status != Order.PaymentStatus.PAID:
-                    return Response({
-                        "status": "error",
-                        "message": "This order isn't in a cancellable payment state."
-                    }, status=400)
-
-                seller_wallet = Wallet.objects.select_for_update().get(user=order.shop.owner)
-                buyer_wallet = Wallet.objects.select_for_update().get(user=request.user)
-
-                order_total = order.total_price
-
-                if seller_wallet.locked_balance < order_total:
-                    return Response({
-                        "status": "error",
-                        "message": "Unable to process cancellation. Please contact support."
-                    }, status=400)
-
-                seller_wallet.locked_balance -= order_total
-                seller_wallet.save()
-
-                buyer_wallet.available_balance += order_total
-                buyer_wallet.save()
-
-                for order_item in order.items.select_related('product'):
-                    product = Product.objects.select_for_update().get(id=order_item.product_id)
-                    product.stock += order_item.quantity
-                    product.save()
-
-                Transaction.objects.create(
-                    wallet=seller_wallet,
-                    amount=-order_total,
-                    transaction_type=Transaction.TransactionType.REFUND,
-                    status=Transaction.Status.SUCCESS,
-                    related_order_id=str(order.id),
-                    description=f"Order #{order.order_number or order.id} cancelled by buyer — funds reversed"
-                )
-                Transaction.objects.create(
-                    wallet=buyer_wallet,
-                    amount=order_total,
-                    transaction_type=Transaction.TransactionType.REFUND,
-                    status=Transaction.Status.SUCCESS,
-                    related_order_id=str(order.id),
-                    description=f"Refund for cancelled Order #{order.order_number or order.id}"
-                )
-
-                order.delivery_status = Order.DeliveryStatus.CANCELLED
-                order.payment_status = Order.PaymentStatus.REFUNDED
-                order.save()
-
-                return Response({
-                    "status": "success",
-                    "message": "Order cancelled and refunded to your wallet.",
-                    "order_id": order.id,
-                    "refunded_amount": str(order_total)
-                }, status=200)
-
+            order = Order.objects.get(id=order_id, buyer=request.user)
         except Order.DoesNotExist:
             return Response({"status": "error", "message": "Order not found."}, status=404)
-        except Wallet.DoesNotExist:
-            return Response({"status": "error", "message": "Wallet not found."}, status=400)
+
+        if order.delivery_status != Order.DeliveryStatus.PENDING:
+            return Response({
+                "status": "error",
+                "message": f"This order can no longer be cancelled (status: {order.delivery_status})."
+            }, status=400)
+        if order.payment_status != Order.PaymentStatus.PAID:
+            return Response({
+                "status": "error",
+                "message": "This order isn't in a cancellable payment state."
+            }, status=400)
+
+        try:
+            refunded = refund_buyer(order.id, reason="cancelled by buyer", restore_stock=True)
+        except EscrowError as e:
+            return Response({"status": "error", "message": str(e)}, status=400)
         except Exception:
             logger.exception("Order cancellation failed for order %s", order_id)
             return Response({"status": "error", "message": "An error occurred. Please try again."}, status=400)
+
+        return Response({
+            "status": "success",
+            "message": "Order cancelled and refunded to your wallet.",
+            "order_id": order.id,
+            "refunded_amount": str(refunded)
+        }, status=200)
 
 
 class SellerOrderListView(generics.ListAPIView):
@@ -1947,6 +1883,10 @@ class MerchantWithdrawalView(APIView):
         reference = f"WTH-{uuid_lib.uuid4().hex[:12]}-{int(timezone.now().timestamp())}"
         with transaction.atomic():
             wallet = Wallet.objects.select_for_update().get(user=request.user)
+
+            if wallet.is_frozen:
+                return Response({"error": "This wallet is frozen. Contact support."},
+                                status=status.HTTP_400_BAD_REQUEST)
 
             if wallet.available_balance < amount_dec:
                 return Response(

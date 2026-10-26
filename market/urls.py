@@ -1,4 +1,8 @@
 from django.urls import path
+from .disputes import (
+    BuyerOpenDisputeView, BuyerWithdrawDisputeView, SellerDisputeDetailView,
+    SellerDisputeRespondView, AdminDisputeListView, AdminResolveDisputeView,
+)
 from .views import (
     CategoryListView, ProductListView, ProductDetailView,
     ShopCreateView, ShopUpdateView, SellerProductListView, ProductCreateView,
@@ -61,6 +65,12 @@ urlpatterns = [
     path('buyer/orders/<int:order_id>/confirm/', BuyerConfirmReceiptView.as_view(), name='buyer-confirm-receipt'),
     path('orders/<int:order_id>/confirm-receipt/', BuyerConfirmReceiptView.as_view(), name='confirm-receipt-alias'),
     path('buyer/orders/<int:order_id>/cancel/', BuyerCancelOrderView.as_view(), name='buyer-cancel-order'),
+    path('buyer/orders/<int:order_id>/dispute/', BuyerOpenDisputeView.as_view(), name='buyer-dispute'),
+    path('buyer/orders/<int:order_id>/dispute/withdraw/', BuyerWithdrawDisputeView.as_view(), name='buyer-dispute-withdraw'),
+    path('seller/orders/<int:order_id>/dispute/', SellerDisputeDetailView.as_view(), name='seller-dispute'),
+    path('seller/orders/<int:order_id>/dispute/respond/', SellerDisputeRespondView.as_view(), name='seller-dispute-respond'),
+    path('admin/disputes/', AdminDisputeListView.as_view(), name='admin-disputes'),
+    path('admin/disputes/<int:dispute_id>/resolve/', AdminResolveDisputeView.as_view(), name='admin-dispute-resolve'),
     path('cart/', CartAPIView.as_view(), name='cart'),
     path('cart/sync/', CartSyncView.as_view(), name='cart-sync'),
 

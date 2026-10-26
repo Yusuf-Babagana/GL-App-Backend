@@ -6,5 +6,5 @@ from .views import (
 
 urlpatterns = [
     path('purchase-data/', PurchaseDataView.as_view(), name='purchase-data'),
-    path('nellobyte-callback/', btdataplug_callback, name='nellobyte-callback'),
+    path('btdataplug-callback/', btdataplug_callback, name='btdataplug-callback'),
 ]

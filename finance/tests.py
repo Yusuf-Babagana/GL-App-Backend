@@ -322,11 +322,13 @@ class WithdrawalRequestTests(TestCase):
         self.wallet = Wallet.objects.get(user=self.user)
         self.wallet.available_balance = Decimal('5000.00')
         self.wallet.save()
+        self.user.set_transaction_pin('4321')
+        self.user.save()
         self.client.force_authenticate(user=self.user)
         self.headers = {'content_type': 'application/json'}
 
     def test_withdrawal_request_success(self):
-        """Creates a PENDING ticket without disbursing funds."""
+        """Creates a PENDING ticket and holds the amount; nothing is paid out yet."""
         url = reverse('withdraw')
         data = {
             'amount': '2000.00',
@@ -334,6 +336,7 @@ class WithdrawalRequestTests(TestCase):
             'bank_name': 'GTBank',
             'account_number': '0123456789',
             'account_name': 'Withdraw User',
+            'pin': '4321',
         }
         response = self.client.post(url, data, content_type='application/json')
         self.assertEqual(response.status_code, 201)
@@ -347,9 +350,9 @@ class WithdrawalRequestTests(TestCase):
         self.assertEqual(ticket.account_number, '0123456789')
         self.assertEqual(ticket.bank_code, '058')
 
-        # Balance should NOT be deducted yet
+        # The amount is held straight away so it can't be spent or withdrawn twice.
         self.wallet.refresh_from_db()
-        self.assertEqual(self.wallet.available_balance, Decimal('5000.00'))
+        self.assertEqual(self.wallet.available_balance, Decimal('3000.00'))
 
     def test_withdrawal_request_missing_fields(self):
         """Returns 400 when required fields are missing."""
@@ -364,6 +367,7 @@ class WithdrawalRequestTests(TestCase):
             'amount': '10000.00',
             'bank_code': '058',
             'account_number': '0123456789',
+            'pin': '4321',
         }
         response = self.client.post(url, data, content_type='application/json')
         self.assertEqual(response.status_code, 400)

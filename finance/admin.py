@@ -46,7 +46,6 @@ class WithdrawalTicketAdmin(admin.ModelAdmin):
 
 
 admin.site.register(Wallet)
-admin.site.register(Transaction)
 
 @admin.register(DataMarkup)
 class DataMarkupAdmin(admin.ModelAdmin):
@@ -60,3 +59,21 @@ class DataPlanPriceAdmin(admin.ModelAdmin):
     list_editable = ['is_active', 'selling_price']
     list_filter = ['network', 'is_active']
     search_fields = ['network', 'variation_code', 'plan_name']
+
+
+@admin.register(Transaction)
+class TransactionAdmin(admin.ModelAdmin):
+    """Read-only: the ledger is an audit trail, so rows can't be edited or deleted from the admin."""
+    list_display = ('created_at', 'wallet', 'transaction_type', 'amount', 'status', 'reference', 'related_order_id')
+    list_filter = ('transaction_type', 'status', 'created_at')
+    search_fields = ('reference', 'related_order_id', 'description', 'wallet__user__email')
+    date_hierarchy = 'created_at'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

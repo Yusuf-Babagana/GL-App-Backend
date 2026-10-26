@@ -4,7 +4,7 @@ from django.contrib.auth import views as auth_views
 from django.views.generic import TemplateView
 from django.conf import settings
 from django.conf.urls.static import static
-from .views import AdminDashboardView, MonnifyBatchCsvExportView, WithdrawalTicketUpdateStatusView, AdminShopVerificationView, AdminDataPricingView, AdminDataPlansView, AdminPromotedPostPricingView, PromotionShareLandingView
+from .views import AdminDashboardView, MonnifyBatchCsvExportView, WithdrawalTicketUpdateStatusView, AdminShopVerificationView, AdminDataPricingView, AdminDataPlansView, AdminDisputeResolveView, AdminPromotedPostPricingView, PromotionShareLandingView
 from .admin_views import AdminOrderListView, AdminTransactionListView, AdminUserManageListView, AdminUserToggleActiveView, AdminUserChangeRoleView, AdminChartDataView
 from market.views import SellerOrderListView, SellerOrderDetailView, SellerUpdateOrderStatusView, MarkOrderDispatchedView, BuyerOrderListView, BuyerOrderDetailView, BuyerConfirmReceiptView
 
@@ -62,6 +62,11 @@ urlpatterns = [
         'api/merchant/verify-shop/<str:shop_id>/',
         AdminShopVerificationView.as_view(),
         name='verify-shop',
+    ),
+    path(
+        'api/admin/disputes/<int:dispute_id>/resolve/',
+        AdminDisputeResolveView.as_view(),
+        name='admin-dashboard-dispute-resolve',
     ),
     path(
         'api/admin/data-pricing/',

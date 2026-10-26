@@ -7,7 +7,7 @@ import pytz
 import uuid
 import hashlib
 import hmac
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.views import APIView
@@ -15,7 +15,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework import permissions, status, generics
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from .models import Wallet, Transaction, BankAccount, WithdrawalTicket, PlatformRevenue, DataMarkup, DataPlanPrice, MONNIFY_DEPOSIT_RATE, MONNIFY_DEPOSIT_CAP
 from market.models import Order
@@ -117,53 +117,47 @@ class MonnifyWebhookView(APIView):
             settlement_amt = Decimal(str(event_data.get('settlementAmount', 0)))
             fee = amount_paid - settlement_amt
             
-            # --- FEATURE 1: Order Checkout Logic ---
-            try:
-                with transaction.atomic():
-                    # Find the order by reference (using monnify_reference per our models)
-                    order = Order.objects.get(monnify_reference=payment_ref)
-                    
-                    if order.payment_status != Order.PaymentStatus.PAID:
-                        # Update order status
-                        order.payment_status = Order.PaymentStatus.PAID
-                        order.save()
+            # Marketplace orders are paid from the wallet (escrow), never by a direct bank
+            # payment. This branch used to flip an order to PAID without crediting the
+            # seller's escrow and could revert a CONFIRMED order back to PAID on a replayed
+            # event. A payment that matches an order is now flagged for a human instead.
+            if payment_ref and Order.objects.filter(monnify_reference=payment_ref).exists():
+                logger.critical(
+                    "Monnify payment %s matches an order (ref). Direct order payments are not "
+                    "supported; the order was NOT changed. Review manually.", payment_ref)
+                return Response({"status": "received"}, status=200)
 
-                        # Update Seller Stats (This fuels your Dashboard image)
-                        shop = order.shop
-                        if shop:
-                            shop.total_sales += int(amount_paid)
-                            shop.save()
-                    
-                logger.info(f"✅ Order marked as PAID via Monnify Webhook (Ref: {payment_ref})")
-                return Response({"status": "success"}, status=200)
-            except Order.DoesNotExist:
-                pass # Fall through to Virtual Account Wallet Funding
-                
             # --- FEATURE 2: Virtual Account Wallet Funding Logic ---
             account_ref = event_data.get('product', {}).get('reference') 
             if account_ref:
                 try:
                     with transaction.atomic():
                         wallet = Wallet.objects.select_for_update().get(account_reference=account_ref)
-                        
-                        if not Transaction.objects.filter(reference=payment_ref).exists():
-                            processing_fee = min(
-                                settlement_amt * MONNIFY_DEPOSIT_RATE,
-                                MONNIFY_DEPOSIT_CAP
-                            )
-                            net_credit = settlement_amt - processing_fee
 
-                            wallet.available_balance += net_credit
-                            wallet.save()
-                            
-                            Transaction.objects.create(
-                                wallet=wallet,
-                                amount=net_credit,
-                                transaction_type=Transaction.TransactionType.DEPOSIT,
-                                status=Transaction.Status.SUCCESS,
-                                reference=payment_ref,
-                                description=f"Bank Deposit (Fee: ₦{processing_fee})" 
-                            )
+                        if Transaction.objects.filter(reference=payment_ref).exists():
+                            # Monnify retries webhooks; a repeat must be acknowledged, not re-credited.
+                            logger.info(f"Duplicate deposit webhook for {payment_ref}, ignored")
+                            return Response({"status": "success"}, status=200)
+                        if not payment_ref or settlement_amt <= 0:
+                            logger.error(f"Deposit webhook with bad data: ref={payment_ref!r} settlement={settlement_amt}")
+                            return Response({"error": "Invalid payment data"}, status=400)
+                        processing_fee = min(
+                            settlement_amt * MONNIFY_DEPOSIT_RATE,
+                            MONNIFY_DEPOSIT_CAP
+                        )
+                        net_credit = settlement_amt - processing_fee
+
+                        wallet.available_balance += net_credit
+                        wallet.save()
+                        
+                        Transaction.objects.create(
+                            wallet=wallet,
+                            amount=net_credit,
+                            transaction_type=Transaction.TransactionType.DEPOSIT,
+                            status=Transaction.Status.SUCCESS,
+                            reference=payment_ref,
+                            description=f"Bank Deposit (Fee: ₦{processing_fee})" 
+                        )
                     logger.info(f"✅ Wallet {wallet.id} credited with ₦{net_credit} (net of ₦{processing_fee} processing fee)")
                     return Response({"status": "success"}, status=200)
                 except Wallet.DoesNotExist:
@@ -178,6 +172,9 @@ class MonnifyWebhookView(APIView):
         # CASE 2: Outgoing Withdrawal (Monnify finished sending money to bank)
         elif event_type == 'DISBURSEMENT_SUCCESS':
             ref = event_data.get('reference')
+            if not ref:
+                logger.error("DISBURSEMENT_SUCCESS webhook without a reference, ignored")
+                return Response({"status": "ignored"}, status=200)
             try:
                 with transaction.atomic():
                     ledger = Transaction.objects.select_for_update().filter(reference=ref).first()
@@ -200,6 +197,9 @@ class MonnifyWebhookView(APIView):
 
         elif event_type == 'DISBURSEMENT_FAILED':
             ref = event_data.get('reference')
+            if not ref:
+                logger.error("DISBURSEMENT_FAILED webhook without a reference, ignored")
+                return Response({"status": "ignored"}, status=200)
             try:
                 with transaction.atomic():
                     ledger = Transaction.objects.select_for_update().filter(reference=ref).first()
@@ -227,7 +227,9 @@ class MonnifyWebhookView(APIView):
 
 
 from .btdataplug import BTDataPlugClient, BTDataPlugError, verify_webhook_signature
-from .nellobyte import NellobyteClient  # deposit webhook only
+from .bills import idempotent_request_id, replay_response
+from .withdrawals import WithdrawalError, approve_ticket, create_withdrawal, parse_amount
+from globalink_core.notify import notify_user
 from market.pagination import MarketPageNumberPagination
 
 class DataPurchaseView(APIView):
@@ -308,13 +310,18 @@ class DataPurchaseView(APIView):
             logger.error("Data Purchase 400: Missing required fields.")
             return Response({"error": "Missing service_id, variation_code, or phone."}, status=400)
 
+        # A retry of an order we already processed returns that order, never a second purchase.
+        replay = replay_response(request, idempotent_request_id(request))
+        if replay:
+            return replay
+
         # Fetch live price from BT DataPlug + admin markup
         amount, error = self._fetch_live_price(service_id, data_plan)
         if error:
             logger.error(f"Data Purchase 400: Price fetch failed: {error}")
             return Response({"error": error}, status=400)
 
-        request_id = str(uuid.uuid4().hex)[:12]
+        request_id = idempotent_request_id(request)
 
         # Reject purchase if this plan has been disabled by the auto‑disable system
         if DataPlanPrice.objects.filter(
@@ -377,6 +384,9 @@ class DataPurchaseView(APIView):
             error_msg = order.get('failure_reason') or 'Provider rejected request'
             return self._record_failure(wallet, desc, request_id, error_msg)
 
+        except IntegrityError:
+            # A concurrent request with the same Idempotency-Key recorded this order first.
+            return replay_response(request, request_id) or Response({"error": "Please try again."}, status=409)
         except BTDataPlugError as e:
             if e.code in ('purchase_failed', 'validation_error', 'insufficient_funds',
                           'service_not_permitted', 'service_unavailable'):
@@ -449,7 +459,7 @@ class DataHistoryView(generics.ListAPIView):
 class DataVariationsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    # Values are (network_key_for_nellobyte, display_label)
+    # Values are (network_key_for_provider, display_label)
     NETWORK_MAPPING = {
         'mtn-data':    ('MTN',     'MTN'),
         'glo-data':    ('Glo',     'Glo'),
@@ -649,62 +659,43 @@ class BankListView(APIView):
 
 class WithdrawalView(APIView):
     """
-    User-facing: submit bank details for admin-manual payout.
-    Creates a PENDING WithdrawalTicket — NO money is disbursed.
-    An admin will process it offline and mark it as SUCCESSFUL/REJECTED.
+    User-facing: request a bank payout. The amount is taken out of the available
+    balance immediately and held against a PENDING WithdrawalTicket; an admin then
+    pays the bank manually and marks the ticket paid (or rejects it, which returns
+    the money). See finance/withdrawals.py.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        amount = request.data.get('amount')
         bank_code = request.data.get('bank_code')
-        bank_name = request.data.get('bank_name', '')
         account_number = request.data.get('account_number')
-        account_name = request.data.get('account_name', '')
-
-        if not all([amount, bank_code, account_number]):
+        if not all([request.data.get('amount'), bank_code, account_number]):
             return Response(
                 {"error": "Missing required fields: amount, bank_code, account_number"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        pin = request.data.get('pin') or request.data.get('transaction_pin')
+        if not request.user.transaction_pin:
+            return Response({"error": "No transaction PIN set. Set one in your profile first."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not pin or not request.user.check_transaction_pin(pin):
+            return Response({"error": "Invalid transaction PIN."}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            amount_dec = Decimal(str(amount))
-        except Exception:
-            return Response({"error": "Invalid amount format."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if amount_dec <= 0:
-            return Response(
-                {"error": "Amount must be greater than zero."},
-                status=status.HTTP_400_BAD_REQUEST,
+            amount = parse_amount(request.data.get('amount'))
+            ticket = create_withdrawal(
+                request.user, amount,
+                bank_code=str(bank_code), bank_name=request.data.get('bank_name', ''),
+                account_number=str(account_number), account_name=request.data.get('account_name', ''),
             )
+        except WithdrawalError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        with transaction.atomic():
-            wallet = Wallet.objects.select_for_update().get(user=request.user)
-            if wallet.available_balance < amount_dec:
-                return Response(
-                    {"error": "Insufficient available balance."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            ticket = WithdrawalTicket.objects.create(
-                user=request.user,
-                amount=amount_dec,
-                bank_code=bank_code,
-                bank_name=bank_name,
-                account_number=account_number,
-                account_name=account_name,
-                status=WithdrawalTicket.StatusChoices.PENDING,
-            )
-
-        logger.info(
-            "Withdrawal request created: user=%s amount=%s ticket=%s",
-            request.user.id, amount_dec, ticket.id,
-        )
         return Response(
             {
                 "status": "pending",
-                "message": "Withdrawal request submitted. An admin will process it shortly.",
+                "message": "Withdrawal request submitted. The amount is on hold until an admin pays it out.",
                 "ticket_id": ticket.id,
             },
             status=status.HTTP_201_CREATED,
@@ -722,55 +713,22 @@ class AdminPendingWithdrawalListView(generics.ListAPIView):
 
 
 class AdminConfirmPayoutView(APIView):
-    """
-    Admin-only: confirm that money has been sent to the user.
-    Creates a Transaction record so the user sees it in wallet history.
-    """
+    """Admin-only: confirm that the bank transfer for a ticket has been made."""
     permission_classes = [permissions.IsAdminUser]
 
     def post(self, request, ticket_id):
-        ticket = get_object_or_404(WithdrawalTicket, pk=ticket_id)
-
-        if ticket.status != WithdrawalTicket.StatusChoices.PENDING:
-            return Response(
-                {"error": "Ticket already processed."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        with transaction.atomic():
-            wallet = Wallet.objects.select_for_update().get(user=ticket.user)
-
-            if wallet.available_balance < ticket.amount:
-                return Response(
-                    {"error": "Insufficient balance. User funds may have been used elsewhere."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            wallet.available_balance -= ticket.amount
-            wallet.save()
-
-            Transaction.objects.create(
-                wallet=wallet,
-                amount=-ticket.amount,
-                transaction_type=Transaction.TransactionType.WITHDRAWAL,
-                status=Transaction.Status.SUCCESS,
-                description=(
-                    f"Withdrawal to {ticket.account_name} - "
-                    f"{ticket.account_number} ({ticket.bank_name})"
-                ),
-            )
-
-            ticket.status = WithdrawalTicket.StatusChoices.SUCCESSFUL
-            ticket.save()
-
-        logger.info(
-            "Admin payout confirmed: ticket=%s user=%s amount=%s",
-            ticket.id, ticket.user.id, ticket.amount,
-        )
+        get_object_or_404(WithdrawalTicket, pk=ticket_id)
+        try:
+            ticket = approve_ticket(ticket_id, request.user)
+        except WithdrawalError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        notify_user(ticket.user, "Withdrawal paid",
+                    f"Your withdrawal of ₦{ticket.amount:,.2f} to {ticket.account_number} has been paid.",
+                    {"type": "withdrawal", "ticket_id": ticket.id})
         return Response(
             {
                 "status": "success",
-                "message": "Payout confirmed. User wallet deducted.",
+                "message": "Payout confirmed.",
                 "ticket_id": ticket.id,
                 "amount": str(ticket.amount),
             },
@@ -782,10 +740,17 @@ class DepositNotificationView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        amount = request.data.get('amount')
-        sender = request.data.get('sender_name')
-        
-        # Create a PENDING transaction record
+        sender = str(request.data.get('sender_name') or '')[:100]
+        try:
+            amount = Decimal(str(request.data.get('amount')))
+            if not amount.is_finite() or amount <= 0 or amount > Decimal('10000000') \
+                    or amount != amount.quantize(Decimal('0.01')):
+                raise ValueError
+        except (InvalidOperation, ValueError):
+            return Response({"error": "Enter a valid amount."}, status=400)
+
+        # Create a PENDING transaction record. It credits nothing: only the Monnify
+        # webhook credits a wallet.
         Transaction.objects.create(
             wallet=request.user.wallet,
             amount=amount,
@@ -798,98 +763,18 @@ class DepositNotificationView(APIView):
 
 
 
-@api_view(['GET', 'POST']) # Clubkonnect usually uses GET for callbacks
-@permission_classes([AllowAny]) # Must be public so Clubkonnect can reach it
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
 def clubkonnect_deposit_webhook(request):
-    # Clubkonnect typically sends: orderid, statuscode, amount, and orderremark
-    # The 'orderremark' usually contains the account name we set up: "NELLOBYTE-YUS (username)"
-    #
-    # SECURITY: Clubkonnect callbacks are not signed, so the incoming statuscode/amount
-    # query params must never be trusted directly (anyone can call this URL with any
-    # amount/remark). We independently requery Clubkonnect's own API for the order
-    # before crediting anything, and dedupe on orderid so a replayed callback can't
-    # credit twice.
-    User = get_user_model()
-
-    orderid = request.query_params.get('orderid')
-    remark = request.query_params.get('orderremark', '')
-
-    if not orderid:
-        logger.warning(f"Clubkonnect deposit webhook missing orderid: {request.query_params.dict()}")
-        return Response("Missing orderid", status=400)
-
-    if Transaction.objects.filter(reference=orderid, transaction_type='deposit').exists():
-        logger.info(f"Clubkonnect deposit webhook: orderid={orderid} already processed, ignoring replay")
-        return Response("Already processed", status=200)
-
-    try:
-        verify_resp = NellobyteClient().query_transaction(order_id=orderid)
-    except Exception as e:
-        logger.error(f"Clubkonnect deposit webhook: query_transaction failed for orderid={orderid}: {e}")
-        return Response("Verification request failed", status=502)
-
-    logger.info(f"Clubkonnect deposit webhook: orderid={orderid} verify_resp={verify_resp}")
-
-    # Be conservative: only proceed if the requery response clearly confirms success.
-    # NOTE: Clubkonnect's exact field names for this query type aren't confirmed from
-    # docs — the raw response is logged above so this matching can be tightened once
-    # a real response has been inspected in production logs.
-    status_fields = [
-        str(verify_resp.get(k, '')).strip().lower()
-        for k in ('status', 'orderstatus', 'ORDER_STATUS', 'statuscode')
-        if isinstance(verify_resp, dict)
-    ]
-    is_verified_success = any(v in ('success', 'successful', 'completed', '200', '100') for v in status_fields)
-
-    if not is_verified_success:
-        logger.warning(f"Clubkonnect deposit webhook: orderid={orderid} could not be verified as successful, rejecting. Response: {verify_resp}")
-        return Response("Could not verify transaction", status=400)
-
-    verified_amount_raw = None
-    for k in ('amount', 'amount_paid', 'AMOUNT', 'Amount'):
-        if isinstance(verify_resp, dict) and verify_resp.get(k) is not None:
-            verified_amount_raw = verify_resp.get(k)
-            break
-
-    if verified_amount_raw is None:
-        logger.warning(f"Clubkonnect deposit webhook: orderid={orderid} verified but no amount found in response: {verify_resp}")
-        return Response("Could not verify amount", status=400)
-
-    try:
-        verified_amount = Decimal(str(verified_amount_raw))
-    except Exception:
-        logger.error(f"Clubkonnect deposit webhook: orderid={orderid} unparseable amount {verified_amount_raw!r}")
-        return Response("Invalid amount", status=400)
-
-    match = re.search(r'\((.*?)\)', remark)
-    if not match:
-        return Response("Username not found in remark", status=400)
-    username = match.group(1)
-
-    try:
-        with transaction.atomic():
-            user = User.objects.get(username=username)
-            wallet, _ = Wallet.objects.get_or_create(user=user)
-            wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
-
-            wallet.available_balance += verified_amount
-            wallet.save()
-
-            Transaction.objects.create(
-                wallet=wallet,
-                amount=verified_amount,
-                transaction_type='deposit',
-                status='success',
-                reference=orderid,
-                description=f"Auto-Fund: {remark}"
-            )
-        logger.info(f"Clubkonnect deposit webhook: credited user={username} amount={verified_amount} orderid={orderid}")
-        return Response("Wallet Updated", status=200)
-    except User.DoesNotExist:
-        return Response(f"User {username} not found", status=404)
-    except Exception as e:
-        logger.error(f"Clubkonnect deposit webhook: error crediting orderid={orderid}: {e}")
-        return Response(f"Error: {str(e)}", status=400)
+    """
+    RETIRED. This public endpoint credited a wallet named in a request parameter
+    (the order "remark") after checking only that some Nellobyte order had succeeded.
+    Anyone who knew a successful order id could point it at their own account. Wallet
+    funding now happens only through the signed Monnify webhook.
+    """
+    logger.warning("Retired deposit webhook called from %s: %s",
+                   request.META.get('REMOTE_ADDR'), dict(request.query_params))
+    return Response("This endpoint has been retired.", status=410)
 
 
 @csrf_exempt

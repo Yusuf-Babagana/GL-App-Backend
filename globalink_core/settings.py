@@ -28,11 +28,6 @@ BTDATAPLUG_SECRET_KEY = env('BTDATAPLUG_SECRET_KEY', default='')    # sk_test_..
 BTDATAPLUG_WEBHOOK_SECRET = env('BTDATAPLUG_WEBHOOK_SECRET', default='')
 CABLE_PRICE_FACTOR = env('CABLE_PRICE_FACTOR', default='1.00')  # resale markup on cable packages
 
-# NELLOBYTE (legacy: only the old deposit webhook still requeries it)
-NELLOBYTE_USER_ID = env('NELLOBYTE_USER_ID', default='')
-NELLOBYTE_API_KEY = env('NELLOBYTE_API_KEY', default='')
-NELLOBYTE_BASE_URL = env('NELLOBYTE_BASE_URL', default='https://www.nellobytesystems.com')
-
 # PAYSTACK CONFIGURATION
 PAYSTACK_PUBLIC_KEY = env('PAYSTACK_PUBLIC_KEY', default='')
 PAYSTACK_SECRET_KEY = env('PAYSTACK_SECRET_KEY', default='')
@@ -236,19 +231,66 @@ CSRF_COOKIE_SECURE = not DEBUG
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Logging
+# --- Monitoring -------------------------------------------------------------
+# Money movements log to the 'payments' logger (escrow, disputes). Payment code at
+# WARNING+ is also written to logs/payments.log, and ERRORs are emailed to
+# ADMIN_EMAILS (comma separated in .env) when set. SENTRY_DSN enables Sentry.
+ADMINS = [('GLAPP Admin', e) for e in env.list('ADMIN_EMAILS', default=[])]
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+LOG_DIR = BASE_DIR / 'logs'
+os.makedirs(LOG_DIR, exist_ok=True)
+
+_payment_handlers = ['console', 'payments_file'] + (['mail_admins'] if ADMINS else [])
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {'format': '%(asctime)s %(levelname)s %(name)s: %(message)s'},
+    },
     'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'standard'},
+        'payments_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOG_DIR / 'payments.log'),
+            'maxBytes': 5 * 1024 * 1024,
+            'backupCount': 5,
+            'formatter': 'standard',
+            'level': 'INFO',
         },
+        'mail_admins': {
+            'class': 'django.utils.log.AdminEmailHandler',
+            'level': 'ERROR',
+            'include_html': False,
+        },
+    },
+    'loggers': {
+        'payments': {'handlers': _payment_handlers, 'level': 'INFO', 'propagate': False},
+        'finance': {'handlers': _payment_handlers, 'level': 'WARNING', 'propagate': False},
+        'market': {'handlers': _payment_handlers, 'level': 'WARNING', 'propagate': False},
     },
     'root': {
         'handlers': ['console'],
         'level': 'INFO',
     },
 }
+
+SENTRY_DSN = env('SENTRY_DSN', default='')
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.0, send_default_pii=False)
+    except ImportError:
+        print("SENTRY_DSN is set but sentry-sdk is not installed (pip install sentry-sdk)")
+
+# Escrow / alert thresholds (market/management/commands/process_escrow.py, finance/health.py)
+ESCROW_AUTO_RELEASE_DAYS = env.int('ESCROW_AUTO_RELEASE_DAYS', default=7)
+UNSHIPPED_REFUND_DAYS = env.int('UNSHIPPED_REFUND_DAYS', default=14)
+BTDATAPLUG_LOW_BALANCE = env.float('BTDATAPLUG_LOW_BALANCE', default=5000.0)
+
+# Push/email notifications are sent on a background thread (never delay a payment); tests send inline.
+import sys as _sys
+NOTIFY_ASYNC = env.bool('NOTIFY_ASYNC', default=True) and 'test' not in _sys.argv
 
 # Upload Limits (50MB)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800

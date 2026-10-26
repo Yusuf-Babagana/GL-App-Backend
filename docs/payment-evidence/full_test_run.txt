@@ -1,0 +1,808 @@
+Found 95 test(s).
+Creating test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+Operations to perform:
+  Synchronize unmigrated apps: channels, corsheaders, dj_rest_auth, messages, rest_framework, staticfiles
+  Apply all migrations: admin, auth, authtoken, chat, contenttypes, finance, jobs, logistics, market, sessions, users
+Synchronizing apps without migrations:
+  Creating tables...
+    Running deferred SQL...
+Running migrations:
+  Applying contenttypes.0001_initial... OK
+  Applying contenttypes.0002_remove_content_type_name... OK
+  Applying auth.0001_initial... OK
+  Applying auth.0002_alter_permission_name_max_length... OK
+  Applying auth.0003_alter_user_email_max_length... OK
+  Applying auth.0004_alter_user_username_opts... OK
+  Applying auth.0005_alter_user_last_login_null... OK
+  Applying auth.0006_require_contenttypes_0002... OK
+  Applying auth.0007_alter_validators_add_error_messages... OK
+  Applying auth.0008_alter_user_username_max_length... OK
+  Applying auth.0009_alter_user_last_name_max_length... OK
+  Applying auth.0010_alter_group_name_max_length... OK
+  Applying auth.0011_update_proxy_permissions... OK
+  Applying auth.0012_alter_user_first_name_max_length... OK
+  Applying users.0001_initial... OK
+  Applying admin.0001_initial... OK
+  Applying admin.0002_logentry_remove_auto_add... OK
+  Applying admin.0003_logentry_add_action_flag_choices... OK
+  Applying authtoken.0001_initial... OK
+  Applying authtoken.0002_auto_20160226_1747... OK
+  Applying authtoken.0003_tokenproxy... OK
+  Applying authtoken.0004_alter_tokenproxy_options... OK
+  Applying market.0001_initial... OK
+  Applying market.0002_rename_delivery_partner_order_rider_and_more... OK
+  Applying market.0003_conversation_message... OK
+  Applying market.0004_alter_productimage_image... OK
+  Applying market.0005_store_is_verified... OK
+  Applying market.0006_product_is_ad... OK
+  Applying market.0007_alter_conversation_participants... OK
+  Applying market.0008_product_image... OK
+  Applying market.0009_order_monnify_reference_and_more... OK
+  Applying market.0010_merchantprofile_shop_remove_order_store_and_more... OK
+  Applying market.0011_remove_message_conversation_remove_message_sender_and_more... OK
+  Applying market.0012_alter_product_price_alter_shop_is_active_and_more... OK
+  Applying market.0013_shop_business_phone_shop_country_shop_date_applied_and_more... OK
+  Applying market.0014_alter_order_payment_status... OK
+  Applying market.0015_alter_product_video_alter_shop_logo... OK
+  Applying market.0016_product_video_ad_url... OK
+  Applying market.0017_alter_product_category... OK
+  Applying market.0018_remove_rider_and_delivery_code... OK
+  Applying market.0019_order_order_number_alter_order_unique_together... OK
+  Applying market.0020_backfill_order_numbers... OK
+  Applying market.0021_promotedpost... OK
+  Applying market.0022_promotedpostpricing... OK
+  Applying market.0023_seed_promoted_post_pricing... OK
+  Applying market.0024_promotedpost_product... OK
+  Applying market.0025_alter_merchantprofile_id_document_image_and_more... OK
+  Applying market.0026_promotedpost_contact_preference_and_more... OK
+  Applying market.0027_promotedpost_code... OK
+  Applying market.0028_alter_shop_name... OK
+  Applying market.0029_wishlistitem... OK
+  Applying chat.0001_initial... OK
+  Applying chat.0002_fix_conversation_created_at_drift... OK
+  Applying chat.0003_drop_conversation_updated_at... OK
+  Applying chat.0004_fix_conversation_product_nullable... OK
+  Applying finance.0001_initial... OK
+  Applying finance.0002_wallet_account_number_wallet_account_reference_and_more... OK
+  Applying finance.0003_alter_transaction_transaction_type_and_more... OK
+  Applying finance.0004_add_pending_balance_to_wallet... OK
+  Applying finance.0005_remove_bankaccount_is_primary_and_more... OK
+  Applying finance.0008_merge_rename_and_platform... OK
+  Applying finance.0009_datamarkup... OK
+  Applying finance.0010_datamarkup_price_factor_and_more... OK
+  Applying finance.0011_dataplanprice... OK
+  Applying finance.0012_alter_transaction_transaction_type... OK
+  Applying jobs.0001_initial... OK
+  Applying logistics.0001_initial... OK
+  Applying logistics.0002_datatransaction... OK
+  Applying market.0030_disputes_and_dispatched_at... OK
+  Applying sessions.0001_initial... OK
+  Applying users.0002_address_last_seen_user_is_online_user_push_token... OK
+  Applying users.0003_user_last_seen... OK
+  Applying users.0004_user_transaction_pin... OK
+  Applying users.0005_add_active_role_index... OK
+  Applying users.0006_alter_user_managers_user_bvn_user_nin... OK
+  Applying users.0007_user_deletion_requested_at_and_more... OK
+  Applying users.0008_passwordresetotp... OK
+  Applying users.0009_alter_user_id_document_image_alter_user_selfie_image... OK
+System check identified no issues (0 silenced).
+test_airtime_rejected_by_provider_charges_nothing (finance.test_bills.BillsTests.test_airtime_rejected_by_provider_charges_nothing) ... 2026-10-26 05:22:32,435 ERROR finance.bills: Bill purchase rejected (Airtime: MTN N500 to 08012345678): bad | code=purchase_failed
+2026-10-26 05:22:32,486 WARNING django.request: Bad Request: /api/finance/airtime/purchase/
+ok
+test_airtime_rejects_bad_amount (finance.test_bills.BillsTests.test_airtime_rejects_bad_amount) ... 2026-10-26 05:22:33,548 WARNING django.request: Bad Request: /api/finance/airtime/purchase/
+ok
+test_airtime_success (finance.test_bills.BillsTests.test_airtime_success) ... ok
+test_airtime_timeout_holds_funds_pending (finance.test_bills.BillsTests.test_airtime_timeout_holds_funds_pending) ... 2026-10-26 05:22:36,388 ERROR finance.bills: BTDataPlug bill purchase unclear outcome (Airtime: MTN N500 to 08012345678): timeout
+ok
+test_cable_unknown_package (finance.test_bills.BillsTests.test_cable_unknown_package) ... 2026-10-26 05:22:37,711 WARNING django.request: Bad Request: /api/finance/cable/purchase/
+ok
+test_cable_uses_provider_price_not_client_price (finance.test_bills.BillsTests.test_cable_uses_provider_price_not_client_price) ... ok
+test_electricity_below_minimum (finance.test_bills.BillsTests.test_electricity_below_minimum) ... 2026-10-26 05:22:40,783 WARNING django.request: Bad Request: /api/finance/electricity/purchase/
+ok
+test_electricity_charges_fee_and_returns_token (finance.test_bills.BillsTests.test_electricity_charges_fee_and_returns_token) ... ok
+test_insufficient_wallet (finance.test_bills.BillsTests.test_insufficient_wallet) ... 2026-10-26 05:22:43,760 WARNING django.request: Bad Request: /api/finance/airtime/purchase/
+ok
+test_a_notification_failure_never_breaks_the_payment (finance.test_money.DisputeNotificationAndDashboardTests.test_a_notification_failure_never_breaks_the_payment) ... 2026-10-26 05:22:44,076 INFO payments: ESCROW RELEASED order=1 net=950.0000 commission=50.0000 reason=buyer confirmed
+2026-10-26 05:22:44,085 WARNING payments: Notification email to seller@x.com failed: smtp down
+ok
+test_dashboard_disputes_are_staff_only (finance.test_money.DisputeNotificationAndDashboardTests.test_dashboard_disputes_are_staff_only) ... 2026-10-26 05:22:44,428 WARNING django.request: Forbidden (Permission denied): /api/admin/disputes/1/resolve/
+Traceback (most recent call last):
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\contrib\auth\mixins.py", line 73, in dispatch
+    return super().dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\contrib\auth\mixins.py", line 134, in dispatch
+    return self.handle_no_permission()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\contrib\auth\mixins.py", line 48, in handle_no_permission
+    raise PermissionDenied(self.get_permission_denied_message())
+django.core.exceptions.PermissionDenied
+ok
+test_dashboard_lists_open_disputes_and_staff_can_decide_from_it (finance.test_money.DisputeNotificationAndDashboardTests.test_dashboard_lists_open_disputes_and_staff_can_decide_from_it) ... 2026-10-26 05:22:44,854 WARNING payments: DISPUTE OPENED id=1 order=1 reason=damaged
+2026-10-26 05:22:48,106 WARNING django.request: Bad Request: /api/admin/disputes/1/resolve/
+2026-10-26 05:22:48,144 INFO payments: ESCROW REFUNDED order=1 amount=1000.00 reason=dispute #1
+2026-10-26 05:22:48,148 WARNING payments: DISPUTE RESOLVED id=1 decision=refund by=3
+2026-10-26 05:22:48,178 WARNING django.request: Bad Request: /api/admin/disputes/1/resolve/
+ok
+test_everyone_involved_is_told_at_each_step (finance.test_money.DisputeNotificationAndDashboardTests.test_everyone_involved_is_told_at_each_step) ... 2026-10-26 05:22:48,361 WARNING payments: DISPUTE OPENED id=1 order=1 reason=not_received
+2026-10-26 05:22:48,450 INFO payments: ESCROW REFUNDED order=1 amount=1000.00 reason=dispute #1
+2026-10-26 05:22:48,456 WARNING payments: DISPUTE RESOLVED id=1 decision=refund by=3
+ok
+test_seller_told_when_buyer_confirms (finance.test_money.DisputeNotificationAndDashboardTests.test_seller_told_when_buyer_confirms) ... 2026-10-26 05:22:48,776 INFO payments: ESCROW RELEASED order=1 net=950.0000 commission=50.0000 reason=buyer confirmed
+ok
+test_deposit_credits_once_net_of_fee_and_replays_are_acknowledged (finance.test_money.MonnifyWebhookTests.test_deposit_credits_once_net_of_fee_and_replays_are_acknowledged) ... ok
+test_disbursement_event_without_reference_cannot_refund_a_random_transaction (finance.test_money.MonnifyWebhookTests.test_disbursement_event_without_reference_cannot_refund_a_random_transaction) ... 2026-10-26 05:22:48,890 ERROR finance.views: DISBURSEMENT_FAILED webhook without a reference, ignored
+ok
+test_payment_matching_an_order_never_changes_the_order (finance.test_money.MonnifyWebhookTests.test_payment_matching_an_order_never_changes_the_order) ... 2026-10-26 05:22:48,920 CRITICAL finance.views: Monnify payment ORD-REF-1 matches an order (ref). Direct order payments are not supported; the order was NOT changed. Review manually.
+ok
+test_unsigned_or_badly_signed_webhooks_do_nothing (finance.test_money.MonnifyWebhookTests.test_unsigned_or_badly_signed_webhooks_do_nothing) ... 2026-10-26 05:22:48,943 WARNING finance.views: Invalid Webhook Signature attempt from 127.0.0.1
+2026-10-26 05:22:48,948 WARNING django.request: Unauthorized: /api/finance/monnify-webhook/
+ok
+test_zero_or_missing_amount_is_refused (finance.test_money.MonnifyWebhookTests.test_zero_or_missing_amount_is_refused) ... 2026-10-26 05:22:48,969 ERROR finance.views: Deposit webhook with bad data: ref='MNFY|z' settlement=0
+2026-10-26 05:22:48,972 WARNING django.request: Bad Request: /api/finance/monnify-webhook/
+ok
+test_old_nellobyte_deposit_endpoint_is_closed_and_credits_nothing (finance.test_money.RetiredAndInputTests.test_old_nellobyte_deposit_endpoint_is_closed_and_credits_nothing) ... 2026-10-26 05:22:48,990 WARNING finance.views: Retired deposit webhook called from 127.0.0.1: {'orderid': ['123'], 'orderremark': ['(r)']}
+2026-10-26 05:22:48,992 WARNING django.request: Gone: /api/finance/webhook/deposit/
+2026-10-26 05:22:48,995 WARNING finance.views: Retired deposit webhook called from 127.0.0.1: {'orderid': ['123'], 'orderremark': ['(r)']}
+2026-10-26 05:22:48,998 WARNING django.request: Gone: /api/finance/webhook/deposit/
+ok
+test_approve_marks_paid_without_touching_balance_again_and_only_once (finance.test_money.WithdrawalTests.test_approve_marks_paid_without_touching_balance_again_and_only_once) ... 2026-10-26 05:22:49,049 INFO payments: WITHDRAWAL REQUESTED ticket=1 user=1 amount=2000.00
+2026-10-26 05:22:49,074 INFO payments: WITHDRAWAL PAID ticket=1 amount=2000.00 by=2
+2026-10-26 05:22:49,092 WARNING django.request: Bad Request: /api/finance/admin/withdrawals/1/confirm/
+ok
+test_dashboard_approve_and_api_approve_cannot_both_pay (finance.test_money.WithdrawalTests.test_dashboard_approve_and_api_approve_cannot_both_pay) ... 2026-10-26 05:22:49,141 INFO payments: WITHDRAWAL REQUESTED ticket=1 user=1 amount=2000.00
+2026-10-26 05:22:49,217 INFO payments: WITHDRAWAL PAID ticket=1 amount=2000.00 by=2
+2026-10-26 05:22:49,246 WARNING django.request: Bad Request: /api/finance/admin/withdrawals/1/confirm/
+ok
+test_frozen_wallet_cannot_withdraw (finance.test_money.WithdrawalTests.test_frozen_wallet_cannot_withdraw) ... 2026-10-26 05:22:49,289 WARNING django.request: Bad Request: /api/finance/withdraw/
+ok
+test_held_money_cannot_be_spent_or_withdrawn_again (finance.test_money.WithdrawalTests.test_held_money_cannot_be_spent_or_withdrawn_again) ... 2026-10-26 05:22:49,331 INFO payments: WITHDRAWAL REQUESTED ticket=1 user=1 amount=4000.00
+2026-10-26 05:22:49,351 WARNING django.request: Bad Request: /api/finance/withdraw/
+ok
+test_old_ticket_that_held_nothing_deducts_on_approve_and_refunds_nothing_on_reject (finance.test_money.WithdrawalTests.test_old_ticket_that_held_nothing_deducts_on_approve_and_refunds_nothing_on_reject) ... 2026-10-26 05:22:49,394 INFO payments: WITHDRAWAL PAID ticket=1 amount=1000.00 by=2
+2026-10-26 05:22:49,432 INFO payments: WITHDRAWAL REJECTED ticket=2 amount=1000.00 by=2
+ok
+test_pin_is_required_and_checked (finance.test_money.WithdrawalTests.test_pin_is_required_and_checked) ... 2026-10-26 05:22:49,472 WARNING django.request: Bad Request: /api/finance/withdraw/
+2026-10-26 05:22:49,479 WARNING django.request: Bad Request: /api/finance/withdraw/
+2026-10-26 05:22:49,494 WARNING django.request: Bad Request: /api/finance/withdraw/
+ok
+test_reject_returns_the_money_exactly_once (finance.test_money.WithdrawalTests.test_reject_returns_the_money_exactly_once) ... 2026-10-26 05:22:49,528 INFO payments: WITHDRAWAL REQUESTED ticket=1 user=1 amount=2000.00
+2026-10-26 05:22:49,569 INFO payments: WITHDRAWAL REJECTED ticket=1 amount=2000.00 by=2
+2026-10-26 05:22:49,584 WARNING django.request: Bad Request: /api/finance/withdraw/1/update-status/
+2026-10-26 05:22:49,601 WARNING django.request: Bad Request: /api/finance/withdraw/1/update-status/
+ok
+test_rejects_bad_amounts (finance.test_money.WithdrawalTests.test_rejects_bad_amounts) ... 2026-10-26 05:22:49,628 WARNING django.request: Bad Request: /api/finance/withdraw/
+2026-10-26 05:22:49,631 WARNING django.request: Bad Request: /api/finance/withdraw/
+2026-10-26 05:22:49,635 WARNING django.request: Bad Request: /api/finance/withdraw/
+2026-10-26 05:22:49,639 WARNING django.request: Bad Request: /api/finance/withdraw/
+2026-10-26 05:22:49,645 WARNING django.request: Bad Request: /api/finance/withdraw/
+2026-10-26 05:22:49,651 WARNING django.request: Bad Request: /api/finance/withdraw/
+2026-10-26 05:22:49,655 WARNING django.request: Bad Request: /api/finance/withdraw/
+ok
+test_request_holds_the_money_immediately (finance.test_money.WithdrawalTests.test_request_holds_the_money_immediately) ... 2026-10-26 05:22:49,724 INFO payments: WITHDRAWAL REQUESTED ticket=1 user=1 amount=2000.00
+ok
+test_user_is_told_when_paid (finance.test_money.WithdrawalTests.test_user_is_told_when_paid) ... 2026-10-26 05:22:49,806 INFO payments: WITHDRAWAL REQUESTED ticket=1 user=1 amount=2000.00
+2026-10-26 05:22:49,829 INFO payments: WITHDRAWAL PAID ticket=1 amount=2000.00 by=2
+ok
+test_data_purchase_api_failure_auto_refund (finance.tests.DataPurchaseTests.test_data_purchase_api_failure_auto_refund) ... 2026-10-26 05:22:50,506 ERROR finance.views: Data Purchase 400: BTDataPlug Error: INVALID_DATA_PLAN | Code: purchase_failed
+2026-10-26 05:22:50,533 WARNING django.request: Bad Request: /api/finance/data/purchase/
+ok
+test_data_purchase_critical_failure_pending (finance.tests.DataPurchaseTests.test_data_purchase_critical_failure_pending) ... 2026-10-26 05:22:50,982 ERROR finance.views: BTDataPlug Network/Critical Failure: Connection Timeout
+ok
+test_data_purchase_success (finance.tests.DataPurchaseTests.test_data_purchase_success) ... ok
+test_data_variations_all_providers (finance.tests.DataPurchaseTests.test_data_variations_all_providers) ... ok
+test_data_variations_empty_plans (finance.tests.DataPurchaseTests.test_data_variations_empty_plans) ... ok
+test_data_variations_success (finance.tests.DataPurchaseTests.test_data_variations_success) ... ok
+test_failed_disbursement_refunds_once (finance.tests.DisbursementWebhookTests.test_failed_disbursement_refunds_once) ... 2026-10-26 05:22:53,121 WARNING finance.views: \u26a0\ufe0f Disbursement failed and refunded for ref WTH-test1
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 47-48: character maps to <undefined>
+Call stack:
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\manage.py", line 22, in <module>
+    main()
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\manage.py", line 18, in main
+    execute_from_command_line(sys.argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\__init__.py", line 442, in execute_from_command_line
+    utility.execute()
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\__init__.py", line 436, in execute
+    self.fetch_command(subcommand).run_from_argv(self.argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\commands\test.py", line 24, in run_from_argv
+    super().run_from_argv(argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\base.py", line 412, in run_from_argv
+    self.execute(*args, **cmd_options)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\base.py", line 458, in execute
+    output = self.handle(*args, **options)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\commands\test.py", line 68, in handle
+    failures = test_runner.run_tests(test_labels)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\runner.py", line 1061, in run_tests
+    result = self.run_suite(suite)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\runner.py", line 983, in run_suite
+    return runner.run(suite)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\runner.py", line 217, in run
+    test(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\suite.py", line 122, in run
+    test(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\testcases.py", line 381, in __call__
+    self._setup_and_call(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\testcases.py", line 416, in _setup_and_call
+    super().__call__(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 678, in __call__
+    return self.run(*args, **kwds)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 623, in run
+    self._callTestMethod(testMethod)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 579, in _callTestMethod
+    if method() is not None:
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\tests.py", line 430, in test_failed_disbursement_refunds_once
+    self.assertEqual(self._send("DISBURSEMENT_FAILED").status_code, 200)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\tests.py", line 426, in _send
+    return self.client.generic("POST", "/api/finance/monnify-webhook/", body,
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 237, in generic
+    return super().generic(
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\client.py", line 609, in generic
+    return self.request(**r)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 289, in request
+    return super().request(**kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 241, in request
+    request = super().request(**kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\client.py", line 886, in request
+    response = self.handler(environ)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\client.py", line 176, in __call__
+    response = self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 261, in get_response
+    return super().get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\base.py", line 140, in get_response
+    response = self._middleware_chain(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\corsheaders\middleware.py", line 53, in __call__
+    result = self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\views\decorators\csrf.py", line 56, in wrapper_view
+    return view_func(*args, **kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\views.py", line 220, in post
+    logger.warning(f"\u26a0\ufe0f Disbursement failed and refunded for ref {ref}")
+Message: '\u26a0\ufe0f Disbursement failed and refunded for ref WTH-test1'
+Arguments: ()
+ok
+test_pending_withdrawal_is_refunded_on_failure (finance.tests.DisbursementWebhookTests.test_pending_withdrawal_is_refunded_on_failure) ... 2026-10-26 05:22:54,897 WARNING finance.views: \u26a0\ufe0f Disbursement failed and refunded for ref WTH-test1
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 47-48: character maps to <undefined>
+Call stack:
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\manage.py", line 22, in <module>
+    main()
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\manage.py", line 18, in main
+    execute_from_command_line(sys.argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\__init__.py", line 442, in execute_from_command_line
+    utility.execute()
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\__init__.py", line 436, in execute
+    self.fetch_command(subcommand).run_from_argv(self.argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\commands\test.py", line 24, in run_from_argv
+    super().run_from_argv(argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\base.py", line 412, in run_from_argv
+    self.execute(*args, **cmd_options)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\base.py", line 458, in execute
+    output = self.handle(*args, **options)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\commands\test.py", line 68, in handle
+    failures = test_runner.run_tests(test_labels)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\runner.py", line 1061, in run_tests
+    result = self.run_suite(suite)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\runner.py", line 983, in run_suite
+    return runner.run(suite)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\runner.py", line 217, in run
+    test(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\suite.py", line 122, in run
+    test(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\testcases.py", line 381, in __call__
+    self._setup_and_call(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\testcases.py", line 416, in _setup_and_call
+    super().__call__(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 678, in __call__
+    return self.run(*args, **kwds)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 623, in run
+    self._callTestMethod(testMethod)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 579, in _callTestMethod
+    if method() is not None:
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\tests.py", line 438, in test_pending_withdrawal_is_refunded_on_failure
+    self._send("DISBURSEMENT_FAILED")
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\tests.py", line 426, in _send
+    return self.client.generic("POST", "/api/finance/monnify-webhook/", body,
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 237, in generic
+    return super().generic(
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\client.py", line 609, in generic
+    return self.request(**r)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 289, in request
+    return super().request(**kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 241, in request
+    request = super().request(**kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\client.py", line 886, in request
+    response = self.handler(environ)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\client.py", line 176, in __call__
+    response = self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 261, in get_response
+    return super().get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\base.py", line 140, in get_response
+    response = self._middleware_chain(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\corsheaders\middleware.py", line 53, in __call__
+    result = self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\views\decorators\csrf.py", line 56, in wrapper_view
+    return view_func(*args, **kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\views.py", line 220, in post
+    logger.warning(f"\u26a0\ufe0f Disbursement failed and refunded for ref {ref}")
+Message: '\u26a0\ufe0f Disbursement failed and refunded for ref WTH-test1'
+Arguments: ()
+ok
+test_success_after_refund_is_not_flipped (finance.tests.DisbursementWebhookTests.test_success_after_refund_is_not_flipped) ... 2026-10-26 05:22:55,399 WARNING finance.views: \u26a0\ufe0f Disbursement failed and refunded for ref WTH-test1
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 47-48: character maps to <undefined>
+Call stack:
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\manage.py", line 22, in <module>
+    main()
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\manage.py", line 18, in main
+    execute_from_command_line(sys.argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\__init__.py", line 442, in execute_from_command_line
+    utility.execute()
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\__init__.py", line 436, in execute
+    self.fetch_command(subcommand).run_from_argv(self.argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\commands\test.py", line 24, in run_from_argv
+    super().run_from_argv(argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\base.py", line 412, in run_from_argv
+    self.execute(*args, **cmd_options)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\base.py", line 458, in execute
+    output = self.handle(*args, **options)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\commands\test.py", line 68, in handle
+    failures = test_runner.run_tests(test_labels)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\runner.py", line 1061, in run_tests
+    result = self.run_suite(suite)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\runner.py", line 983, in run_suite
+    return runner.run(suite)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\runner.py", line 217, in run
+    test(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\suite.py", line 122, in run
+    test(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\testcases.py", line 381, in __call__
+    self._setup_and_call(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\testcases.py", line 416, in _setup_and_call
+    super().__call__(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 678, in __call__
+    return self.run(*args, **kwds)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 623, in run
+    self._callTestMethod(testMethod)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 579, in _callTestMethod
+    if method() is not None:
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\tests.py", line 443, in test_success_after_refund_is_not_flipped
+    self._send("DISBURSEMENT_FAILED")
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\tests.py", line 426, in _send
+    return self.client.generic("POST", "/api/finance/monnify-webhook/", body,
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 237, in generic
+    return super().generic(
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\client.py", line 609, in generic
+    return self.request(**r)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 289, in request
+    return super().request(**kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 241, in request
+    request = super().request(**kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\client.py", line 886, in request
+    response = self.handler(environ)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\client.py", line 176, in __call__
+    response = self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\test.py", line 261, in get_response
+    return super().get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\base.py", line 140, in get_response
+    response = self._middleware_chain(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\corsheaders\middleware.py", line 53, in __call__
+    result = self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\utils\deprecation.py", line 134, in __call__
+    response = response or self.get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\views\decorators\csrf.py", line 56, in wrapper_view
+    return view_func(*args, **kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\views.py", line 220, in post
+    logger.warning(f"\u26a0\ufe0f Disbursement failed and refunded for ref {ref}")
+Message: '\u26a0\ufe0f Disbursement failed and refunded for ref WTH-test1'
+Arguments: ()
+2026-10-26 05:22:55,408 CRITICAL finance.views: DOUBLE-PAYOUT RISK: ref WTH-test1 was refunded (FAILED) but Monnify reports success
+ok
+test_create_virtual_account_auth_failure (finance.tests.MonnifyAPITests.test_create_virtual_account_auth_failure)
+If auth fails, we return None and an error message. ... 2026-10-26 05:22:55,870 ERROR finance.utils: \u274c Monnify Auth Rejected: 401 - <MagicMock name='post().text' id='2442598768400'>
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u274c' in position 45: character maps to <undefined>
+Call stack:
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\manage.py", line 22, in <module>
+    main()
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\manage.py", line 18, in main
+    execute_from_command_line(sys.argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\__init__.py", line 442, in execute_from_command_line
+    utility.execute()
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\__init__.py", line 436, in execute
+    self.fetch_command(subcommand).run_from_argv(self.argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\commands\test.py", line 24, in run_from_argv
+    super().run_from_argv(argv)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\base.py", line 412, in run_from_argv
+    self.execute(*args, **cmd_options)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\base.py", line 458, in execute
+    output = self.handle(*args, **options)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\core\management\commands\test.py", line 68, in handle
+    failures = test_runner.run_tests(test_labels)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\runner.py", line 1061, in run_tests
+    result = self.run_suite(suite)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\runner.py", line 983, in run_suite
+    return runner.run(suite)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\runner.py", line 217, in run
+    test(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\suite.py", line 122, in run
+    test(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\testcases.py", line 381, in __call__
+    self._setup_and_call(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\site-packages\django\test\testcases.py", line 416, in _setup_and_call
+    super().__call__(result)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 678, in __call__
+    return self.run(*args, **kwds)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 623, in run
+    self._callTestMethod(testMethod)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\case.py", line 579, in _callTestMethod
+    if method() is not None:
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\unittest\mock.py", line 1378, in patched
+    return func(*newargs, **newkeywargs)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\tests.py", line 308, in test_create_virtual_account_auth_failure
+    result, error = MonnifyAPI.create_virtual_account(self.user)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\utils.py", line 67, in create_virtual_account
+    token = MonnifyAPI.get_auth_token()
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\utils.py", line 59, in get_auth_token
+    logger.error(f"\u274c Monnify Auth Rejected: {response.status_code} - {response.text}")
+Message: "\u274c Monnify Auth Rejected: 401 - <MagicMock name='post().text' id='2442598768400'>"
+Arguments: ()
+ok
+test_create_virtual_account_fallback_v2_url (finance.tests.MonnifyAPITests.test_create_virtual_account_fallback_v2_url)
+When Monnify says the account already exists, we fall back to listing ... ok
+test_create_virtual_account_fetch_by_reference_success (finance.tests.MonnifyAPITests.test_create_virtual_account_fetch_by_reference_success)
+When the account already exists, the first attempt fetches by reference. ... ok
+test_withdrawal_request_insufficient_balance (finance.tests.WithdrawalRequestTests.test_withdrawal_request_insufficient_balance)
+Returns 400 when balance is too low. ... 2026-10-26 05:22:58,120 ERROR finance.utils: \u274c Monnify Auth Rejected: 401 - {"requestSuccessful":false,"responseMessage":"Invalid authentication credentials. Please check that the right credentials are being used for the right environment.","responseCode":"99"}
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u274c' in position 45: character maps to <undefined>
+Call stack:
+2026-10-26 05:22:58,122 ERROR finance.utils: \u274c Monnify Auth Rejected: 401 - {"requestSuccessful":false,"responseMessage":"Invalid authentication credentials. Please check that the right credentials are being used for the right environment.","responseCode":"99"}
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\signals.py", line 47, in provision_monnify_task
+    acc_data, error_msg = MonnifyAPI.create_virtual_account(user)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\utils.py", line 67, in create_virtual_account
+    token = MonnifyAPI.get_auth_token()
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\utils.py", line 59, in get_auth_token
+    logger.error(f"\u274c Monnify Auth Rejected: {response.status_code} - {response.text}")
+Message: '\u274c Monnify Auth Rejected: 401 - {"requestSuccessful":false,"responseMessage":"Invalid authentication credentials. Please check that the right credentials are being used for the right environment.","responseCode":"99"}'
+Arguments: ()
+2026-10-26 05:22:58,128 WARNING finance.signals: Monnify account creation failed for monnify@example.com: Auth Failed
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u274c' in position 45: character maps to <undefined>
+Call stack:
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\signals.py", line 47, in provision_monnify_task
+    acc_data, error_msg = MonnifyAPI.create_virtual_account(user)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\utils.py", line 67, in create_virtual_account
+    token = MonnifyAPI.get_auth_token()
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\utils.py", line 59, in get_auth_token
+    logger.error(f"\u274c Monnify Auth Rejected: {response.status_code} - {response.text}")
+Message: '\u274c Monnify Auth Rejected: 401 - {"requestSuccessful":false,"responseMessage":"Invalid authentication credentials. Please check that the right credentials are being used for the right environment.","responseCode":"99"}'
+Arguments: ()
+2026-10-26 05:22:58,132 WARNING finance.signals: Monnify account creation failed for monnify@example.com: Auth Failed
+2026-10-26 05:22:58,138 ERROR finance.utils: \u274c Monnify Auth Rejected: 401 - {"requestSuccessful":false,"responseMessage":"Invalid authentication credentials. Please check that the right credentials are being used for the right environment.","responseCode":"99"}
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\logging\__init__.py", line 1113, in emit
+    stream.write(msg + self.terminator)
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u274c' in position 45: character maps to <undefined>
+Call stack:
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1002, in _bootstrap
+    self._bootstrap_inner()
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 1045, in _bootstrap_inner
+    self.run()
+  File "C:\Users\DELL\AppData\Local\Programs\Python\Python311\Lib\threading.py", line 982, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\signals.py", line 47, in provision_monnify_task
+    acc_data, error_msg = MonnifyAPI.create_virtual_account(user)
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\utils.py", line 67, in create_virtual_account
+    token = MonnifyAPI.get_auth_token()
+  File "C:\Users\DELL\Desktop\DESKTOP\GL-Backend\finance\utils.py", line 59, in get_auth_token
+    logger.error(f"\u274c Monnify Auth Rejected: {response.status_code} - {response.text}")
+Message: '\u274c Monnify Auth Rejected: 401 - {"requestSuccessful":false,"responseMessage":"Invalid authentication credentials. Please check that the right credentials are being used for the right environment.","responseCode":"99"}'
+Arguments: ()
+2026-10-26 05:22:58,142 WARNING finance.signals: Monnify account creation failed for monnify@example.com: Auth Failed
+2026-10-26 05:22:58,543 WARNING django.request: Bad Request: /api/finance/withdraw/
+ok
+test_withdrawal_request_missing_fields (finance.tests.WithdrawalRequestTests.test_withdrawal_request_missing_fields)
+Returns 400 when required fields are missing. ... 2026-10-26 05:22:59,407 WARNING django.request: Bad Request: /api/finance/withdraw/
+ok
+test_withdrawal_request_success (finance.tests.WithdrawalRequestTests.test_withdrawal_request_success)
+Creates a PENDING ticket and holds the amount; nothing is paid out yet. ... 2026-10-26 05:23:00,753 INFO payments: WITHDRAWAL REQUESTED ticket=1 user=1 amount=2000.00
+ok
+test_withdrawal_request_unauthenticated (finance.tests.WithdrawalRequestTests.test_withdrawal_request_unauthenticated)
+Returns 401 for unauthenticated requests. ... 2026-10-26 05:23:01,699 WARNING django.request: Unauthorized: /api/finance/withdraw/
+ok
+test_withdrawal_request_zero_amount (finance.tests.WithdrawalRequestTests.test_withdrawal_request_zero_amount)
+Returns 400 for zero or negative amounts. ... 2026-10-26 05:23:02,746 WARNING django.request: Bad Request: /api/finance/withdraw/
+ok
+test_every_balance_change_has_a_ledger_row (market.test_escrow.AuditTrailAndMonitoringTests.test_every_balance_change_has_a_ledger_row) ... 2026-10-26 05:23:02,819 INFO payments: ESCROW RELEASED order=1 net=950.0000 commission=50.0000 reason=buyer confirmed
+2026-10-26 05:23:02,859 WARNING payments: DISPUTE OPENED id=1 order=2 reason=not_received
+2026-10-26 05:23:02,875 INFO payments: ESCROW REFUNDED order=2 amount=1000.00 reason=dispute #1
+2026-10-26 05:23:02,875 WARNING payments: DISPUTE RESOLVED id=1 decision=refund by=3
+ok
+test_health_endpoint_is_staff_only (market.test_escrow.AuditTrailAndMonitoringTests.test_health_endpoint_is_staff_only) ... 2026-10-26 05:23:02,892 WARNING django.request: Forbidden: /api/finance/admin/health/
+ok
+test_health_report_catches_money_that_does_not_add_up (market.test_escrow.AuditTrailAndMonitoringTests.test_health_report_catches_money_that_does_not_add_up) ... 2026-10-26 05:23:02,936 ERROR payments: PAYMENT HEALTH ALERTS: 1 seller wallet(s) where locked_balance != escrowed orders
+2026-10-26 05:23:02,941 ERROR payments: PAYMENT HEALTH ALERTS: 1 wallet(s) have a negative balance; 1 seller wallet(s) where locked_balance != escrowed orders
+ok
+test_health_report_catches_stuck_purchase_and_overdue_release_and_old_dispute (market.test_escrow.AuditTrailAndMonitoringTests.test_health_report_catches_stuck_purchase_and_overdue_release_and_old_dispute) ... 2026-10-26 05:23:02,984 ERROR payments: PAYMENT HEALTH ALERTS: 1 purchase(s) pending for more than 30 minutes; 1 order(s) overdue for auto-release — is `process_escrow` scheduled?
+ok
+test_health_report_is_clean_after_normal_activity (market.test_escrow.AuditTrailAndMonitoringTests.test_health_report_is_clean_after_normal_activity) ... ok
+test_ledger_rows_cannot_be_edited_in_admin (market.test_escrow.AuditTrailAndMonitoringTests.test_ledger_rows_cannot_be_edited_in_admin) ... ok
+test_provider_low_balance_alert (market.test_escrow.AuditTrailAndMonitoringTests.test_provider_low_balance_alert) ... 2026-10-26 05:23:03,053 ERROR payments: PAYMENT HEALTH ALERTS: BT DataPlug wallet low: NGN 120.00
+ok
+test_admin_refunds_buyer (market.test_escrow.DisputeTests.test_admin_refunds_buyer) ... 2026-10-26 05:23:03,129 WARNING payments: DISPUTE OPENED id=1 order=1 reason=not_received
+2026-10-26 05:23:03,150 INFO payments: ESCROW REFUNDED order=1 amount=1000.00 reason=dispute #1
+2026-10-26 05:23:03,153 WARNING payments: DISPUTE RESOLVED id=1 decision=refund by=3
+2026-10-26 05:23:03,161 WARNING django.request: Bad Request: /api/market/admin/disputes/1/resolve/
+ok
+test_admin_releases_to_seller (market.test_escrow.DisputeTests.test_admin_releases_to_seller) ... 2026-10-26 05:23:03,206 WARNING payments: DISPUTE OPENED id=1 order=1 reason=not_received
+2026-10-26 05:23:03,230 INFO payments: ESCROW RELEASED order=1 net=950.0000 commission=50.0000 reason=dispute #1
+2026-10-26 05:23:03,232 WARNING payments: DISPUTE RESOLVED id=1 decision=release by=3
+ok
+test_buyer_can_withdraw_then_confirm (market.test_escrow.DisputeTests.test_buyer_can_withdraw_then_confirm) ... 2026-10-26 05:23:03,297 WARNING payments: DISPUTE OPENED id=1 order=1 reason=not_received
+2026-10-26 05:23:03,326 INFO payments: ESCROW RELEASED order=1 net=950.0000 commission=50.0000 reason=buyer confirmed
+ok
+test_dispute_freezes_funds_and_blocks_confirm_cancel_and_auto_release (market.test_escrow.DisputeTests.test_dispute_freezes_funds_and_blocks_confirm_cancel_and_auto_release) ... 2026-10-26 05:23:03,394 WARNING payments: DISPUTE OPENED id=1 order=1 reason=not_received
+2026-10-26 05:23:03,408 WARNING django.request: Bad Request: /api/market/buyer/orders/1/confirm/
+2026-10-26 05:23:03,415 WARNING django.request: Bad Request: /api/market/buyer/orders/1/cancel/
+ok
+test_dispute_rules (market.test_escrow.DisputeTests.test_dispute_rules) ... 2026-10-26 05:23:03,487 WARNING django.request: Bad Request: /api/market/buyer/orders/1/dispute/
+2026-10-26 05:23:03,494 WARNING django.request: Bad Request: /api/market/buyer/orders/1/dispute/
+2026-10-26 05:23:03,503 WARNING payments: DISPUTE OPENED id=1 order=1 reason=not_received
+2026-10-26 05:23:03,518 WARNING django.request: Bad Request: /api/market/buyer/orders/1/dispute/
+2026-10-26 05:23:03,526 WARNING django.request: Not Found: /api/market/buyer/orders/1/dispute/
+ok
+test_only_staff_can_resolve (market.test_escrow.DisputeTests.test_only_staff_can_resolve) ... 2026-10-26 05:23:03,607 WARNING payments: DISPUTE OPENED id=1 order=1 reason=not_received
+2026-10-26 05:23:03,620 WARNING django.request: Forbidden: /api/market/admin/disputes/1/resolve/
+2026-10-26 05:23:03,626 WARNING django.request: Forbidden: /api/market/admin/disputes/1/resolve/
+ok
+test_airtime_retry_buys_once (market.test_escrow.DoubleChargeTests.test_airtime_retry_buys_once) ... ok
+test_data_retry_with_same_key_buys_once (market.test_escrow.DoubleChargeTests.test_data_retry_with_same_key_buys_once) ... ok
+test_different_keys_are_different_purchases (market.test_escrow.DoubleChargeTests.test_different_keys_are_different_purchases) ... ok
+test_marketplace_checkout_retry_charges_once (market.test_escrow.DoubleChargeTests.test_marketplace_checkout_retry_charges_once) ... ok
+test_timeout_then_retry_does_not_charge_twice (market.test_escrow.DoubleChargeTests.test_timeout_then_retry_does_not_charge_twice) ... 2026-10-26 05:23:03,879 ERROR finance.views: BTDataPlug Network/Critical Failure: connection reset
+ok
+test_confirm_twice_pays_once (market.test_escrow.EscrowHoldingTests.test_confirm_twice_pays_once) ... 2026-10-26 05:23:03,985 INFO payments: ESCROW RELEASED order=1 net=950.0000 commission=50.0000 reason=buyer confirmed
+2026-10-26 05:23:04,001 WARNING django.request: Bad Request: /api/market/buyer/orders/1/confirm/
+ok
+test_only_the_buyer_can_confirm (market.test_escrow.EscrowHoldingTests.test_only_the_buyer_can_confirm) ... 2026-10-26 05:23:04,077 WARNING django.request: Not Found: /api/market/buyer/orders/1/confirm/
+2026-10-26 05:23:04,081 WARNING django.request: Not Found: /api/market/buyer/orders/1/confirm/
+ok
+test_payment_is_held_in_escrow_until_buyer_confirms (market.test_escrow.EscrowHoldingTests.test_payment_is_held_in_escrow_until_buyer_confirms) ... 2026-10-26 05:23:04,174 INFO payments: ESCROW RELEASED order=1 net=950.0000 commission=50.0000 reason=buyer confirmed
+ok
+test_buyer_never_confirms_auto_release_after_7_days (market.test_escrow.NoDeliveryAndAutoSettleTests.test_buyer_never_confirms_auto_release_after_7_days) ... 2026-10-26 05:23:04,259 INFO payments: ESCROW RELEASED order=1 net=950.0000 commission=50.0000 reason=auto-release after 7 days
+ok
+test_seller_never_ships_and_buyer_forgets_auto_refund_after_14_days (market.test_escrow.NoDeliveryAndAutoSettleTests.test_seller_never_ships_and_buyer_forgets_auto_refund_after_14_days) ... 2026-10-26 05:23:04,334 INFO payments: ESCROW REFUNDED order=1 amount=1000.00 reason=seller did not ship within 14 days
+ok
+test_seller_never_ships_buyer_cancels_full_refund (market.test_escrow.NoDeliveryAndAutoSettleTests.test_seller_never_ships_buyer_cancels_full_refund) ... 2026-10-26 05:23:04,399 INFO payments: ESCROW REFUNDED order=1 amount=1000.00 reason=cancelled by buyer
+ok
+test_buyer_can_independently_confirm_each_shops_order (market.tests.MultiShopCheckoutTests.test_buyer_can_independently_confirm_each_shops_order) ... 2026-10-26 05:23:09,610 INFO payments: ESCROW RELEASED order=1 net=950.0000 commission=50.0000 reason=buyer confirmed
+ok
+test_checkout_with_wrong_pin_is_rejected (market.tests.MultiShopCheckoutTests.test_checkout_with_wrong_pin_is_rejected) ... 2026-10-26 05:23:16,876 WARNING django.request: Bad Request: /api/market/checkout/
+ok
+test_checkout_without_pin_is_rejected (market.tests.MultiShopCheckoutTests.test_checkout_without_pin_is_rejected) ... 2026-10-26 05:23:23,588 WARNING django.request: Bad Request: /api/market/checkout/
+ok
+test_multi_shop_cart_creates_one_order_per_shop (market.tests.MultiShopCheckoutTests.test_multi_shop_cart_creates_one_order_per_shop) ... ok
+test_buyer_can_independently_confirm_each_shops_order (market.tests.PaymentSafetyTests.test_buyer_can_independently_confirm_each_shops_order) ... 2026-10-26 05:23:40,279 INFO payments: ESCROW RELEASED order=1 net=950.0000 commission=50.0000 reason=buyer confirmed
+ok
+test_buyer_cancel_before_dispatch_refunds_and_restores_stock (market.tests.PaymentSafetyTests.test_buyer_cancel_before_dispatch_refunds_and_restores_stock) ... 2026-10-26 05:23:48,611 INFO payments: ESCROW REFUNDED order=1 amount=1000.00 reason=cancelled by buyer
+2026-10-26 05:23:48,624 WARNING django.request: Bad Request: /api/market/buyer/orders/1/cancel/
+ok
+test_checkout_with_wrong_pin_is_rejected (market.tests.PaymentSafetyTests.test_checkout_with_wrong_pin_is_rejected) ... 2026-10-26 05:23:55,963 WARNING django.request: Bad Request: /api/market/checkout/
+ok
+test_checkout_without_pin_is_rejected (market.tests.PaymentSafetyTests.test_checkout_without_pin_is_rejected) ... 2026-10-26 05:24:01,482 WARNING django.request: Bad Request: /api/market/checkout/
+ok
+test_different_keys_are_separate_purchases (market.tests.PaymentSafetyTests.test_different_keys_are_separate_purchases) ... ok
+test_full_flow_pay_dispatch_confirm_ledger (market.tests.PaymentSafetyTests.test_full_flow_pay_dispatch_confirm_ledger) ... 2026-10-26 05:24:17,230 INFO payments: ESCROW RELEASED order=1 net=950.0000 commission=50.0000 reason=buyer confirmed
+2026-10-26 05:24:17,247 WARNING django.request: Bad Request: /api/market/buyer/orders/1/confirm/
+ok
+test_multi_shop_cart_creates_one_order_per_shop (market.tests.PaymentSafetyTests.test_multi_shop_cart_creates_one_order_per_shop) ... ok
+test_retry_with_same_idempotency_key_charges_once (market.tests.PaymentSafetyTests.test_retry_with_same_idempotency_key_charges_once) ... ok
+test_seller_cannot_set_arbitrary_status (market.tests.PaymentSafetyTests.test_seller_cannot_set_arbitrary_status) ... 2026-10-26 05:24:39,350 WARNING django.request: Bad Request: /api/market/seller/orders/status-change/1/
+2026-10-26 05:24:39,365 WARNING django.request: Bad Request: /api/market/seller/orders/1/
+2026-10-26 05:24:39,374 WARNING django.request: Bad Request: /api/market/seller/orders/status-change/1/
+2026-10-26 05:24:39,384 WARNING django.request: Bad Request: /api/market/seller/orders/1/
+2026-10-26 05:24:39,386 WARNING django.request: Bad Request: /api/market/seller/orders/status-change/1/
+2026-10-26 05:24:39,407 WARNING django.request: Bad Request: /api/market/seller/orders/1/
+2026-10-26 05:24:39,439 WARNING django.request: Bad Request: /api/market/seller/orders/1/
+ok
+test_wallet_pay_rejects_already_paid_order (market.tests.PaymentSafetyTests.test_wallet_pay_rejects_already_paid_order) ... 2026-10-26 05:24:47,845 WARNING django.request: Bad Request: /api/market/orders/wallet-pay/
+ok
+test_add_and_list_wishlist (market.tests.WishlistTests.test_add_and_list_wishlist) ... ok
+test_adding_same_product_twice_is_idempotent (market.tests.WishlistTests.test_adding_same_product_twice_is_idempotent) ... ok
+test_remove_from_wishlist (market.tests.WishlistTests.test_remove_from_wishlist) ... ok
+test_wishlist_is_per_user (market.tests.WishlistTests.test_wishlist_is_per_user) ... ok
+test_cannot_update_or_delete_another_users_address (users.tests.AddressBookTests.test_cannot_update_or_delete_another_users_address) ... 2026-10-26 05:25:04,151 WARNING django.request: Not Found: /api/users/addresses/1
+2026-10-26 05:25:04,168 WARNING django.request: Not Found: /api/users/addresses/1
+ok
+test_create_address_with_camel_case_payload (users.tests.AddressBookTests.test_create_address_with_camel_case_payload) ... ok
+test_delete_address (users.tests.AddressBookTests.test_delete_address) ... ok
+test_list_empty (users.tests.AddressBookTests.test_list_empty) ... ok
+test_setting_new_default_clears_previous_default (users.tests.AddressBookTests.test_setting_new_default_clears_previous_default) ... ok
+test_update_address (users.tests.AddressBookTests.test_update_address) ... ok
+
+----------------------------------------------------------------------
+Ran 95 tests in 167.832s
+
+OK
+Destroying test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+exit=0

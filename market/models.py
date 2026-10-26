@@ -224,6 +224,10 @@ class Order(models.Model):
         ESCROW_HELD = 'escrow_held', _('Held in Escrow')  # Legacy
         RELEASED = 'released', _('Released to Seller')     # Legacy
         REFUNDED = 'refunded', _('Refunded')
+        DISPUTED = 'disputed', _('Disputed (funds frozen)')
+
+    # Delivery states that mean the seller has handed the goods over
+    DISPATCHED_STATUSES = ('ready_for_pickup', 'picked_up', 'in_transit', 'shipped', 'delivered')
 
     buyer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='orders')
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='received_orders', null=True, blank=True)
@@ -252,6 +256,10 @@ class Order(models.Model):
 
     order_number = models.PositiveIntegerField(null=True, blank=True)
 
+    # Set once, the first time the order leaves PENDING delivery. Starts the
+    # buyer's dispute window / auto-release clock.
+    dispatched_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -259,6 +267,12 @@ class Order(models.Model):
         unique_together = ['buyer', 'order_number']
 
     def save(self, *args, **kwargs):
+        if self.dispatched_at is None and self.delivery_status in self.DISPATCHED_STATUSES:
+            from django.utils import timezone
+            self.dispatched_at = timezone.now()
+            update_fields = kwargs.get('update_fields')
+            if update_fields is not None:
+                kwargs['update_fields'] = list(update_fields) + ['dispatched_at']
         if self.order_number is None:
             from django.db.models import Max
             max_num = Order.objects.filter(buyer=self.buyer).aggregate(
@@ -269,6 +283,51 @@ class Order(models.Model):
 
     def __str__(self):
         return f"Order #{self.order_number or self.id} - {self.delivery_status}"
+
+class Dispute(models.Model):
+    """
+    A buyer's claim that a paid order was not delivered / not as described.
+    While OPEN the order is DISPUTED, which freezes the escrowed funds: the
+    buyer can't confirm, nothing auto-releases, and only an admin decision
+    (refund the buyer or release to the seller) moves the money.
+    """
+    class Status(models.TextChoices):
+        OPEN = 'open', _('Open')
+        RESOLVED_REFUND = 'resolved_refund', _('Resolved: buyer refunded')
+        RESOLVED_RELEASE = 'resolved_release', _('Resolved: released to seller')
+        WITHDRAWN = 'withdrawn', _('Withdrawn by buyer')
+
+    class Reason(models.TextChoices):
+        NOT_RECEIVED = 'not_received', _('Item not received')
+        NOT_AS_DESCRIBED = 'not_as_described', _('Not as described')
+        DAMAGED = 'damaged', _('Damaged / faulty')
+        OTHER = 'other', _('Other')
+
+    order = models.ForeignKey(Order, on_delete=models.PROTECT, related_name='disputes')
+    opened_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='disputes_opened')
+    reason = models.CharField(max_length=20, choices=Reason.choices)
+    description = models.TextField()
+    seller_response = models.TextField(blank=True, default='')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    resolution_note = models.TextField(blank=True, default='')
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name='disputes_resolved'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            # At most one open dispute per order
+            models.UniqueConstraint(
+                fields=['order'], condition=models.Q(status='open'), name='one_open_dispute_per_order'
+            ),
+        ]
+
+    def __str__(self):
+        return f"Dispute #{self.pk} on Order #{self.order_id} [{self.status}]"
+
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')

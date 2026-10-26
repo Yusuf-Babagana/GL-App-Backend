@@ -5,12 +5,13 @@ Same money flow as DataPurchaseView: the provider is called first, then the wall
 debited. An unclear outcome (timeout, 5xx) holds the funds as PENDING and is settled
 later by the webhook / reconcile job via client_reference.
 """
+import hashlib
 import logging
 import uuid
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -49,13 +50,48 @@ def _cable_factor():
     return Decimal(str(getattr(settings, 'CABLE_PRICE_FACTOR', '1.00')))
 
 
+def idempotent_request_id(request):
+    """
+    The order id sent to the provider and stored as Transaction.reference.
+
+    If the client sends an Idempotency-Key (header or body), the id is derived from
+    it, so a retry of the same purchase after a dropped connection maps to the same
+    order instead of buying twice. Without a key every call is a new purchase.
+    """
+    key = request.headers.get('Idempotency-Key') or request.data.get('idempotency_key')
+    if key:
+        return hashlib.sha256(f"{request.user.id}:{str(key).strip()}".encode()).hexdigest()[:32]
+    return uuid.uuid4().hex[:12]
+
+
+def replay_response(request, request_id):
+    """The original outcome, if this request_id was already processed; else None."""
+    txn = Transaction.objects.filter(reference=request_id, wallet__user=request.user).first()
+    if txn is None:
+        return None
+    logger.info(f"Idempotent replay of purchase {request_id}: {txn.status}")
+    wallet = Wallet.objects.get(user=request.user)
+    if txn.status == Transaction.Status.FAILED:
+        return Response({"error": "This purchase failed earlier.", "duplicate": True}, status=400)
+    ok = txn.status == Transaction.Status.SUCCESS
+    return Response({
+        "message": "Purchase successful!" if ok else "Order submitted for processing. Check history for status updates.",
+        "order_id": txn.reference,
+        "new_balance": float(wallet.available_balance),
+        "duplicate": True,
+    }, status=200 if ok else 202)
+
+
 def run_bill_purchase(request, label, amount, call):
     """
     label: short description for history, e.g. "Airtime: MTN N500 to 0801..."
     amount: Decimal the user is charged
     call: fn(request_id) -> BT DataPlug order dict (raises BTDataPlugError)
     """
-    request_id = uuid.uuid4().hex[:12]
+    request_id = idempotent_request_id(request)
+    replay = replay_response(request, request_id)
+    if replay:
+        return replay
     try:
         wallet = Wallet.objects.get(user=request.user)
     except Wallet.DoesNotExist:
@@ -81,6 +117,8 @@ def run_bill_purchase(request, label, amount, call):
 
     try:
         order = call(request_id)
+    except IntegrityError:
+        return replay_response(request, request_id) or Response({"error": "Please try again."}, status=409)
     except BTDataPlugError as e:
         if e.code not in REJECTED_CODES:
             return reserve_pending(e)
@@ -103,22 +141,26 @@ def run_bill_purchase(request, label, amount, call):
 
     is_success = order_status == 'successful'
     token = (order.get('result') or {}).get('token')
-    with transaction.atomic():
-        wallet = Wallet.objects.select_for_update().get(user=request.user)
-        if wallet.available_balance < amount:
-            return Response({"error": "Insufficient wallet balance."}, status=400)
-        wallet.available_balance -= amount
-        wallet.save()
-        desc = label if is_success else f"{label} (Pending)"
-        if token:
-            desc += f" | Token: {token}"
-        Transaction.objects.create(
-            wallet=wallet, amount=-amount,
-            transaction_type=Transaction.TransactionType.BILL_PAYMENT,
-            status=Transaction.Status.SUCCESS if is_success else Transaction.Status.PENDING,
-            description=desc[:255],
-            reference=request_id,
-        )
+    try:
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=request.user)
+            if wallet.available_balance < amount:
+                return Response({"error": "Insufficient wallet balance."}, status=400)
+            wallet.available_balance -= amount
+            wallet.save()
+            desc = label if is_success else f"{label} (Pending)"
+            if token:
+                desc += f" | Token: {token}"
+            Transaction.objects.create(
+                wallet=wallet, amount=-amount,
+                transaction_type=Transaction.TransactionType.BILL_PAYMENT,
+                status=Transaction.Status.SUCCESS if is_success else Transaction.Status.PENDING,
+                description=desc[:255],
+                reference=request_id,
+            )
+    except IntegrityError:
+        # A concurrent request with the same key recorded it first (our debit rolled back).
+        return replay_response(request, request_id) or Response({"error": "Please try again."}, status=409)
 
     body = {
         "message": "Purchase successful!" if is_success else "Order submitted for processing. Check history for status updates.",

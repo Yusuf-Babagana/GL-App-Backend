@@ -24,6 +24,7 @@ from .bills import (
     VerifyCableView,
     CablePurchaseView,
 )
+from .health import PaymentHealthView
 from users.views import SetTransactionPINView
 
 urlpatterns = [
@@ -45,6 +46,7 @@ urlpatterns = [
     path('cable/plans/', CablePlansView.as_view(), name='cable-plans'),
     path('cable/verify/', VerifyCableView.as_view(), name='cable-verify'),
     path('cable/purchase/', CablePurchaseView.as_view(), name='cable-purchase'),
+    path('admin/health/', PaymentHealthView.as_view(), name='payment-health'),
     path('pin/', SetTransactionPINView.as_view(), name='set-pin'),
     path('admin/withdrawals/pending/', AdminPendingWithdrawalListView.as_view(), name='admin-pending-withdrawals'),
     path('admin/withdrawals/<int:ticket_id>/confirm/', AdminConfirmPayoutView.as_view(), name='admin-confirm-payout'),

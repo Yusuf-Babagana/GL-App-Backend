@@ -79,3 +79,40 @@ class StandaloneAdAdmin(admin.ModelAdmin):
     search_fields = ('title', 'owner__email', 'phone_number')
 
 admin.site.register(StandaloneAdImage)
+
+
+from django.contrib import messages
+from market.models import Dispute
+from market.disputes import resolve_dispute
+from market.escrow import EscrowError
+
+
+@admin.register(Dispute)
+class DisputeAdmin(admin.ModelAdmin):
+    list_display = ('id', 'order', 'status', 'reason', 'opened_by', 'created_at', 'resolved_at')
+    list_filter = ('status', 'reason')
+    search_fields = ('order__id', 'opened_by__email', 'description')
+    readonly_fields = [f.name for f in Dispute._meta.fields]
+    actions = ['refund_buyer', 'release_to_seller']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def _resolve(self, request, queryset, decision):
+        for d in queryset:
+            try:
+                resolve_dispute(d.pk, decision, f"Resolved by {request.user.email} via admin", request.user)
+                self.message_user(request, f"Dispute #{d.pk}: {decision} done.")
+            except (EscrowError, ValueError) as e:
+                self.message_user(request, f"Dispute #{d.pk}: {e}", level=messages.ERROR)
+
+    @admin.action(description="Resolve: REFUND the buyer")
+    def refund_buyer(self, request, queryset):
+        self._resolve(request, queryset, 'refund')
+
+    @admin.action(description="Resolve: RELEASE to the seller")
+    def release_to_seller(self, request, queryset):
+        self._resolve(request, queryset, 'release')

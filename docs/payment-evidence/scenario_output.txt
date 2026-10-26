@@ -1,0 +1,40 @@
+==============================================================================================================
+SCENARIO 1 — happy path: pay -> held in escrow -> seller dispatches -> buyer confirms
+   start                                  buyer avail=  25000.00   seller avail=     0.00 locked=     0.00   platform=0.00
+   after payment (money is LOCKED)        buyer avail=  15000.00   seller avail=     0.00 locked= 10000.00   platform=0.00
+   after seller dispatches (still locked) buyer avail=  15000.00   seller avail=     0.00 locked= 10000.00   platform=0.00
+   after buyer CONFIRMS (HTTP 200)        buyer avail=  15000.00   seller avail=  9500.00 locked=     0.00   platform=500.00
+   LEDGER for order #1:
+     10:59:37  seller  payment           10000.00  success  Sales earnings (locked) for Order #1
+     10:59:37  buyer   payment          -10000.00  success  Payment for Order(s) #1
+     10:59:37  seller  escrow_release     9500.00  success  Funds released for Order #1 (Commission: ₦500.0000) [buyer confirmed]
+
+SCENARIO 2 — network drops during payment: the app retries with the same Idempotency-Key
+   attempt 1: HTTP 201   attempt 2 (retry): HTTP 200 duplicate=True   attempt 3 (retry): HTTP 200 duplicate=True
+   orders created: 1   buyer charged: 10000.00 (one item costs 10000.00)
+
+SCENARIO 3 — seller never delivers: buyer opens a dispute, admin refunds
+   buyer opens dispute: HTTP 201 -> Dispute opened. The funds are frozen until our team reviews it.
+   order payment_status = disputed
+   buyer tries to confirm while disputed:  HTTP 400
+   30 days later, auto-release job ran (frozen) buyer avail=  15000.00   seller avail=     0.00 locked= 10000.00   platform=500.00
+   non-admin tries to resolve: HTTP 403
+   admin resolves REFUND: HTTP 200
+   after admin refund                     buyer avail=  25000.00   seller avail=     0.00 locked=     0.00   platform=500.00
+   admin resolves AGAIN: HTTP 400 (rejected, no second movement)
+   after the rejected second attempt      buyer avail=  25000.00   seller avail=     0.00 locked=     0.00   platform=500.00
+   LEDGER for order #3:
+     10:59:37  seller  payment           10000.00  success  Sales earnings (locked) for Order #1
+     10:59:37  buyer   payment          -10000.00  success  Payment for Order(s) #1
+     10:59:37  seller  refund           -10000.00  success  Order #1 refunded to buyer — funds reversed [dispute #1]
+     10:59:37  buyer   refund            10000.00  success  Refund for Order #1 [dispute #1]
+
+SCENARIO 4 — seller never ships and buyer forgets: auto-refund after 14 days
+   paid, not shipped                      buyer avail=  15000.00   seller avail=     0.00 locked= 10000.00   platform=500.00
+   process_escrow: auto-refund order #4 ₦10000.00
+   after process_escrow                   buyer avail=  25000.00   seller avail=     0.00 locked=     0.00   platform=500.00
+
+SCENARIO 5 — monitoring catches corrupted money
+   normal state:  healthy=True  alerts=[]
+   after tampering with a seller's locked balance: healthy=False
+     ALERT: 1 seller wallet(s) where locked_balance != escrowed orders

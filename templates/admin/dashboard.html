@@ -494,6 +494,10 @@
       <a href="#tab-users" class="nav-link" data-tab="tab-users">
         <i class="bi bi-people"></i><span>Users</span>
       </a>
+      <a href="#tab-disputes" class="nav-link" data-tab="tab-disputes">
+        <i class="bi bi-exclamation-octagon"></i><span>Disputes</span>
+        {% if open_disputes %}<span class="badge-count">{{ open_disputes|length }}</span>{% endif %}
+      </a>
       <a href="#tab-transactions" class="nav-link" data-tab="tab-transactions">
         <i class="bi bi-credit-card"></i><span>Transactions</span>
       </a>
@@ -1154,6 +1158,68 @@
         </div>
       </div>
 
+      <!-- TAB: DISPUTES -->
+      <div class="tab-pane fade" id="tab-disputes" role="tabpanel">
+        <div class="panel">
+          <div class="panel-header">
+            <h5><i class="bi bi-exclamation-octagon" style="color:#ef4444"></i> Order Disputes</h5>
+            <span class="text-muted small">Funds stay frozen in escrow until you decide.</span>
+          </div>
+          <div class="panel-body">
+            {% if open_disputes %}
+            {% for d in open_disputes %}
+            <div class="dispute-card border rounded-3 p-3 mb-3" data-id="{{ d.pk }}">
+              <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+                <div>
+                  <span class="fw-bold">Order #{{ d.order.order_number|default:d.order.pk }}</span>
+                  <span class="badge bg-danger-subtle text-danger ms-2">{{ d.get_reason_display }}</span>
+                </div>
+                <div class="fw-bold">&#8358;{{ d.order.total_price|floatformat:2 }}</div>
+              </div>
+              <div class="row g-3 small mb-2">
+                <div class="col-md-6"><span class="text-muted">Buyer:</span> {{ d.opened_by.email }}</div>
+                <div class="col-md-6"><span class="text-muted">Seller:</span> {{ d.order.shop.owner.email }} ({{ d.order.shop.name }})</div>
+                <div class="col-md-6"><span class="text-muted">Opened:</span> {{ d.created_at|date:"M d, H:i" }}</div>
+                <div class="col-md-6"><span class="text-muted">Dispatched:</span> {{ d.order.dispatched_at|date:"M d, H:i"|default:"&mdash;" }}</div>
+              </div>
+              <div class="mb-2"><div class="text-muted small">Buyer says</div><div>{{ d.description|linebreaksbr }}</div></div>
+              <div class="mb-3"><div class="text-muted small">Seller response</div>
+                <div>{% if d.seller_response %}{{ d.seller_response|linebreaksbr }}{% else %}<em class="text-muted">No response yet.</em>{% endif %}</div></div>
+              <textarea class="form-control form-control-sm mb-2 dispute-note" rows="2" placeholder="Decision note (required, saved with the decision)"></textarea>
+              <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-soft-danger btn-action btn-dispute-refund" data-id="{{ d.pk }}"><i class="bi bi-arrow-counterclockwise me-1"></i>Refund buyer</button>
+                <button class="btn btn-soft-success btn-action btn-dispute-release" data-id="{{ d.pk }}"><i class="bi bi-check-circle me-1"></i>Release to seller</button>
+              </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="empty-state"><i class="bi bi-emoji-smile"></i><p>No open disputes.</p></div>
+            {% endif %}
+
+            {% if recent_disputes %}
+            <h6 class="mt-4 mb-2">Recently decided</h6>
+            <div class="table-responsive">
+              <table class="table table-dashboard">
+                <thead><tr><th>Order</th><th>Amount</th><th>Decision</th><th>Note</th><th>Decided by</th><th>When</th></tr></thead>
+                <tbody>
+                  {% for d in recent_disputes %}
+                  <tr>
+                    <td>#{{ d.order.order_number|default:d.order.pk }}</td>
+                    <td>&#8358;{{ d.order.total_price|floatformat:2 }}</td>
+                    <td>{{ d.get_status_display }}</td>
+                    <td>{{ d.resolution_note|truncatechars:80 }}</td>
+                    <td>{{ d.resolved_by.email|default:"&mdash;" }}</td>
+                    <td>{{ d.resolved_at|date:"M d, H:i" }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
       <!-- TAB 7: TRANSACTIONS -->
       <div class="tab-pane fade" id="tab-transactions" role="tabpanel">
         <div class="panel">
@@ -1287,6 +1353,48 @@
       e.preventDefault();
       handleTicketAction(this.getAttribute('data-id'), 'reject');
     });
+  });
+
+  /* --- Dispute decisions --- */
+  function decideDispute(disputeId, decision) {
+    var card = document.querySelector('.dispute-card[data-id="' + disputeId + '"]');
+    var note = card.querySelector('.dispute-note').value.trim();
+    if (note.length < 5) { showToast('Write a short note explaining your decision.', 'warning'); return; }
+    var label = decision === 'refund' ? 'REFUND the buyer' : 'RELEASE the payment to the seller';
+    if (!window.confirm('Are you sure you want to ' + label + '? This cannot be undone.')) { return; }
+    card.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
+
+    var body = new URLSearchParams();
+    body.append('decision', decision);
+    body.append('note', note);
+    body.append('csrfmiddlewaretoken', csrfToken);
+
+    fetch('/api/admin/disputes/' + disputeId + '/resolve/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': csrfToken },
+      body: body.toString()
+    })
+    .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); })
+    .then(function(res) {
+      if (res.ok) {
+        card.classList.add('resolved');
+        setTimeout(function() { card.style.display = 'none'; }, 800);
+        showToast(res.body.message, 'success');
+      } else {
+        showToast('Error: ' + res.body.message, 'danger');
+        card.querySelectorAll('button').forEach(function(b) { b.disabled = false; });
+      }
+    })
+    .catch(function() {
+      showToast('Network error. Please try again.', 'danger');
+      card.querySelectorAll('button').forEach(function(b) { b.disabled = false; });
+    });
+  }
+  document.querySelectorAll('.btn-dispute-refund').forEach(function(b) {
+    b.addEventListener('click', function(e) { e.preventDefault(); decideDispute(this.getAttribute('data-id'), 'refund'); });
+  });
+  document.querySelectorAll('.btn-dispute-release').forEach(function(b) {
+    b.addEventListener('click', function(e) { e.preventDefault(); decideDispute(this.getAttribute('data-id'), 'release'); });
   });
 
   /* --- Shop verification actions --- */

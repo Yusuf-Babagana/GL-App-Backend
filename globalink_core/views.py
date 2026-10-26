@@ -17,7 +17,7 @@ from django.utils.decorators import method_decorator
 import json
 from finance.models import Wallet, Transaction, WithdrawalTicket, PlatformRevenue, DataMarkup, DataPlanPrice
 from finance.btdataplug import BTDataPlugClient
-from market.models import Shop, Order, PromotedPostPricing, PromotedPost
+from market.models import Shop, Order, PromotedPostPricing, PromotedPost, Dispute
 
 User = get_user_model()
 
@@ -111,6 +111,9 @@ class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         ).order_by('-date_joined')[:60]
         total_active_shops = Shop.objects.filter(is_active=True).count()
 
+        dispute_qs = Dispute.objects.select_related('order__shop__owner', 'opened_by')
+        context['open_disputes'] = list(dispute_qs.filter(status='open').order_by('created_at'))
+        context['recent_disputes'] = list(dispute_qs.exclude(status='open').order_by('-resolved_at')[:15])
         context['pending_tickets'] = pending_tickets
         context['total_pending_amount'] = total_pending_amount
         context['total_locked_escrow'] = total_locked_escrow
@@ -212,49 +215,27 @@ class WithdrawalTicketUpdateStatusView(LoginRequiredMixin, UserPassesTestMixin, 
         return self.request.user.is_staff or self.request.user.is_superuser
 
     def post(self, request, ticket_id):
-        ticket = get_object_or_404(WithdrawalTicket, pk=ticket_id)
+        from finance.withdrawals import WithdrawalError, approve_ticket, reject_ticket
+        from .notify import notify_user
+
+        get_object_or_404(WithdrawalTicket, pk=ticket_id)
         action = request.POST.get('action')
-
-        if ticket.status != WithdrawalTicket.StatusChoices.PENDING:
-            return HttpResponse('Ticket already processed.', status=400)
-
-        if action == 'approve':
-            with transaction.atomic():
-                wallet = Wallet.objects.select_for_update().get(user=ticket.user)
-                if wallet.available_balance < ticket.amount:
-                    return HttpResponse('Insufficient balance.', status=400)
-
-                wallet.available_balance -= ticket.amount
-                wallet.save()
-
-                Transaction.objects.create(
-                    wallet=wallet,
-                    amount=-ticket.amount,
-                    transaction_type=Transaction.TransactionType.WITHDRAWAL,
-                    status=Transaction.Status.SUCCESS,
-                    description=(
-                        f"Withdrawal to {ticket.account_name} - "
-                        f"{ticket.account_number} ({ticket.bank_name})"
-                    ),
-                )
-
-                ticket.status = WithdrawalTicket.StatusChoices.SUCCESSFUL
-                ticket.save()
-            return HttpResponse('approved')
-
-        elif action == 'reject':
-            with transaction.atomic():
-                wallet, _ = Wallet.objects.select_for_update().get_or_create(
-                    user=ticket.user
-                )
-                wallet.available_balance += ticket.amount
-                wallet.save()
-
-                ticket.status = WithdrawalTicket.StatusChoices.REJECTED
-                ticket.save()
+        if action not in ('approve', 'reject'):
+            return HttpResponse('Invalid action.', status=400)
+        try:
+            if action == 'approve':
+                ticket = approve_ticket(ticket_id, request.user)
+                notify_user(ticket.user, "Withdrawal paid",
+                            f"Your withdrawal of ₦{ticket.amount:,.2f} to {ticket.account_number} has been paid.",
+                            {"type": "withdrawal", "ticket_id": ticket.id})
+                return HttpResponse('approved')
+            ticket = reject_ticket(ticket_id, request.user)
+            notify_user(ticket.user, "Withdrawal rejected",
+                        f"Your withdrawal of ₦{ticket.amount:,.2f} was rejected and returned to your wallet.",
+                        {"type": "withdrawal", "ticket_id": ticket.id})
             return HttpResponse('rejected')
-
-        return HttpResponse('Invalid action.', status=400)
+        except WithdrawalError as e:
+            return HttpResponse(str(e), status=400)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -542,3 +523,28 @@ class AdminDataPlansView(LoginRequiredMixin, UserPassesTestMixin, View):
             except Exception:
                 continue
         return JsonResponse({'status': 'success', 'saved': saved})
+
+
+class AdminDisputeResolveView(LoginRequiredMixin, UserPassesTestMixin, View):
+    """Dashboard action: decide a dispute (refund the buyer or release to the seller)."""
+    login_url = 'admin_login'
+
+    def test_func(self):
+        return self.request.user.is_staff or self.request.user.is_superuser
+
+    def post(self, request, dispute_id):
+        from market.disputes import resolve_dispute
+        from market.escrow import EscrowError
+
+        decision = request.POST.get('decision')
+        note = (request.POST.get('note') or '').strip()
+        if len(note) < 5:
+            return JsonResponse({'status': 'error', 'message': 'Write a short note explaining the decision.'}, status=400)
+        try:
+            resolve_dispute(dispute_id, decision, note, request.user)
+        except Dispute.DoesNotExist:
+            return JsonResponse({'status': 'error', 'message': 'Dispute not found.'}, status=404)
+        except (EscrowError, ValueError) as e:
+            return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
+        done = 'refunded to the buyer' if decision == 'refund' else 'released to the seller'
+        return JsonResponse({'status': 'success', 'message': f'Payment {done}.'})
