@@ -226,7 +226,10 @@ class MonnifyWebhookView(APIView):
         return Response({"status": "success"}, status=200)
 
 
-from .btdataplug import BTDataPlugClient, BTDataPlugError, verify_webhook_signature
+from .btdataplug import (
+    BTDataPlugClient, BTDataPlugError, alert_if_provider_side, is_definite_rejection,
+    user_message, verify_webhook_signature,
+)
 from .bills import idempotent_request_id, replay_response
 from .withdrawals import WithdrawalError, approve_ticket, create_withdrawal, parse_amount
 from globalink_core.notify import notify_user
@@ -388,16 +391,11 @@ class DataPurchaseView(APIView):
             # A concurrent request with the same Idempotency-Key recorded this order first.
             return replay_response(request, request_id) or Response({"error": "Please try again."}, status=409)
         except BTDataPlugError as e:
-            if e.code in ('purchase_failed', 'validation_error', 'insufficient_funds',
-                          'service_not_permitted', 'service_unavailable'):
-                # Provider clearly did not take the order (and refunded itself if it charged).
-                logger.error(f"Data Purchase 400: BTDataPlug Error: {e} | Code: {e.code}")
-                if e.code == 'insufficient_funds':
-                    # Our provider wallet is empty -- not the user's problem to see.
-                    msg = "Service temporarily unavailable. Please try again later."
-                else:
-                    msg = str(e)
-                return self._record_failure(wallet, desc, request_id, msg)
+            if is_definite_rejection(e):
+                # The provider refused the order before doing anything: charge nothing.
+                logger.error(f"Data Purchase 400: BTDataPlug Error: {e} | Code: {e.code} | HTTP {e.http_status}")
+                alert_if_provider_side(e)
+                return self._record_failure(wallet, desc, request_id, user_message(e))
             # Anything else (timeout, 5xx, request_in_progress, ...) is ambiguous.
             return self._reserve_pending(request, amount, desc, request_id, e)
         except Exception as e:

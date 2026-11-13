@@ -88,9 +88,9 @@ class EscrowHoldingTests(Base):
 
         r = self.b.post(f"/api/market/buyer/orders/{order.id}/confirm/")
         self.assertEqual(r.status_code, 200, r.data)
-        # 5% commission, rest released to the seller.
-        self.assertEqual(self.wallet(self.seller), (Decimal("950.00"), Decimal("0")))
-        self.assertEqual(PlatformRevenue.get_singleton().total_commission, Decimal("50.00"))
+        # 1% commission, rest released to the seller.
+        self.assertEqual(self.wallet(self.seller), (Decimal("990.00"), Decimal("0")))
+        self.assertEqual(PlatformRevenue.get_singleton().total_commission, Decimal("10.00"))
         self.assertEqual(self.total_money(), before)
 
     def test_only_the_buyer_can_confirm(self):
@@ -105,7 +105,7 @@ class EscrowHoldingTests(Base):
         self.dispatch(order)
         self.assertEqual(self.b.post(f"/api/market/buyer/orders/{order.id}/confirm/").status_code, 200)
         self.assertEqual(self.b.post(f"/api/market/buyer/orders/{order.id}/confirm/").status_code, 400)
-        self.assertEqual(self.wallet(self.seller), (Decimal("950.00"), Decimal("0")))
+        self.assertEqual(self.wallet(self.seller), (Decimal("990.00"), Decimal("0")))
 
 
 class DisputeTests(Base):
@@ -170,7 +170,7 @@ class DisputeTests(Base):
         r = self.a.post(f"/api/market/admin/disputes/{dispute.id}/resolve/",
                         {"decision": "release", "note": "Courier confirmed delivery"}, format="json")
         self.assertEqual(r.status_code, 200, r.data)
-        self.assertEqual(self.wallet(self.seller), (Decimal("950.00"), Decimal("0")))
+        self.assertEqual(self.wallet(self.seller), (Decimal("990.00"), Decimal("0")))
         self.assertEqual(self.wallet(self.buyer), (Decimal("1000.00"), Decimal("0")))
 
     def test_only_staff_can_resolve(self):
@@ -205,7 +205,7 @@ class DisputeTests(Base):
         self.open_dispute(order)
         self.assertEqual(self.b.post(f"/api/market/buyer/orders/{order.id}/dispute/withdraw/").status_code, 200)
         self.assertEqual(self.b.post(f"/api/market/buyer/orders/{order.id}/confirm/").status_code, 200)
-        self.assertEqual(self.wallet(self.seller), (Decimal("950.00"), Decimal("0")))
+        self.assertEqual(self.wallet(self.seller), (Decimal("990.00"), Decimal("0")))
 
 
 class NoDeliveryAndAutoSettleTests(Base):
@@ -239,9 +239,9 @@ class NoDeliveryAndAutoSettleTests(Base):
         self.assertEqual(self.wallet(self.seller), (Decimal("0"), Decimal("1000.00")))  # too early
         Order.objects.filter(pk=order.pk).update(dispatched_at=timezone.now() - timedelta(days=8))
         call_command("process_escrow", stdout=StringIO())
-        self.assertEqual(self.wallet(self.seller), (Decimal("950.00"), Decimal("0")))
+        self.assertEqual(self.wallet(self.seller), (Decimal("990.00"), Decimal("0")))
         call_command("process_escrow", stdout=StringIO())
-        self.assertEqual(self.wallet(self.seller), (Decimal("950.00"), Decimal("0")))
+        self.assertEqual(self.wallet(self.seller), (Decimal("990.00"), Decimal("0")))
 
 
 @FAST_HASH

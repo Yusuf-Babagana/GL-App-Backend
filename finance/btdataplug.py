@@ -172,3 +172,49 @@ def verify_webhook_signature(raw_body, signature_header, tolerance_seconds=300):
         secret.encode(), f"{timestamp}.".encode() + raw_body, hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(expected, signature)
+
+
+# Problems on OUR side of the provider relationship (wallet, keys, approval, IP list,
+# daily limit). The user did nothing wrong and can't fix them, so they get a generic
+# message and the admins are emailed.
+PROVIDER_SIDE_CODES = {
+    'insufficient_funds', 'application_pending', 'application_suspended', 'ip_not_allowed',
+    'service_not_permitted', 'missing_credentials', 'invalid_credentials',
+    'daily_limit_reached', 'too_many_failed_attempts', 'rate_limited',
+}
+GENERIC_UNAVAILABLE = "Service temporarily unavailable. Please try again later."
+
+
+def is_definite_rejection(exc):
+    """
+    True when the provider clearly did NOT process the order, so charging the user would be
+    wrong. Every 4xx answer means the request was refused before any purchase happened, except
+    409 request_in_progress (the original may still complete). 503 service_unavailable is also a
+    refusal. Timeouts, connection drops and 5xx are unclear: the order may have gone through.
+    """
+    if getattr(exc, 'code', None) == 'request_in_progress':
+        return False
+    if exc.code == 'service_unavailable':
+        return True
+    return exc.http_status is not None and 400 <= exc.http_status < 500
+
+
+def user_message(exc):
+    return GENERIC_UNAVAILABLE if exc.code in PROVIDER_SIDE_CODES else str(exc)
+
+
+def alert_if_provider_side(exc):
+    """Email the admins (at most once an hour per problem) when the cause is on our side."""
+    if exc.code not in PROVIDER_SIDE_CODES:
+        return
+    logger.critical("BT DataPlug refused an order for a reason on our side: %s (%s)", exc, exc.code)
+    from django.core.cache import cache
+    from globalink_core.notify import notify_admins
+    if cache.add(f"btd-alert-{exc.code}", 1, 3600):
+        notify_admins(
+            "Purchases are failing: BT DataPlug problem",
+            f"BT DataPlug refused a customer purchase.\n\nCode: {exc.code}\nMessage: {exc}\n\n"
+            "Customers see 'Service temporarily unavailable' until this is fixed. Typical causes: the "
+            "BT DataPlug wallet is empty (fund it), the application is not approved or was suspended, "
+            "the API keys were regenerated, or this server's IP is not on the allowed list.",
+        )

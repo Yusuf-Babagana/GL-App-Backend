@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework import status, permissions
 from finance.models import Transaction, DataMarkup, DataPlanPrice
 from finance.utils import WalletManager
-from finance.btdataplug import BTDataPlugClient, BTDataPlugError, verify_webhook_signature
+from finance.btdataplug import BTDataPlugClient, BTDataPlugError, is_definite_rejection, verify_webhook_signature
 from .models import DataTransaction
 
 logger = logging.getLogger(__name__)
@@ -124,8 +124,7 @@ class PurchaseDataView(APIView):
             return Response({"message": "Data purchase successful!", "details": order}, status=200)
 
         except BTDataPlugError as e:
-            if e.code not in ('purchase_failed', 'validation_error', 'insufficient_funds',
-                              'service_not_permitted', 'service_unavailable'):
+            if not is_definite_rejection(e):
                 # Ambiguous (timeout, 5xx, ...): keep the funds held, record as pending.
                 DataTransaction.objects.create(
                     user=user, request_id=request_id, order_id=request_id,
