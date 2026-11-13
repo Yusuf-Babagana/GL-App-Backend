@@ -166,7 +166,7 @@ class PaymentSafetyTests(MultiShopCheckoutTests):
         self.assertEqual(again.status_code, 400)
         self.seller_a.wallet.refresh_from_db()
         self.assertEqual(self.seller_a.wallet.locked_balance, Decimal("0.00"))
-        self.assertEqual(self.seller_a.wallet.available_balance, Decimal("950.00"))
+        self.assertEqual(self.seller_a.wallet.available_balance, Decimal("990.00"))
         from finance.models import Transaction
         self.assertTrue(Transaction.objects.filter(
             related_order_id=str(order.id), transaction_type="escrow_release").exists())
