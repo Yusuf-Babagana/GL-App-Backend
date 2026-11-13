@@ -87,7 +87,7 @@ class BuyerOpenDisputeView(APIView):
         notify_user(order.shop.owner, "A buyer opened a dispute",
                     f"Order {label} (₦{order.total_price:,.2f}) was disputed: {dispute.get_reason_display()}. "
                     "The payment is frozen. Open the order and reply with your side.",
-                    {"type": "dispute", "order_id": order.pk})
+                    {"type": "dispute", "order_id": order.pk, "role": "seller"})
         notify_user(request.user, "Dispute opened",
                     f"Your dispute on order {label} was received. The payment is frozen until we review it.",
                     {"type": "dispute", "order_id": order.pk})
@@ -121,7 +121,7 @@ class BuyerWithdrawDisputeView(APIView):
             order.save()
         notify_user(order.shop.owner, "Dispute withdrawn",
                     f"The buyer withdrew the dispute on order #{order.order_number or order.pk}.",
-                    {"type": "dispute", "order_id": order.pk})
+                    {"type": "dispute", "order_id": order.pk, "role": "seller"})
         return Response({"status": "success", "message": "Dispute withdrawn. You can now confirm receipt."})
 
 
@@ -199,7 +199,8 @@ def resolve_dispute(dispute_id, decision, note, admin_user):
         seller_msg = f"The dispute on order {label} was decided for you. The payment was released to your wallet."
     notify_user(dispute.opened_by, "Dispute resolved", f"{buyer_msg} Note: {note}", {"type": "dispute", "order_id": order.pk})
     if order.shop_id:
-        notify_user(order.shop.owner, "Dispute resolved", f"{seller_msg} Note: {note}", {"type": "dispute", "order_id": order.pk})
+        notify_user(order.shop.owner, "Dispute resolved", f"{seller_msg} Note: {note}",
+                    {"type": "dispute", "order_id": order.pk, "role": "seller"})
     return dispute
 
 

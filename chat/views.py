@@ -82,10 +82,19 @@ class SendMessageView(generics.CreateAPIView):
         if self.request.user not in (conversation.buyer, conversation.seller):
             self.permission_denied(self.request)
 
-        serializer.save(
+        message = serializer.save(
             conversation=conversation,
             sender=self.request.user,
         )
+
+        # Push the other person like a chat app would (no email for every message).
+        from globalink_core.notify import notify_user
+        sender = self.request.user
+        recipient = conversation.seller if sender == conversation.buyer else conversation.buyer
+        name = (sender.get_full_name() or '').strip() or getattr(sender, 'username', '') or 'New message'
+        text = (message.text or '').strip() or 'Sent you an attachment'
+        notify_user(recipient, name, text[:140],
+                    {"type": "chat", "conversation_id": conversation.pk}, email=False)
 
 
 class StartConversationView(generics.GenericAPIView):

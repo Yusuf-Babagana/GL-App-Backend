@@ -65,11 +65,12 @@ class Command(BaseCommand):
                         f"Order {ref} was not confirmed or disputed in time, so the payment was released to the seller.",
                         {"type": "order", "order_id": order.pk})
             notify_user(order.shop.owner, "Payment released",
-                        f"Order {ref} was automatically released to your wallet.", {"type": "order", "order_id": order.pk})
+                        f"Order {ref} was automatically released to your wallet.",
+                        {"type": "order", "order_id": order.pk, "role": "seller"})
         else:
             notify_user(order.buyer, "Order refunded",
                         f"The seller did not ship order {ref} in time. ₦{order.total_price:,.2f} was refunded to your wallet.",
                         {"type": "order", "order_id": order.pk})
             notify_user(order.shop.owner, "Order cancelled",
                         f"Order {ref} was cancelled and refunded because it was not shipped in time.",
-                        {"type": "order", "order_id": order.pk})
+                        {"type": "order", "order_id": order.pk, "role": "seller"})

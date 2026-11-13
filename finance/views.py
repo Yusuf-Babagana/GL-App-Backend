@@ -159,6 +159,9 @@ class MonnifyWebhookView(APIView):
                             description=f"Bank Deposit (Fee: ₦{processing_fee})" 
                         )
                     logger.info(f"✅ Wallet {wallet.id} credited with ₦{net_credit} (net of ₦{processing_fee} processing fee)")
+                    notify_user(wallet.user, "Wallet funded",
+                                f"₦{net_credit:,.2f} has been added to your wallet.",
+                                {"type": "wallet"}, email=False)
                     return Response({"status": "success"}, status=200)
                 except Wallet.DoesNotExist:
                     logger.error(f"❌ Webhook Error: Wallet with reference {account_ref} not found.")

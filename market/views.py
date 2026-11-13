@@ -787,6 +787,20 @@ class CheckoutView(APIView):
             description=f"Payment for Order(s) {order_refs}"
         )
 
+        # Push only once the payment is really committed.
+        _paid_orders = list(orders)
+
+        def _announce_paid():
+            for o in _paid_orders:
+                notify_user(o.shop.owner, "New order received",
+                            f"You have a new paid order #{o.order_number or o.id}. Dispatch it to get paid.",
+                            {"type": "order", "order_id": o.id, "role": "seller"})
+            notify_user(user, "Payment successful",
+                        f"Your payment for {order_refs} is secured until you confirm delivery.",
+                        {"type": "order", "order_id": _paid_orders[0].id, "role": "buyer"}, email=False)
+
+        transaction.on_commit(_announce_paid)
+
 
 class BuyNowView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -1170,6 +1184,14 @@ class InternalWalletCheckoutView(APIView):
             order.payment_status = Order.PaymentStatus.PAID
             order.save()
 
+        ref = order.order_number or order.id
+        notify_user(order.shop.owner, "New order received",
+                    f"You have a new paid order #{ref}. Dispatch it to get paid.",
+                    {"type": "order", "order_id": order.id, "role": "seller"})
+        notify_user(order.buyer, "Payment successful",
+                    f"Your payment for order #{ref} is secured until you confirm delivery.",
+                    {"type": "order", "order_id": order.id, "role": "buyer"}, email=False)
+
         return Response({
             "status": "success",
             "message": "Payment successful. Funds secured until you confirm receipt.",
@@ -1229,7 +1251,7 @@ class BuyerConfirmReceiptView(APIView):
 
         notify_user(order.shop.owner, "Payment released",
                     f"The buyer confirmed order #{order.order_number or order.pk}. ₦{net_payout:,.2f} was added to your wallet.",
-                    {"type": "order", "order_id": order.pk})
+                    {"type": "order", "order_id": order.pk, "role": "seller"})
         return Response({
             "status": "success",
             "message": "Receipt confirmed. Funds released to seller.",
@@ -1345,6 +1367,10 @@ class SellerUpdateOrderStatusView(APIView):
         # 4. Update and Save
         order.delivery_status = new_status
         order.save()
+
+        notify_user(order.buyer, "Order update",
+                    f"Order #{order.order_number or pk} is now: {str(new_status).replace('_', ' ')}.",
+                    {"type": "order", "order_id": order.id, "role": "buyer"}, email=False)
 
         # Yusuf: If status is 'ready_for_pickup', it will now show up for the Rider
         return Response({"message": f"Order #{order.order_number or pk} updated to {new_status}"})
@@ -1673,6 +1699,10 @@ class MarkOrderDispatchedView(APIView):
 
         order.delivery_status = 'shipped'
         order.save()
+
+        notify_user(order.buyer, "Your order is on its way",
+                    f"The seller dispatched order #{order.order_number or order.id}. Confirm delivery when it arrives.",
+                    {"type": "order", "order_id": order.id, "role": "buyer"})
 
         return Response({
             "message": "Order marked as dispatched. Buyer has been notified.",

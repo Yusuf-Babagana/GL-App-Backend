@@ -267,6 +267,10 @@ class AdminKYCActionView(APIView):
             user_to_verify.save()
             from .utils import send_kyc_approved_email
             send_kyc_approved_email(user_to_verify)
+            from globalink_core.notify import notify_user
+            notify_user(user_to_verify, "Identity verified",
+                        "Your KYC was approved. You now have full access.",
+                        {"type": "kyc"}, email=False)
             return Response({"message": f"User {user_to_verify.email} verified successfully."})
 
         elif action == 'reject':
@@ -275,6 +279,10 @@ class AdminKYCActionView(APIView):
             user_to_verify.save()
             from .utils import send_kyc_rejected_email
             send_kyc_rejected_email(user_to_verify, reason)
+            from globalink_core.notify import notify_user
+            notify_user(user_to_verify, "Verification needs attention",
+                        f"Your KYC was not approved. {reason}".strip(),
+                        {"type": "kyc"}, email=False)
             return Response({"message": "KYC rejected. User notified of the reason."})
 
         return Response({"error": "Invalid action. Use 'approve' or 'reject'."}, status=status.HTTP_400_BAD_REQUEST)

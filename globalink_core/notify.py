@@ -21,17 +21,39 @@ logger = logging.getLogger('payments')
 EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
 
 
+def _drop_dead_token(token):
+    """Expo says the device is gone (app uninstalled / token revoked): stop sending to it."""
+    try:
+        from django.contrib.auth import get_user_model
+        get_user_model().objects.filter(push_token=token).update(push_token=None)
+    except Exception as e:
+        logger.warning("Could not clear dead push token: %s", e)
+
+
 def _send_push(token, title, body, data):
     if not token or not str(token).startswith(('ExponentPushToken', 'ExpoPushToken')):
         return
     try:
         resp = requests.post(
             EXPO_PUSH_URL,
-            json={'to': token, 'title': title, 'body': body, 'data': data or {}, 'sound': 'default'},
+            json={
+                'to': token, 'title': title, 'body': body, 'data': data or {},
+                'sound': 'default',
+                # High priority + the "default" channel (created by the app) makes Android show a
+                # heads-up banner and wake the device, like a chat message, even when the app is closed.
+                'priority': 'high', 'channelId': 'default',
+            },
             timeout=5,
         )
         if resp.status_code != 200:
             logger.warning("Expo push rejected (%s): %s", resp.status_code, resp.text[:200])
+            return
+        # Expo answers 200 even when delivery to the device failed; the verdict is in the body.
+        ticket = (resp.json() or {}).get('data') or {}
+        if isinstance(ticket, dict) and ticket.get('status') == 'error':
+            logger.warning("Expo push ticket error: %s", ticket)
+            if (ticket.get('details') or {}).get('error') == 'DeviceNotRegistered':
+                _drop_dead_token(token)
     except Exception as e:
         logger.warning("Expo push failed: %s", e)
 
@@ -52,16 +74,19 @@ def _dispatch(fn, *args):
         fn(*args)
 
 
-def notify_user(user, title, body, data=None):
-    """Push + email one user. Safe to call from anywhere, including right after a payment."""
+def notify_user(user, title, body, data=None, email=True):
+    """Push (+ email unless email=False) one user. Safe to call from anywhere, including right
+    after a payment. Pass email=False for chatty events such as chat messages."""
     if user is None:
         return
     try:
-        token, email = getattr(user, 'push_token', None), getattr(user, 'email', None)
+        token, address = getattr(user, 'push_token', None), getattr(user, 'email', None)
+        send_email = email
 
         def work():
             _send_push(token, title, body, data)
-            _send_email(email, f"GLAPP: {title}", body)
+            if send_email:
+                _send_email(address, f"GLAPP: {title}", body)
 
         _dispatch(work)
     except Exception as e:
