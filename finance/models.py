@@ -10,7 +10,7 @@ import uuid
 MONNIFY_DEPOSIT_RATE = Decimal('0.01')
 MONNIFY_DEPOSIT_CAP  = Decimal('300.00')
 
-GLAPP_COMMISSION_RATE = Decimal('0.05')
+GLAPP_COMMISSION_RATE = Decimal('0.01')
 GLAPP_COMMISSION_CAP  = Decimal('2500.00')
 
 class Wallet(models.Model):

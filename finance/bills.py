@@ -16,14 +16,12 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .btdataplug import BTDataPlugClient, BTDataPlugError
+from .btdataplug import (
+    BTDataPlugClient, BTDataPlugError, alert_if_provider_side, is_definite_rejection, user_message,
+)
 from .models import Transaction, Wallet
 
 logger = logging.getLogger(__name__)
-
-# Provider answers meaning "order not taken, nothing charged (or already refunded)"
-REJECTED_CODES = ('purchase_failed', 'validation_error', 'insufficient_funds',
-                  'service_not_permitted', 'service_unavailable')
 
 AIRTIME_NETWORKS = {
     'mtn-airtime': 'MTN', 'glo-airtime': 'GLO',
@@ -41,9 +39,7 @@ def _money(value):
 
 def _provider_error(e):
     """Message that is safe to show an end user."""
-    if e.code == 'insufficient_funds':
-        return "Service temporarily unavailable. Please try again later."
-    return str(e)
+    return user_message(e)
 
 
 def _cable_factor():
@@ -120,8 +116,9 @@ def run_bill_purchase(request, label, amount, call):
     except IntegrityError:
         return replay_response(request, request_id) or Response({"error": "Please try again."}, status=409)
     except BTDataPlugError as e:
-        if e.code not in REJECTED_CODES:
+        if not is_definite_rejection(e):
             return reserve_pending(e)
+        alert_if_provider_side(e)
         logger.error(f"Bill purchase rejected ({label}): {e} | code={e.code}")
         msg = _provider_error(e)
         Transaction.objects.create(

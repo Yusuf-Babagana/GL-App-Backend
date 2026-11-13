@@ -280,3 +280,79 @@ class DisputeNotificationAndDashboardTests(TestCase):
         d_url = "/api/admin/disputes/1/resolve/"
         self.assertIn(normal.post(d_url, {"decision": "refund", "note": "give me money"}).status_code, (302, 403))
         self.assertEqual(Wallet.objects.get(user=self.buyer).available_balance, Decimal("1000"))
+
+
+@FAST
+class ProviderRefusalTests(TestCase):
+    """What happens to the customer's money when BT DataPlug says no (or goes quiet)."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user(email="p@x.com", password="pw12345!", full_name="P")
+        w, _ = Wallet.objects.get_or_create(user=self.user)
+        w.available_balance = Decimal("5000.00")
+        w.save()
+        self.c = api(self.user)
+
+    def bal(self):
+        return Wallet.objects.get(user=self.user).available_balance
+
+    def airtime(self, key):
+        return self.c.post("/api/finance/airtime/purchase/", {
+            "service_id": "mtn-airtime", "phone": "08012345678", "amount": 500}, format="json", HTTP_IDEMPOTENCY_KEY=key)
+
+    def data(self, key):
+        return self.c.post("/api/finance/data/purchase/", {
+            "service_id": "mtn-data", "variation_code": "7", "phone": "08012345678"}, format="json", HTTP_IDEMPOTENCY_KEY=key)
+
+    def test_definite_refusals_charge_nothing_and_tell_the_admins(self):
+        from unittest.mock import patch
+        from finance.btdataplug import BTDataPlugError
+        cases = [("insufficient_funds", 402), ("invalid_credentials", 401), ("application_pending", 403),
+                 ("ip_not_allowed", 403), ("rate_limited", 429)]
+        for i, (code, http) in enumerate(cases):
+            mail.outbox.clear()
+            with patch("finance.bills.BTDataPlugClient.purchase_airtime",
+                       side_effect=BTDataPlugError("internal detail", code=code, http_status=http)), \
+                    override_settings(ADMINS=[("Ops", "ops@x.com")]):
+                r = self.airtime(f"refuse-{i}")
+            self.assertEqual(r.status_code, 400, code)
+            self.assertIn("temporarily unavailable", r.data["error"], code)    # no provider internals leaked
+            self.assertNotIn("internal detail", r.data["error"])
+            self.assertEqual(self.bal(), Decimal("5000.00"), code)             # nothing charged
+            self.assertEqual([m.to for m in mail.outbox], [["ops@x.com"]], code)
+        self.assertEqual(Transaction.objects.filter(status="pending").count(), 0)
+        self.assertEqual(Transaction.objects.filter(status="failed").count(), len(cases))
+
+    def test_admin_email_is_sent_once_per_hour_per_problem(self):
+        from unittest.mock import patch
+        from finance.btdataplug import BTDataPlugError
+        err = BTDataPlugError("empty", code="insufficient_funds", http_status=402)
+        with patch("finance.bills.BTDataPlugClient.purchase_airtime", side_effect=err), \
+                override_settings(ADMINS=[("Ops", "ops@x.com")]):
+            for i in range(4):
+                self.airtime(f"spam-{i}")
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_data_purchase_refusal_charges_nothing(self):
+        from unittest.mock import patch
+        from finance.btdataplug import BTDataPlugError
+        plans = [{"PRODUCT_ID": "7", "PRODUCT_NAME": "1GB", "PRODUCT_AMOUNT": "500.00"}]
+        with patch("finance.views.BTDataPlugClient.fetch_all_variations", return_value=plans), \
+                patch("finance.views.BTDataPlugClient.purchase_data",
+                      side_effect=BTDataPlugError("x", code="application_pending", http_status=403)):
+            r = self.data("d1")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.bal(), Decimal("5000.00"))
+
+    def test_unclear_outcomes_hold_the_money_until_settled(self):
+        from unittest.mock import patch
+        from finance.btdataplug import BTDataPlugError
+        for i, (code, http) in enumerate([("request_in_progress", 409), ("internal_error", 500), (None, None)]):
+            with patch("finance.bills.BTDataPlugClient.purchase_airtime",
+                       side_effect=BTDataPlugError("unclear", code=code, http_status=http)):
+                r = self.airtime(f"unclear-{i}")
+            self.assertEqual(r.status_code, 202, code)
+        self.assertEqual(self.bal(), Decimal("3500.00"))                       # 3 x 500 held
+        self.assertEqual(Transaction.objects.filter(status="pending").count(), 3)
