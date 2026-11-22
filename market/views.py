@@ -48,6 +48,7 @@ from finance.models import Wallet, Transaction, PlatformRevenue
 from finance.utils import WalletManager
 from .escrow import EscrowError, refund_buyer, release_to_seller
 from globalink_core.notify import notify_user
+from finance.txn_notify import notify_transaction
 
 
 # --- SELLER / STORE VIEWS ---
@@ -797,7 +798,10 @@ class CheckoutView(APIView):
                             {"type": "order", "order_id": o.id, "role": "seller"})
             notify_user(user, "Payment successful",
                         f"Your payment for {order_refs} is secured until you confirm delivery.",
-                        {"type": "order", "order_id": _paid_orders[0].id, "role": "buyer"}, email=False)
+                        {"type": "order", "order_id": _paid_orders[0].id, "role": "buyer",
+                         "category": "purchase", "status": "success", "amount": str(total_price),
+                         "timestamp": timezone.now().isoformat(),
+                         "notification_id": f"order-paid-{_paid_orders[0].id}"}, email=False)
 
         transaction.on_commit(_announce_paid)
 
@@ -1190,7 +1194,10 @@ class InternalWalletCheckoutView(APIView):
                     {"type": "order", "order_id": order.id, "role": "seller"})
         notify_user(order.buyer, "Payment successful",
                     f"Your payment for order #{ref} is secured until you confirm delivery.",
-                    {"type": "order", "order_id": order.id, "role": "buyer"}, email=False)
+                    {"type": "order", "order_id": order.id, "role": "buyer",
+                     "category": "purchase", "status": "success", "amount": str(order.total_price),
+                     "timestamp": timezone.now().isoformat(),
+                     "notification_id": f"order-paid-{order.id}"}, email=False)
 
         return Response({
             "status": "success",
@@ -1297,6 +1304,14 @@ class BuyerCancelOrderView(APIView):
             logger.exception("Order cancellation failed for order %s", order_id)
             return Response({"status": "error", "message": "An error occurred. Please try again."}, status=400)
 
+        ref = order.order_number or order.id
+        notify_user(order.buyer, "Order cancelled",
+                    f"Order #{ref} was cancelled and ₦{refunded:,.2f} was refunded to your wallet.",
+                    {"type": "order", "order_id": order.id, "role": "buyer", "status": "success",
+                     "category": "refund", "amount": str(refunded)}, email=False)
+        notify_user(order.shop.owner, "Order cancelled by buyer",
+                    f"The buyer cancelled order #{ref}. Don't dispatch it.",
+                    {"type": "order", "order_id": order.id, "role": "seller", "status": "failed"}, email=False)
         return Response({
             "status": "success",
             "message": "Order cancelled and refunded to your wallet.",
@@ -1501,6 +1516,9 @@ class AdminApproveShopView(APIView):
             shop = Shop.objects.get(pk=shop_id)
             shop.is_active = True
             shop.save()
+            notify_user(shop.owner, "Your shop is approved",
+                        f"'{shop.name}' is now live. You can start selling.",
+                        {"type": "shop", "status": "success"}, email=False)
             return Response({"status": "success", "message": "Shop approved successfully"}, status=status.HTTP_200_OK)
         except Shop.DoesNotExist:
             return Response({"status": "error", "message": "Shop record not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -1524,10 +1542,16 @@ class AdminReviewShopView(APIView):
             owner = shop.owner
             owner.active_role = 'seller'
             owner.save()
+            notify_user(owner, "Your shop is approved",
+                        f"'{shop.name}' is now live. You can start selling.",
+                        {"type": "shop", "status": "success"}, email=False)
 
             return Response({"status": "success", "message": f"'{shop.name}' has been successfully activated. Owner role elevated to Seller."}, status=200)
 
         elif action == 'reject':
+            notify_user(shop.owner, "Shop application not approved",
+                        f"Your application for '{shop.name}' wasn't approved. Review your details and apply again.",
+                        {"type": "shop", "status": "failed"}, email=False)
             shop.delete() # Purge row registry sheet cleanly so they can fix mistakes
             return Response({"status": "success", "message": "Shop application record rejected and cleared safely."}, status=200)
 
@@ -1656,7 +1680,10 @@ class ActivateSellerAccountView(APIView):
             # Important: Switch their active role to seller immediately
             user.active_role = 'seller'
             user.save()
-            
+            notify_user(user, "Seller account activated",
+                        "You can now list products and receive orders.",
+                        {"type": "shop", "status": "success"}, email=False)
+
         # 2. Create the Shop with a default name
         # Using get_or_create prevents errors if they click twice
         shop, created = Shop.objects.get_or_create(
@@ -1747,6 +1774,9 @@ class AdminUpdateUserRoleView(APIView):
                     user.role = 'buyer'
                 
             user.save()
+            notify_user(user, "Account role updated",
+                        f"Your account role is now {target_role}.",
+                        {"type": "security"}, email=False)
             return Response({"status": "success", "message": "User role permissions remapped completely."}, status=200)
         except User.DoesNotExist:
             return Response({"status": "error", "message": "Target account file reference missing."}, status=404)
@@ -1944,6 +1974,7 @@ class MerchantWithdrawalView(APIView):
                 txn.status = Transaction.Status.FAILED
                 txn.description += f" (Failed: {reason} — refunded)"
                 txn.save(update_fields=['status', 'description'])
+            notify_transaction(txn, refunded=True)
 
         token = self._monnify_auth_token()
         if not token:
@@ -2090,6 +2121,10 @@ class PromotedPostCreateView(APIView):
             post.is_active = True
             post.save()
 
+        notify_user(request.user, "Your promotion is live",
+                    f"Your promoted post is now running. ₦{amount:,.2f} was charged.",
+                    {"type": "promotion", "status": "success", "category": "service",
+                     "amount": str(amount)}, email=False)
         return Response(
             {
                 "message": "Your promotion is now live.",

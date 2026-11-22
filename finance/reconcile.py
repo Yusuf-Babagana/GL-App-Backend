@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from .btdataplug import BTDataPlugClient
 from .models import DataPlanPrice, Transaction, Wallet
+from .txn_notify import notify_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ def _settle(txn_id, outcome, detail, note=''):
     """Moves a Pending (or, for reversals, Success) transaction to its final state."""
     with transaction.atomic():
         txn = Transaction.objects.select_for_update().get(pk=txn_id)
+        refunded = False
         reversal = outcome == 'failed' and detail.startswith('reversed')
         if txn.status != Transaction.Status.PENDING and not (reversal and txn.status == Transaction.Status.SUCCESS):
             return False  # the webhook (or another run) got there first
@@ -41,9 +43,12 @@ def _settle(txn_id, outcome, detail, note=''):
                 wallet.available_balance += abs(txn.amount)
                 wallet.save()
                 txn.description = f"{txn.description} (Failed, Wallet Refunded)"[:255]
+                refunded = True
             else:
                 txn.description = f"{txn.description} (Failed)"[:255]
         txn.save()
+        # Fires on commit, and only on a real state change (the early return above covers repeats).
+        notify_transaction(txn, refunded=refunded, detail='reversed' if reversal else '')
     logger.info(f"Reconcile: txn {txn_id} -> {outcome} ({detail})")
     return True
 

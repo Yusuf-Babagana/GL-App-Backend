@@ -11,10 +11,12 @@ NOTIFY_ASYNC=False (the tests do) to send inline.
 """
 import logging
 import threading
+import uuid
 
 import requests
 from django.conf import settings
 from django.core.mail import send_mail
+from django.utils import timezone
 
 logger = logging.getLogger('payments')
 
@@ -80,6 +82,12 @@ def notify_user(user, title, body, data=None, email=True):
     if user is None:
         return
     try:
+        # Every notification is self-describing so the app can draw an in-app banner for it
+        # and ignore a repeat delivery. Callers may pass their own values (transactions do).
+        data = dict(data or {})
+        data.setdefault('category', data.get('type') or 'general')
+        data.setdefault('timestamp', timezone.now().isoformat())
+        data.setdefault('notification_id', uuid.uuid4().hex)
         token, address = getattr(user, 'push_token', None), getattr(user, 'email', None)
         send_email = email
 

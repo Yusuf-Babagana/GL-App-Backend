@@ -20,6 +20,7 @@ from .btdataplug import (
     BTDataPlugClient, BTDataPlugError, alert_if_provider_side, is_definite_rejection, user_message,
 )
 from .models import Transaction, Wallet
+from .txn_notify import notify_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -102,13 +103,14 @@ def run_bill_purchase(request, label, amount, call):
             if w.available_balance >= amount:
                 w.available_balance -= amount
                 w.save()
-            Transaction.objects.create(
+            pending_txn = Transaction.objects.create(
                 wallet=w, amount=-amount,
                 transaction_type=Transaction.TransactionType.BILL_PAYMENT,
                 status=Transaction.Status.PENDING,
                 description=f"{label} (Pending: connection error, needs reconciliation)"[:255],
                 reference=request_id,
             )
+            notify_transaction(pending_txn)
         return Response({"message": "Transaction submitted. Check history for status updates."}, status=202)
 
     try:
@@ -121,13 +123,14 @@ def run_bill_purchase(request, label, amount, call):
         alert_if_provider_side(e)
         logger.error(f"Bill purchase rejected ({label}): {e} | code={e.code}")
         msg = _provider_error(e)
-        Transaction.objects.create(
+        failed_txn = Transaction.objects.create(
             wallet=wallet, amount=0,
             transaction_type=Transaction.TransactionType.BILL_PAYMENT,
             status=Transaction.Status.FAILED,
             description=f"{label} (Failed: {msg})"[:255],
             reference=request_id,
         )
+        notify_transaction(failed_txn, amount=amount)
         return Response({"error": f"Purchase failed: {msg}"}, status=400)
     except Exception as e:
         return reserve_pending(e)
@@ -148,13 +151,14 @@ def run_bill_purchase(request, label, amount, call):
             desc = label if is_success else f"{label} (Pending)"
             if token:
                 desc += f" | Token: {token}"
-            Transaction.objects.create(
+            purchase_txn = Transaction.objects.create(
                 wallet=wallet, amount=-amount,
                 transaction_type=Transaction.TransactionType.BILL_PAYMENT,
                 status=Transaction.Status.SUCCESS if is_success else Transaction.Status.PENDING,
                 description=desc[:255],
                 reference=request_id,
             )
+            notify_transaction(purchase_txn)
     except IntegrityError:
         # A concurrent request with the same key recorded it first (our debit rolled back).
         return replay_response(request, request_id) or Response({"error": "Please try again."}, status=409)

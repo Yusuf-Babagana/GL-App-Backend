@@ -150,7 +150,7 @@ class MonnifyWebhookView(APIView):
                         wallet.available_balance += net_credit
                         wallet.save()
                         
-                        Transaction.objects.create(
+                        deposit_txn = Transaction.objects.create(
                             wallet=wallet,
                             amount=net_credit,
                             transaction_type=Transaction.TransactionType.DEPOSIT,
@@ -159,9 +159,7 @@ class MonnifyWebhookView(APIView):
                             description=f"Bank Deposit (Fee: ₦{processing_fee})" 
                         )
                     logger.info(f"✅ Wallet {wallet.id} credited with ₦{net_credit} (net of ₦{processing_fee} processing fee)")
-                    notify_user(wallet.user, "Wallet funded",
-                                f"₦{net_credit:,.2f} has been added to your wallet.",
-                                {"type": "wallet"}, email=False)
+                    notify_transaction(deposit_txn)
                     return Response({"status": "success"}, status=200)
                 except Wallet.DoesNotExist:
                     logger.error(f"❌ Webhook Error: Wallet with reference {account_ref} not found.")
@@ -192,6 +190,7 @@ class MonnifyWebhookView(APIView):
                     else:
                         ledger.status = Transaction.Status.SUCCESS
                         ledger.save(update_fields=['status'])
+                        notify_transaction(ledger)  # de-duplicated on retries inside the helper
                         logger.info(f"✅ Disbursement successful for ref {ref}")
             except Exception as e:
                 logger.error(f"❌ Disbursement success webhook failure: {e}")
@@ -220,6 +219,7 @@ class MonnifyWebhookView(APIView):
                         ledger.status = Transaction.Status.FAILED
                         ledger.description += " (Failed: Refunded)"
                         ledger.save()
+                        notify_transaction(ledger, refunded=True)
                         logger.warning(f"⚠️ Disbursement failed and refunded for ref {ref}")
             except Exception as e:
                 logger.error(f"❌ Webhook Refund failure: {e}")
@@ -236,6 +236,7 @@ from .btdataplug import (
 from .bills import idempotent_request_id, replay_response
 from .withdrawals import WithdrawalError, approve_ticket, create_withdrawal, parse_amount
 from globalink_core.notify import notify_user
+from .txn_notify import notify_transaction
 from market.pagination import MarketPageNumberPagination
 
 class DataPurchaseView(APIView):
@@ -347,6 +348,7 @@ class DataPurchaseView(APIView):
             logger.error(f"Data Purchase 400: Insufficient Balance. Need {amount}, have {wallet.available_balance}")
             return Response({"error": "Insufficient wallet balance."}, status=400)
 
+        self._attempt_amount = amount
         # Call the provider FIRST before touching wallet. request_id is the
         # idempotency key, so a retry of this same order can never double-charge.
         desc = f"Data: {service_id.upper()} ({data_plan}) to {phone}"
@@ -366,7 +368,7 @@ class DataPurchaseView(APIView):
                     wallet.available_balance -= amount
                     wallet.save()
 
-                    Transaction.objects.create(
+                    purchase_txn = Transaction.objects.create(
                         wallet=wallet,
                         amount=-amount,
                         transaction_type=Transaction.TransactionType.BILL_PAYMENT,
@@ -374,6 +376,7 @@ class DataPurchaseView(APIView):
                         description=desc if is_success else f"{desc} (Pending)",
                         reference=request_id
                     )
+                    notify_transaction(purchase_txn)
 
                 if is_success:
                     return Response({
@@ -405,7 +408,7 @@ class DataPurchaseView(APIView):
             return self._reserve_pending(request, amount, desc, request_id, e)
 
     def _record_failure(self, wallet, desc, request_id, error_msg):
-        Transaction.objects.create(
+        failed_txn = Transaction.objects.create(
             wallet=wallet,
             amount=0,
             transaction_type=Transaction.TransactionType.BILL_PAYMENT,
@@ -413,6 +416,7 @@ class DataPurchaseView(APIView):
             description=f"{desc} (Failed: {error_msg})"[:255],
             reference=request_id
         )
+        notify_transaction(failed_txn, amount=getattr(self, '_attempt_amount', None))
         return Response({"error": f"Purchase failed: {error_msg}"}, status=400)
 
     def _reserve_pending(self, request, amount, desc, request_id, exc):
@@ -426,7 +430,7 @@ class DataPurchaseView(APIView):
                 wallet.available_balance -= amount
                 wallet.save()
 
-            Transaction.objects.create(
+            pending_txn = Transaction.objects.create(
                 wallet=wallet,
                 amount=-amount,
                 transaction_type=Transaction.TransactionType.BILL_PAYMENT,
@@ -434,6 +438,7 @@ class DataPurchaseView(APIView):
                 description=f"{desc} (Pending: connection error, needs reconciliation)",
                 reference=request_id
             )
+            notify_transaction(pending_txn)
         return Response({"message": "Transaction submitted. Check history for status updates."}, status=202)
 
 class DataHistoryView(generics.ListAPIView):
@@ -693,6 +698,10 @@ class WithdrawalView(APIView):
         except WithdrawalError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        notify_user(request.user, "Withdrawal request received",
+                    f"₦{amount:,.2f} is on hold until it is paid out to your bank.",
+                    {"type": "withdrawal", "category": "withdrawal", "status": "pending",
+                     "amount": str(amount), "notification_id": f"wd-request-{ticket.pk}"}, email=False)
         return Response(
             {
                 "status": "pending",

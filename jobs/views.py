@@ -74,6 +74,13 @@ class ApplyJobView(generics.CreateAPIView):
 
         job = JobPosting.objects.get(pk=job_id)
         serializer.save(seeker=user, job=job)
+        from globalink_core.notify import notify_user
+        notify_user(job.employer, "New job application",
+                    f"{user.full_name or 'Someone'} applied for {job.title}.",
+                    {"type": "job", "job_id": job.id, "role": "employer"}, email=False)
+        notify_user(user, "Application sent",
+                    f"Your application for {job.title} was submitted.",
+                    {"type": "job", "job_id": job.id, "role": "seeker", "status": "success"}, email=False)
 
 class SeekerApplicationsView(generics.ListAPIView):
     """

@@ -187,6 +187,10 @@ class KYCSubmissionView(APIView):
             # Set status to pending for Admin review
             user.kyc_status = 'pending'
             user.save()
+            from globalink_core.notify import notify_user
+            notify_user(user, "Documents received",
+                        "We're reviewing your identity documents and will let you know once it's done.",
+                        {"type": "kyc", "status": "pending"}, email=False)
             return Response({
                 "status": "pending",
                 "message": "Documents uploaded. Waiting for admin approval."
@@ -298,6 +302,7 @@ class SetTransactionPINView(APIView):
             return Response({"error": "PIN must be 4 digits."}, status=400)
 
         user = request.user
+        had_pin = bool(user.transaction_pin and user.transaction_pin.strip())
 
         # FIX: Check if PIN is not None AND not an empty string
         if user.transaction_pin and user.transaction_pin.strip() != "":
@@ -308,6 +313,10 @@ class SetTransactionPINView(APIView):
 
         user.set_transaction_pin(pin)
         user.save()
+        from globalink_core.notify import notify_user
+        notify_user(user, "Transaction PIN changed" if had_pin else "Transaction PIN set",
+                    "Your transaction PIN was updated. If this wasn't you, contact support right away.",
+                    {"type": "security"}, email=False)
         return Response({"message": "Transaction PIN updated successfully."}, status=200)
 
 class UpdateBVNView(APIView):
@@ -357,6 +366,11 @@ class UpdateBVNView(APIView):
             wallet.bank_code = acc_data['bank_code']
             wallet.save()
             logger.info("UpdateBVN: virtual account %s created", acc_data['account_number'])
+            from globalink_core.notify import notify_user
+            notify_user(user, "Wallet account ready",
+                        f"Your funding account {acc_data['account_number']} ({acc_data['bank_name']}) is ready. "
+                        "Transfers to it are credited to your wallet.",
+                        {"type": "wallet"}, email=False)
             return Response({"message": "Success", "account": acc_data}, status=200)
 
         # One last check — the signal's background thread may have finished.
@@ -394,6 +408,10 @@ class RequestAccountDeletionView(APIView):
 
         from .utils import send_deletion_requested_email
         send_deletion_requested_email(user)
+        from globalink_core.notify import notify_user
+        notify_user(user, "Account deletion requested",
+                    "Your account is scheduled for deletion. You can cancel this from the app before it happens.",
+                    {"type": "security"}, email=False)
 
         return Response({
             "message": "Account deletion requested. A confirmation email has been sent.",
@@ -418,6 +436,10 @@ class CancelAccountDeletionView(APIView):
 
         from .utils import send_deletion_cancelled_email
         send_deletion_cancelled_email(user)
+        from globalink_core.notify import notify_user
+        notify_user(user, "Account deletion cancelled",
+                    "Your account deletion request was cancelled. Your account stays active.",
+                    {"type": "security"}, email=False)
 
         return Response({
             "message": "Account deletion request cancelled."
@@ -558,6 +580,10 @@ class ConfirmPasswordResetView(APIView):
 
         otp.is_used = True
         otp.save()
+        from globalink_core.notify import notify_user
+        notify_user(user, "Password changed",
+                    "Your password was just reset. If this wasn't you, contact support immediately.",
+                    {"type": "security"}, email=False)
         PasswordResetOTP.objects.filter(user=user, is_used=False).exclude(id=otp.id).update(is_used=True)
 
         logger.info("PASSWORD RESET completed: email=%r", email)
