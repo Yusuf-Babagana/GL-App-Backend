@@ -71,6 +71,47 @@ class PromotionShareLandingView(TemplateView):
         return context
 
 
+class ShopShareLandingView(TemplateView):
+    """
+    Public web page for a shared shop link (https://<host>/shop/<shop id>).
+    Gives link previews (OpenGraph), a preview of the shop's items, and buttons to open the
+    shop in the app or install it. Unknown or not-yet-approved shops show an "unavailable" state.
+    """
+    template_name = 'shop_share.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        raw_id = str(kwargs.get('shop_id') or '')
+        shop = None
+        try:
+            shop = Shop.objects.filter(pk=uuid.UUID(raw_id), is_active=True).first()
+        except ValueError:
+            pass
+
+        products = []
+        count = 0
+        if shop:
+            qs = shop.products.order_by('-created_at')
+            count = qs.count()
+            products = [
+                {'name': p.name, 'price': p.price, 'image': p.image if (p.image or '').startswith('http') else None}
+                for p in qs[:6]
+            ]
+
+        context.update({
+            'available': bool(shop),
+            'shop': shop,
+            'shop_name': shop.name if shop else 'GLAPP Shop',
+            'shop_description': (shop.description if shop and shop.description else 'Browse and buy from this shop on GLAPP.'),
+            'shop_logo': shop.logo if shop else None,
+            'product_count': count,
+            'products': products,
+            'deep_link': f'GLAPP://shop/{shop.pk}' if shop else 'GLAPP://',
+            'play_store_url': settings.PLAY_STORE_URL,
+        })
+        return context
+
+
 class AdminDashboardView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
     template_name = 'admin/dashboard.html'
     login_url = 'admin_login'

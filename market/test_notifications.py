@@ -131,3 +131,22 @@ class EveryEventNotificationTests(Base):
         r = c.post(f"/api/market/admin/approve-shop/{self.shop.pk}/")
         self.assertEqual(r.status_code, 200, r.data)
         self.assertEqual(self.pushes_to(SELLER_TOKEN)[-1][1], "Your shop is approved")
+
+
+class ShopLinkPageTests(Base):
+    def test_active_shop_page_renders_with_open_in_app_link(self):
+        r = self.b.get(f"/shop/{self.shop.pk}/")
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode()
+        self.assertIn("Shop", html)
+        self.assertIn(f"GLAPP://shop/{self.shop.pk}", html)
+        self.assertIn("Widget", html)
+        self.assertIn('property="og:title"', html)
+
+    def test_unapproved_or_unknown_shop_is_unavailable(self):
+        self.shop.is_active = False
+        self.shop.save()
+        for sid in (str(self.shop.pk), "not-a-uuid", "00000000-0000-0000-0000-000000000000"):
+            r = self.b.get(f"/shop/{sid}/")
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("Shop Unavailable", r.content.decode())
