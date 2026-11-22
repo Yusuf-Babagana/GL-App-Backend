@@ -9,6 +9,39 @@ class CategorySerializer(serializers.ModelSerializer):
         model = Category
         fields = ['id', 'name', 'slug', 'icon']
 
+def resolve_logo_url(raw, request=None):
+    """
+    Turns whatever is stored in Shop.logo into a URL the app can load, or None.
+
+    Shop.logo has held three things over time: a full URL (Cloudinary), a path under MEDIA_URL
+    ("/media/shop_logos/x.jpg", from onboarding) and a bare filename (from when the field was an
+    ImageField). Only the first is loadable as-is. Relative values are turned into absolute media
+    URLs, and None is returned when the file is not actually on this server, so the app shows its
+    "no logo" fallback instead of firing a request that is certain to 404.
+    """
+    from django.conf import settings
+    from django.core.files.storage import default_storage
+
+    value = str(raw or '').strip()
+    if not value or value.lower() in ('none', 'null', 'undefined'):
+        return None
+    if value.lower().startswith(('http://', 'https://')):
+        return value
+
+    media_url = settings.MEDIA_URL if settings.MEDIA_URL.startswith('/') else '/' + settings.MEDIA_URL
+    path = value if value.startswith('/') else '/' + value
+    if path.startswith(media_url):
+        path = path[len(media_url):]
+    path = path.lstrip('/')
+    try:
+        if not default_storage.exists(path):
+            return None
+        url = default_storage.url(path)
+    except Exception:
+        return None
+    return request.build_absolute_uri(url) if request is not None and url.startswith('/') else url
+
+
 class ShopSerializer(serializers.ModelSerializer):
     product_count = serializers.SerializerMethodField()
     owner_name = serializers.ReadOnlyField(source='owner.full_name')
@@ -31,6 +64,11 @@ class ShopSerializer(serializers.ModelSerializer):
 
     def get_product_count(self, obj):
         return obj.products.count()
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['logo'] = resolve_logo_url(instance.logo, self.context.get('request'))
+        return data
 
 class ProductImageSerializer(serializers.ModelSerializer):
     class Meta:
@@ -225,7 +263,10 @@ class OrderSerializer(serializers.ModelSerializer):
 class BuyerOrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     shop_name = serializers.ReadOnlyField(source='shop.name')
-    shop_logo = serializers.ReadOnlyField(source='shop.logo')
+    shop_logo = serializers.SerializerMethodField()
+
+    def get_shop_logo(self, obj):
+        return resolve_logo_url(getattr(obj.shop, 'logo', None), self.context.get('request'))
     shop_address = serializers.SerializerMethodField()
     seller_phone = serializers.SerializerMethodField()
 
